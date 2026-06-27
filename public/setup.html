@@ -72,7 +72,7 @@
                 Bot Configuration
             </div>
             <h1 class="text-2xl font-black">Activate Your Bot</h1>
-            <p class="text-slate-400 text-sm">Enter your settings below. Your Supabase database is automatically managed by Empire — <span class="text-indigo-400 font-semibold">no coding required.</span></p>
+            <p class="text-slate-400 text-sm">Enter your settings below. Your database is automatically managed by Empire — <span class="text-indigo-400 font-semibold">no coding required.</span></p>
         </div>
 
         <!-- Session ID Pre-fill Notice -->
@@ -235,7 +235,7 @@
 <div id="deployModal" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-5">
     <div class="w-full max-w-lg space-y-5 fade-in">
         <div class="text-center space-y-1">
-            <h2 class="text-xl font-black gradient-text">🚀 Deploying Your Bot</h2>
+            <h2 class="text-xl font-black gradient-text">🚀 Activating Your Bot</h2>
             <p class="text-xs text-slate-500">Sit back — Empire is handling everything for you.</p>
         </div>
 
@@ -274,7 +274,7 @@
             <i class="fa-solid fa-check text-4xl text-green-400"></i>
         </div>
         <div class="space-y-2">
-            <h2 class="text-2xl font-black text-green-400">Bot Deployed!</h2>
+            <h2 class="text-2xl font-black text-green-400">Bot Activated!</h2>
             <p class="text-slate-400 text-sm">Your WhatsApp bot is live and responding. Check your phone for the welcome message.</p>
         </div>
 
@@ -481,7 +481,7 @@
 
         runTerminal(async () => {
             try {
-                const res = await fetch('/api/setup', {
+                const res = await fetch(`${API_BASE}/api/setup`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome, antidelete })
