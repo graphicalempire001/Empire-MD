@@ -42,11 +42,11 @@ ${factText}` }, { quoted: mek });
 👥 *Participants:* ${participants}` }, { quoted: mek });
             } else {
                 // Fallback suggestion
-                await sock.sendMessage(chatJid, { text: "💡 *Feeling Bored? Try this:* 
+                await sock.sendMessage(chatJid, { text: '💡 *Feeling Bored? Try this:* 
 
 🎯 *Activity:* Learn a new coding language or clean your workspace!
 🏷️ *Type:* productive
-👥 *Participants:* 1" }, { quoted: mek });
+👥 *Participants:* 1' }, { quoted: mek });
             }
         } catch (err) {
             await sock.sendMessage(chatJid, { text: "❌ Failed to fetch bored activity. Go learn something new today! 🚀" }, { quoted: mek });
