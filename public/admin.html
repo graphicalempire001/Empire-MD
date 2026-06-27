@@ -112,7 +112,7 @@
 
     async function loadAdminBots() {
         try {
-            const res = await fetch('/api/public-directory');
+            const res = await fetch(`${API_BASE}/api/public-directory`);
             const data = await res.json();
             allBots = data.bots || [];
             
