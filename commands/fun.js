@@ -58,17 +58,17 @@ ${factText}` }, { quoted: mek });
     excuse: async ({ sock, chatJid, mek }) => {
         try {
             const res = await axios.get("https://developer-excuses.herokuapp.com/").catch(() => null);
-            let excuse = "It worked on my machine! 🤷‍♂️";
+            let excuse = 'It worked on my machine! 🤷‍♂️';
             if (res && res.data) {
                 excuse = res.data;
             }
             await sock.sendMessage(chatJid, { text: `🤷‍♂️ *Developer Excuse:* 
 
-_"${excuse.trim()}"_` }, { quoted: mek });
+_'${excuse.trim()}'_` }, { quoted: mek });
         } catch (err) {
-            await sock.sendMessage(chatJid, { text: "🤷‍♂️ *Developer Excuse:* 
+            await sock.sendMessage(chatJid, { text: '🤷‍♂️ *Developer Excuse:* 
 
-_"It was a compiler error!"_ 🤷‍♂️" }, { quoted: mek });
+_'It was a compiler error!'_ 🤷‍♂️' }, { quoted: mek });
         }
     }
 };
