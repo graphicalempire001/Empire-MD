@@ -14,6 +14,24 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ✅ CORS headers — allow frontend hosted on Vercel/Netlify to call Railway backend
+app.use((req, res, next) => {
+    const allowedOrigins = [
+        process.env.FRONTEND_URL || 'https://empire-md-production.up.railway.app',
+        'http://localhost:3000',
+        'http://localhost:5500'
+    ].filter(Boolean);
+    const origin = req.headers.origin;
+    if (!origin || allowedOrigins.some(o => origin.startsWith(o)) || process.env.NODE_ENV !== 'production') {
+        res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Keep track of active connection attempts in-memory
@@ -35,6 +53,10 @@ app.post('/api/connect', async (req, res) => {
         }
 
         const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+        if (cleanPhone.length < 7 || cleanPhone.length > 15) {
+            return res.status(400).json({ success: false, error: "Invalid phone number. Include country code, digits only." });
+        }
+
         const sessionId = generateSessionId(botName);
 
         console.log(`📡 Starting connection pairing for: ${botName} (${cleanPhone}) with Session ID: ${sessionId}`);
@@ -57,7 +79,7 @@ app.post('/api/connect', async (req, res) => {
             phoneNumber: cleanPhone,
             status: 'pairing',
             pairingCode: null,
-            expiry: Date.now() + 120000, // 2 minutes expiry
+            expiry: Date.now() + 30000, // ⏱️ 30 seconds expiry
             saveCreds
         };
 
@@ -73,20 +95,21 @@ app.post('/api/connect', async (req, res) => {
                 if (reason === DisconnectReason.loggedOut) {
                     delete activeSessions[sessionId];
                 } else {
-                    // Try to reconnect if not logged out
                     console.log(`🔄 Reconnecting session ${sessionId}...`);
                 }
             } else if (connection === 'open') {
                 console.log(`✅ Session ${sessionId} connected successfully!`);
-                activeSessions[sessionId].status = 'connected';
+                if (activeSessions[sessionId]) {
+                    activeSessions[sessionId].status = 'connected';
+                }
 
-                // Send beautiful welcome message on successful connection to the personal DM
+                // Send welcome message on successful connection
                 const ownerJid = cleanPhone + '@s.whatsapp.net';
                 const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-                
+
                 const welcomeDm = `✨ *Welcome to ${botName}!* ✨
 
-Your advanced Empire WhatsApp bot has been successfully connected and registered under Session ID: 
+Your advanced Empire WhatsApp bot has been successfully connected and registered under Session ID:
 👉 *${sessionId}*
 
 🔮 *The Future is Now!*
@@ -94,13 +117,12 @@ Experience lightning-fast keyless downloads, high-speed stickers, automatic grou
 
 ━━━━━━━━━━━━━━━━━━━━
 📢 *JOIN OUR OFFICIAL CHANNEL*
-Stay up to date with updates, developer tips, and new features by tapping the button link below:
+Stay up to date with updates, developer tips, and new features:
 👉 ${channelUrl}
 ━━━━━━━━━━━━━━━━━━━━
 
 _Type .help in any chat to view your premium suite of commands!_`;
 
-                // Send DM
                 try {
                     await sock.sendMessage(ownerJid, {
                         text: welcomeDm,
@@ -110,7 +132,7 @@ _Type .help in any chat to view your premium suite of commands!_`;
                                 body: "The future of WhatsApp automation is now.",
                                 mediaType: 1,
                                 sourceUrl: channelUrl,
-                                thumbnailUrl: "https://tab-sg-1300456063.cos.ap-singapore.myqcloud.com/tab/eb2a251f-aaa4-441a-9e1d-11a07670c8b1/image/64c085c7dcfc46709979cf5eb2bcd7f4.jpg"
+                                thumbnailUrl: "https://i.ibb.co/pB20mTc5/download.jpg"
                             }
                         }
                     });
@@ -119,27 +141,35 @@ _Type .help in any chat to view your premium suite of commands!_`;
                 }
 
                 // Register bot session to Supabase database
-                await registerBot(sessionId, botName, cleanPhone);
+                try {
+                    await registerBot(sessionId, botName, cleanPhone);
+                } catch (dbErr) {
+                    console.error("Failed to register bot in DB:", dbErr.message);
+                }
             }
         });
 
-        // Request pairing code from Baileys
+        // Request pairing code from Baileys after socket initialises
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(cleanPhone);
+                console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
                 if (activeSessions[sessionId]) {
                     activeSessions[sessionId].pairingCode = code;
                 }
             } catch (err) {
-                console.error("Error requesting pairing code:", err);
+                console.error("Error requesting pairing code:", err.message);
+                if (activeSessions[sessionId]) {
+                    activeSessions[sessionId].pairingCodeError = err.message;
+                }
             }
         }, 3000);
 
-        // Return initial info to client
+        // Return initial info to client immediately
         return res.json({
             success: true,
             sessionId,
-            expiryIn: 120 // 120 seconds countdown
+            expiryIn: 30 // ⏱️ 30 seconds frontend countdown
         });
 
     } catch (err) {
@@ -152,7 +182,7 @@ _Type .help in any chat to view your premium suite of commands!_`;
 app.get('/api/status/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const session = activeSessions[sessionId];
-    
+
     if (!session) {
         return res.json({ status: 'expired' });
     }
@@ -168,31 +198,30 @@ app.get('/api/status/:sessionId', async (req, res) => {
 
     return res.json({
         status: 'pairing',
-        pairingCode: session.pairingCode,
+        pairingCode: session.pairingCode || null,
+        pairingCodeError: session.pairingCodeError || null,
         secondsLeft: Math.max(0, Math.floor((session.expiry - Date.now()) / 1000))
     });
 });
 
-// 🌐 API 3: Web Setup Form Submission (Dynamic Modern ENV configuration form)
+// 🌐 API 3: Web Setup Form Submission
 app.post('/api/setup', async (req, res) => {
     try {
         const { sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ success: false, error: "Session ID is required!" });
         }
 
-        // Prepare updated settings payload
         const updatedSettings = {
             botName: botName || "Empire MD",
             prefix: prefix || ".",
-            mode: mode || "private", // Always toggleable but defaults securely
+            mode: mode || "private",
             alwaysOnline: alwaysOnline === 'true' || alwaysOnline === true,
             welcome: welcome === 'true' || welcome === true,
             ownerNumber: ownerNumber ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')) : []
         };
 
-        // Persist to database (Supabase)
         await updateSettings(sessionId, updatedSettings);
 
         console.log(`⚙️ Dynamic settings saved for session ${sessionId}:`, updatedSettings);
@@ -203,7 +232,7 @@ app.post('/api/setup', async (req, res) => {
     }
 });
 
-// 🌐 API 4: Get Live Registered Bots List (Public status directory)
+// 🌐 API 4: Get Live Registered Bots List
 app.get('/api/public-directory', async (req, res) => {
     try {
         const bots = await getPublicBots();
@@ -214,12 +243,14 @@ app.get('/api/public-directory', async (req, res) => {
     }
 });
 
+// 🌐 API 5: Health check endpoint
+app.get('/api/health', (req, res) => {
+    return res.json({ status: 'online', timestamp: Date.now() });
+});
+
 // Start Onboarding Express Server
 server.listen(PORT, () => {
     console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
 });
 
-module.exports = {
-    app,
-    server
-};
+module.exports = { app, server };
