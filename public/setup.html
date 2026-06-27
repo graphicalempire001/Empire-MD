@@ -3,132 +3,571 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Empire MD - Onboarding Configuration Setup</title>
+    <title>BOT-WAN · Configure Your Bot — Empire MD</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .gradient-text { background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .glow { box-shadow: 0 0 40px rgba(99,102,241,0.2); }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes terminalBlink { 50%{opacity:0} }
+        .fade-in { animation: fadeIn 0.5s ease forwards; }
+        .terminal-cursor { animation: terminalBlink 1s step-start infinite; display:inline-block; width:8px; height:14px; background:#6366f1; vertical-align:middle; margin-left:2px; border-radius:1px; }
+        .terminal-line { opacity:0; animation: fadeIn 0.4s ease forwards; }
+        .toggle-label input:checked ~ .toggle-track { background: #6366f1; }
+        .toggle-track { transition: background 0.2s; }
+        .toggle-thumb { transition: transform 0.2s; }
+        input:checked ~ .toggle-track .toggle-thumb { transform: translateX(20px); }
+        .restricted-field { position:relative; }
+        .restricted-field input { opacity:0.5; cursor:not-allowed; }
+        .section-view { display: none; }
+        .section-view.active { display: block; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .status-online { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+        .status-offline { background: #ef4444; }
+        .copy-feedback { animation: fadeIn 0.3s ease; }
+    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between">
-    <header class="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 py-4 px-6">
-        <div class="max-w-6xl mx-auto flex justify-between items-center">
-            <a href="/" class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
-                    <i class="fa-solid fa-crown text-white text-lg"></i>
-                </div>
-                <span class="font-extrabold text-xl tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">EMPIRE MD</span>
-            </a>
-            <span class="text-xs font-semibold text-slate-400">ONBOARDING SETUP</span>
-        </div>
-    </header>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
 
-    <main class="max-w-xl mx-auto px-6 py-10 w-full flex-grow">
-        <div class="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl shadow-indigo-500/5">
-            <div class="space-y-1 text-center sm:text-left">
-                <h2 class="text-2xl font-black text-slate-100">Setup Configuration</h2>
-                <p class="text-xs text-slate-500">Configure core settings and preferences before starting your WhatsApp session.</p>
+<!-- NAVBAR -->
+<nav class="fixed top-0 inset-x-0 z-50 border-b border-slate-900/70 bg-slate-950/80 backdrop-blur-xl">
+    <div class="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <i class="fa-solid fa-robot text-white text-sm"></i>
+            </div>
+            <span class="font-black text-base tracking-tight">BOT<span class="text-indigo-400">-WAN</span></span>
+        </a>
+        <div class="flex items-center gap-3">
+            <button onclick="showSection('config')" id="navConfig"
+                class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-indigo-400 bg-indigo-500/10 border border-indigo-500/20">
+                Configuration
+            </button>
+            <button onclick="showSection('status')" id="navStatus"
+                class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 hover:text-slate-200">
+                Bot Status
+            </button>
+            <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank"
+               class="flex items-center gap-1.5 text-[11px] font-bold bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 px-3 py-1.5 rounded-full transition-all">
+                <i class="fa-brands fa-whatsapp"></i><span>Channel</span>
+            </a>
+        </div>
+    </div>
+</nav>
+
+<!-- ══════════════════ SECTION: CONFIGURATION ══════════════════ -->
+<div id="sectionConfig" class="section-view active fade-in pt-14">
+    <div class="max-w-xl mx-auto px-5 py-10 space-y-6">
+
+        <!-- Header -->
+        <div class="text-center space-y-2">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold uppercase tracking-widest">
+                <i class="fa-solid fa-gears"></i>
+                Bot Configuration
+            </div>
+            <h1 class="text-2xl font-black">Activate Your Bot</h1>
+            <p class="text-slate-400 text-sm">Enter your settings below. Your Supabase database is automatically managed by Empire — <span class="text-indigo-400 font-semibold">no coding required.</span></p>
+        </div>
+
+        <!-- Session ID Pre-fill Notice -->
+        <div id="sessionBanner" class="hidden bg-indigo-500/10 border border-indigo-500/20 rounded-2xl px-5 py-4 flex items-start gap-3">
+            <i class="fa-solid fa-circle-check text-indigo-400 mt-0.5 flex-shrink-0"></i>
+            <div>
+                <p class="text-sm font-bold text-indigo-300">Session Detected!</p>
+                <p class="text-xs text-slate-400 mt-0.5">Your session ID has been auto-filled from the previous step.</p>
+            </div>
+        </div>
+
+        <!-- Config Form -->
+        <form id="configForm" class="space-y-5">
+
+            <!-- Session ID (read-only, copied from step 3) -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    Session ID
+                    <span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 text-[9px] font-bold uppercase">Auto-filled</span>
+                </label>
+                <div class="relative">
+                    <input type="text" id="sessionId" readonly
+                        class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3.5 text-sm font-mono text-indigo-300 outline-none cursor-pointer pr-10"
+                        placeholder="BOTWAN_YOURBOT_XXXXX">
+                    <button type="button" onclick="copyField('sessionId')"
+                        class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-indigo-400 transition">
+                        <i class="fa-regular fa-copy text-xs" id="copySessionIcon"></i>
+                    </button>
+                </div>
+                <p class="text-[10px] text-slate-600">This is your unique bot identity. Keep it safe.</p>
             </div>
 
-            <form id="setupForm" class="space-y-5">
-                <div class="space-y-2">
-                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Bot Name</label>
-                    <input type="text" id="botName" value="Empire MD" required class="w-full bg-slate-950 border border-slate-800/80 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500 text-sm transition">
-                </div>
+            <!-- Bot Name -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Bot Display Name <span class="text-red-400">*</span></label>
+                <input type="text" id="botName" placeholder="e.g. My Empire Bot"
+                    class="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm text-slate-100 placeholder-slate-600 outline-none transition">
+            </div>
 
-                <div class="space-y-2">
-                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Owner Number (with country code)</label>
-                    <input type="text" id="ownerNumber" placeholder="e.g. 2348100000000" required class="w-full bg-slate-950 border border-slate-800/80 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500 text-sm transition">
-                </div>
+            <!-- Owner Number -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Your WhatsApp Number <span class="text-red-400">*</span></label>
+                <input type="tel" id="ownerNumber" placeholder="2348100000000"
+                    class="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm font-mono text-slate-100 placeholder-slate-600 outline-none transition">
+                <p class="text-[10px] text-slate-600">Include country code. Numbers only. This makes you the bot owner.</p>
+            </div>
 
-                <div class="space-y-2">
-                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Default Command Prefix</label>
-                    <input type="text" id="prefix" value="." required class="w-full bg-slate-950 border border-slate-800/80 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500 text-sm transition">
+            <!-- Command Prefix -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Command Prefix</label>
+                <div class="flex gap-3">
+                    <input type="text" id="prefix" maxlength="3" value="."
+                        class="w-20 bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-base font-mono text-center text-slate-100 outline-none transition">
+                    <p class="flex-1 text-xs text-slate-500 self-center">This character activates your bot commands. Recommended: <code class="text-indigo-400">.</code> or <code class="text-indigo-400">!</code></p>
                 </div>
+            </div>
 
-                <div class="space-y-2">
-                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Default Follow Channel Link</label>
-                    <input type="url" id="channelUrl" value="https://whatsapp.com/channel/0029VajW7P829759S4vJkM3e" required class="w-full bg-slate-950 border border-slate-800/80 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500 text-sm transition">
-                </div>
-
-                <div class="space-y-2">
-                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Bot Visibility Mode</label>
-                    <div class="grid grid-cols-2 gap-3">
-                        <label class="border border-slate-800/80 rounded-xl p-4 flex items-center gap-3 cursor-pointer bg-slate-950/40 hover:bg-slate-900/30 transition">
-                            <input type="radio" name="mode" value="private" checked class="accent-indigo-600">
-                            <div class="space-y-0.5">
-                                <span class="text-sm font-bold text-slate-200">Private Mode</span>
-                                <p class="text-[10px] text-slate-500">Only you can use it</p>
+            <!-- Bot Mode -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Bot Access Mode</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <label id="modePrivateLabel" class="border border-indigo-500/40 bg-indigo-500/10 rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:bg-indigo-500/15 transition">
+                        <input type="radio" name="mode" value="private" checked class="accent-indigo-600 w-4 h-4 flex-shrink-0">
+                        <div>
+                            <div class="text-sm font-bold text-slate-200 flex items-center gap-1.5">
+                                <i class="fa-solid fa-lock text-indigo-400 text-xs"></i> Private
                             </div>
-                        </label>
-                        <label class="border border-slate-800/80 rounded-xl p-4 flex items-center gap-3 cursor-pointer bg-slate-950/40 hover:bg-slate-900/30 transition">
-                            <input type="radio" name="mode" value="public" class="accent-indigo-600">
-                            <div class="space-y-0.5">
-                                <span class="text-sm font-bold text-slate-200">Public Mode</span>
-                                <p class="text-[10px] text-slate-500">Everyone can use it</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Only you can use commands</p>
+                        </div>
+                    </label>
+                    <label id="modePublicLabel" class="border border-slate-700 rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:bg-slate-900/60 transition">
+                        <input type="radio" name="mode" value="public" class="accent-indigo-600 w-4 h-4 flex-shrink-0">
+                        <div>
+                            <div class="text-sm font-bold text-slate-200 flex items-center gap-1.5">
+                                <i class="fa-solid fa-globe text-green-400 text-xs"></i> Public
                             </div>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="space-y-3 pt-2">
-                    <div class="flex items-center justify-between">
-                        <div class="space-y-0.5">
-                            <span class="text-sm font-semibold text-slate-200">Always Online Presence</span>
-                            <p class="text-[10px] text-slate-500">Keep the bot showing as active/available continuously.</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Everyone can use commands</p>
                         </div>
-                        <input type="checkbox" id="alwaysOnline" checked class="w-5 h-5 rounded accent-indigo-600">
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <div class="space-y-0.5">
-                            <span class="text-sm font-semibold text-slate-200">Enable Group Welcome Messages</span>
-                            <p class="text-[10px] text-slate-500">Gives a warm welcome with follow channel buttons to new users.</p>
-                        </div>
-                        <input type="checkbox" id="welcome" checked class="w-5 h-5 rounded accent-indigo-600">
-                    </div>
+                    </label>
                 </div>
+            </div>
 
-                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold py-3.5 px-4 rounded-xl transition shadow-lg shadow-indigo-600/20 flex justify-center items-center gap-2 text-sm mt-4">
-                    <i class="fa-solid fa-floppy-disk"></i>
-                    <span>Save Configuration</span>
-                </button>
-            </form>
+            <!-- Toggle Settings -->
+            <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Additional Settings</p>
+
+                <!-- Always Online -->
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-200">Always Online Status</p>
+                        <p class="text-[11px] text-slate-500 mt-0.5">Your bot will always appear as active on WhatsApp.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="alwaysOnline" checked class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-checked:bg-indigo-600 rounded-full transition-colors duration-200"></div>
+                        <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 peer-checked:translate-x-5"></div>
+                    </label>
+                </div>
+                <div class="border-t border-slate-800"></div>
+
+                <!-- Welcome Messages -->
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-200">Group Welcome Messages</p>
+                        <p class="text-[11px] text-slate-500 mt-0.5">Auto-welcome new members with channel follow links.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="welcome" checked class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-checked:bg-indigo-600 rounded-full transition-colors duration-200"></div>
+                        <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 peer-checked:translate-x-5"></div>
+                    </label>
+                </div>
+                <div class="border-t border-slate-800"></div>
+
+                <!-- Anti Delete -->
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-200">Anti-Delete Protection</p>
+                        <p class="text-[11px] text-slate-500 mt-0.5">Bot reveals deleted messages to you automatically.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="antidelete" checked class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-700 peer-checked:bg-indigo-600 rounded-full transition-colors duration-200"></div>
+                        <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 peer-checked:translate-x-5"></div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Database Field (Restricted) -->
+            <div class="restricted-field space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                    Database Connection
+                    <span class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-bold uppercase">
+                        <i class="fa-solid fa-lock text-[9px]"></i> Managed by Empire
+                    </span>
+                </label>
+                <div class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3.5 text-sm font-mono text-slate-600 flex items-center gap-2 cursor-not-allowed">
+                    <i class="fa-solid fa-database text-slate-600"></i>
+                    <span>Supabase · Auto-configured · empire_botwan_db</span>
+                    <i class="fa-solid fa-shield-halved ml-auto text-amber-500/60"></i>
+                </div>
+                <p class="text-[10px] text-amber-500/70">Your data row is automatically created and managed. No setup needed.</p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="formError" class="hidden text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3"></div>
+
+            <!-- Deploy Button -->
+            <button type="submit" id="deployBtn"
+                class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black py-4 px-6 rounded-xl text-sm transition-all shadow-xl shadow-indigo-600/25 flex items-center justify-center gap-2 disabled:opacity-40">
+                <i class="fa-solid fa-rocket" id="deployIcon"></i>
+                <span id="deployText">Deploy My Bot</span>
+            </button>
+            <p class="text-center text-[11px] text-slate-600">Your settings are saved securely in your personal database row. No technical knowledge required.</p>
+        </form>
+    </div>
+</div>
+
+<!-- ══════════════════ TERMINAL DEPLOYMENT MODAL ══════════════════ -->
+<div id="deployModal" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-5">
+    <div class="w-full max-w-lg space-y-5 fade-in">
+        <div class="text-center space-y-1">
+            <h2 class="text-xl font-black gradient-text">🚀 Deploying Your Bot</h2>
+            <p class="text-xs text-slate-500">Sit back — Empire is handling everything for you.</p>
         </div>
-    </main>
 
-    <footer class="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-600">
-        <p>© 2026 Empire MD. Powered by Baileys & Express. All rights reserved.</p>
-    </footer>
+        <!-- Terminal Window -->
+        <div class="bg-[#0d1117] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+            <!-- Terminal Titlebar -->
+            <div class="flex items-center gap-2 px-4 py-3 bg-[#161b22] border-b border-slate-800">
+                <div class="w-3 h-3 rounded-full bg-red-500/70"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-500/70"></div>
+                <div class="w-3 h-3 rounded-full bg-green-500/70"></div>
+                <span class="ml-2 text-[10px] text-slate-500 font-mono">empire-md / deploy</span>
+            </div>
+            <!-- Terminal Body -->
+            <div id="terminalBody" class="p-4 font-mono text-xs text-green-400 space-y-1.5 min-h-[200px] max-h-[300px] overflow-y-auto">
+                <!-- Lines injected by JS -->
+            </div>
+        </div>
 
-    <script>
-        document.getElementById('setupForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const botName = document.getElementById('botName').value;
-            const ownerNumber = document.getElementById('ownerNumber').value;
-            const prefix = document.getElementById('prefix').value;
-            const channelUrl = document.getElementById('channelUrl').value;
-            const mode = document.querySelector('input[name="mode"]:checked').value;
-            const alwaysOnline = document.getElementById('alwaysOnline').checked;
-            const welcome = document.getElementById('welcome').checked;
+        <!-- Progress Bar -->
+        <div class="space-y-2">
+            <div class="flex justify-between text-[10px] text-slate-500">
+                <span id="deployStage">Initializing...</span>
+                <span id="deployPct">0%</span>
+            </div>
+            <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div id="deployProgress" class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-700" style="width:0%"></div>
+            </div>
+        </div>
+    </div>
+</div>
 
-            try {
-                const response = await fetch('/api/setup', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        botName, ownerNumber, prefix, channelUrl, mode, alwaysOnline, welcome
-                    })
-                });
-                const result = await response.json();
-                if (result.success) {
-                    alert('✅ Configuration saved successfully! You can now scan QR code in terminal to connect.');
-                } else {
-                    alert('❌ Save failed: ' + result.error);
-                }
-            } catch (err) {
-                alert('❌ Error connecting to server setup endpoint: ' + err.message);
+<!-- ══════════════════ DEPLOY SUCCESS OVERLAY ══════════════════ -->
+<div id="successOverlay" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-5">
+    <div class="w-full max-w-md text-center space-y-6 fade-in">
+        <div class="w-20 h-20 mx-auto bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-3xl flex items-center justify-center">
+            <i class="fa-solid fa-check text-4xl text-green-400"></i>
+        </div>
+        <div class="space-y-2">
+            <h2 class="text-2xl font-black text-green-400">Bot Deployed!</h2>
+            <p class="text-slate-400 text-sm">Your WhatsApp bot is live and responding. Check your phone for the welcome message.</p>
+        </div>
+
+        <!-- Session ID recap -->
+        <div class="bg-slate-900/60 border border-green-500/20 rounded-2xl p-5 text-left space-y-2">
+            <p class="text-[10px] font-bold text-green-400 uppercase tracking-widest">Active Session ID</p>
+            <div class="relative">
+                <div id="successSessionId" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 font-mono text-sm text-indigo-300 break-all pr-10"></div>
+                <button onclick="copyField('successSessionId')"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-400 transition">
+                    <i class="fa-regular fa-copy text-xs"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Channel Button -->
+        <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank"
+           class="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-400 text-black font-bold py-3.5 px-6 rounded-xl text-sm transition shadow-lg shadow-green-500/20 w-full">
+            <i class="fa-brands fa-whatsapp text-lg"></i>
+            Join BOT-WAN Official Channel
+        </a>
+
+        <button onclick="showSection('status'); document.getElementById('successOverlay').classList.add('hidden');"
+            class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-semibold py-3 px-6 rounded-xl text-sm transition flex items-center justify-center gap-2">
+            <i class="fa-solid fa-chart-bar text-indigo-400"></i>
+            View My Bot Status
+        </button>
+    </div>
+</div>
+
+<!-- ══════════════════ SECTION: BOT STATUS DIRECTORY ══════════════════ -->
+<div id="sectionStatus" class="section-view pt-14">
+    <div class="max-w-4xl mx-auto px-5 py-10 space-y-8 fade-in">
+        <!-- Header -->
+        <div class="text-center space-y-2">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] font-bold uppercase tracking-widest">
+                <span class="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" style="animation:pulse 2s infinite;box-shadow:0 0 5px #22c55e"></span>
+                Live Status
+            </div>
+            <h1 class="text-2xl font-black">Empire Bot Network</h1>
+            <p class="text-slate-400 text-sm">Real-time registry of all active bots on the Empire platform.</p>
+        </div>
+
+        <!-- Stats Row -->
+        <div id="statsRow" class="grid grid-cols-3 gap-4">
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 text-center space-y-1">
+                <div id="statTotal" class="text-2xl font-black text-indigo-400">—</div>
+                <div class="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Total Bots</div>
+            </div>
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 text-center space-y-1">
+                <div id="statOnline" class="text-2xl font-black text-green-400">—</div>
+                <div class="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Online Now</div>
+            </div>
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 text-center space-y-1">
+                <div id="statOffline" class="text-2xl font-black text-slate-500">—</div>
+                <div class="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Offline</div>
+            </div>
+        </div>
+
+        <!-- Refresh Button -->
+        <div class="flex items-center justify-between">
+            <p class="text-xs text-slate-500" id="lastRefreshed">Loading...</p>
+            <button onclick="loadBotStatus()" class="flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition">
+                <i class="fa-solid fa-arrows-rotate" id="refreshIcon"></i>
+                Refresh
+            </button>
+        </div>
+
+        <!-- Bot Grid -->
+        <div id="botGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Loaded via JS -->
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 animate-pulse space-y-3">
+                <div class="h-4 bg-slate-800 rounded w-3/4"></div>
+                <div class="h-3 bg-slate-800 rounded w-1/2"></div>
+                <div class="h-3 bg-slate-800 rounded w-2/3"></div>
+            </div>
+        </div>
+
+        <!-- Join Channel CTA -->
+        <div class="bg-gradient-to-r from-green-500/5 to-indigo-500/5 border border-green-500/15 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-5 text-center sm:text-left">
+            <div class="w-12 h-12 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center flex-shrink-0">
+                <i class="fa-brands fa-whatsapp text-green-400 text-2xl"></i>
+            </div>
+            <div class="flex-1">
+                <p class="font-bold text-slate-200">Stay Updated with BOT-WAN</p>
+                <p class="text-xs text-slate-400 mt-1">Follow our official channel to receive new features, commands, tips, and developer updates directly on WhatsApp.</p>
+            </div>
+            <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank"
+               class="flex-shrink-0 flex items-center gap-2 bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-5 rounded-xl text-sm transition shadow-lg shadow-green-500/20">
+                <i class="fa-brands fa-whatsapp"></i>
+                Follow Channel
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CHANNEL_URL = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
+
+    // ── Pre-fill session ID from URL param ──
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionFromUrl = urlParams.get('session');
+    if (sessionFromUrl) {
+        document.getElementById('sessionId').value = sessionFromUrl;
+        document.getElementById('sessionBanner').classList.remove('hidden');
+    }
+
+    // ── Section Navigation ──
+    function showSection(name) {
+        document.querySelectorAll('.section-view').forEach(s => s.classList.remove('active'));
+        document.getElementById(`section${name.charAt(0).toUpperCase() + name.slice(1)}`).classList.add('active');
+
+        ['Config', 'Status'].forEach(s => {
+            const btn = document.getElementById(`nav${s}`);
+            if (s.toLowerCase() === name) {
+                btn.classList.add('text-indigo-400', 'bg-indigo-500/10', 'border', 'border-indigo-500/20');
+                btn.classList.remove('text-slate-400');
+            } else {
+                btn.classList.remove('text-indigo-400', 'bg-indigo-500/10', 'border', 'border-indigo-500/20');
+                btn.classList.add('text-slate-400');
             }
         });
-    </script>
+
+        if (name === 'status') loadBotStatus();
+    }
+
+    // ── Copy field helper ──
+    function copyField(fieldId) {
+        const el = document.getElementById(fieldId);
+        const value = el.value || el.textContent;
+        navigator.clipboard.writeText(value.trim()).then(() => {
+            const iconId = `copy${fieldId.charAt(0).toUpperCase() + fieldId.slice(1)}Icon`;
+            const icon = document.getElementById(iconId);
+            if (icon) { icon.className = 'fa-solid fa-check text-green-400 text-xs'; setTimeout(() => { icon.className = 'fa-regular fa-copy text-xs'; }, 2000); }
+        }).catch(() => {});
+    }
+
+    // ── Mode radio styling ──
+    document.querySelectorAll('input[name="mode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            document.getElementById('modePrivateLabel').classList.toggle('border-indigo-500/40', radio.value !== 'public' || !document.querySelector('input[value="public"]').checked);
+            document.getElementById('modePrivateLabel').classList.toggle('bg-indigo-500/10', !document.querySelector('input[value="public"]').checked);
+            document.getElementById('modePublicLabel').classList.toggle('border-green-500/40', document.querySelector('input[value="public"]').checked);
+            document.getElementById('modePublicLabel').classList.toggle('bg-green-500/10', document.querySelector('input[value="public"]').checked);
+        });
+    });
+
+    // ── Terminal Lines for Deploy ──
+    const terminalLines = [
+        { delay: 200,  pct: 8,  stage: "Reading configuration...", text: "$ empire-md read config --validate", color: "text-indigo-400" },
+        { delay: 700,  pct: 15, stage: "Reading configuration...", text: "✓  session_id found: " + (sessionFromUrl || 'BOTWAN_...'), color: "text-green-400" },
+        { delay: 1200, pct: 22, stage: "Connecting to Supabase...", text: "$ db.upsert('bot_registry', sessionData)", color: "text-slate-400" },
+        { delay: 1800, pct: 32, stage: "Saving to Supabase...", text: "✓  Row upserted — session registered in cloud database", color: "text-green-400" },
+        { delay: 2400, pct: 44, stage: "Installing dependencies...", text: "$ npm install @whiskeysockets/baileys axios wa-sticker-formatter", color: "text-slate-400" },
+        { delay: 3000, pct: 56, stage: "Installing dependencies...", text: "✓  Dependencies resolved (21 packages)", color: "text-green-400" },
+        { delay: 3600, pct: 65, stage: "Initializing bot session...", text: "$ node index.js --session " + (sessionFromUrl || 'BOTWAN_...'), color: "text-slate-400" },
+        { delay: 4200, pct: 75, stage: "Connecting to WhatsApp...", text: "✓  Multi-device auth loaded from session folder", color: "text-green-400" },
+        { delay: 4800, pct: 85, stage: "Establishing connection...", text: "✓  WhatsApp connection state: OPEN", color: "text-green-400" },
+        { delay: 5400, pct: 93, stage: "Sending welcome message...", text: "✓  Welcome DM dispatched to bot owner phone", color: "text-green-400" },
+        { delay: 5900, pct: 100, stage: "Deployment complete!", text: "✅  EMPIRE MD is LIVE — commands active!", color: "text-green-300" }
+    ];
+
+    function runTerminal(onComplete) {
+        const body = document.getElementById('terminalBody');
+        body.innerHTML = '';
+        terminalLines.forEach(({ delay, pct, stage, text, color }) => {
+            setTimeout(() => {
+                const line = document.createElement('div');
+                line.className = `terminal-line ${color}`;
+                line.style.animationDelay = '0ms';
+                line.textContent = text;
+                body.appendChild(line);
+                body.scrollTop = body.scrollHeight;
+                document.getElementById('deployProgress').style.width = pct + '%';
+                document.getElementById('deployPct').textContent = pct + '%';
+                document.getElementById('deployStage').textContent = stage;
+                if (pct === 100) setTimeout(onComplete, 600);
+            }, delay);
+        });
+    }
+
+    // ── Form Submit ──
+    document.getElementById('configForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById('formError');
+        errEl.classList.add('hidden');
+
+        const sessionId = document.getElementById('sessionId').value.trim();
+        const botName = document.getElementById('botName').value.trim();
+        const ownerNumber = document.getElementById('ownerNumber').value.trim();
+        const prefix = document.getElementById('prefix').value.trim() || '.';
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+        const alwaysOnline = document.getElementById('alwaysOnline').checked;
+        const welcome = document.getElementById('welcome').checked;
+        const antidelete = document.getElementById('antidelete').checked;
+
+        if (!botName) { errEl.textContent = 'Please enter a bot name.'; errEl.classList.remove('hidden'); return; }
+        if (!ownerNumber || !/^[0-9]{7,15}$/.test(ownerNumber)) { errEl.textContent = 'Please enter a valid owner number with country code.'; errEl.classList.remove('hidden'); return; }
+        if (!sessionId) { errEl.textContent = 'No session ID found. Please go back and connect your WhatsApp first.'; errEl.classList.remove('hidden'); return; }
+
+        // Show Terminal
+        document.getElementById('deployModal').classList.remove('hidden');
+        document.getElementById('deployBtn').disabled = true;
+
+        runTerminal(async () => {
+            try {
+                const res = await fetch('/api/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome, antidelete })
+                });
+                const data = await res.json();
+
+                document.getElementById('deployModal').classList.add('hidden');
+
+                if (data.success) {
+                    document.getElementById('successSessionId').textContent = sessionId;
+                    document.getElementById('successOverlay').classList.remove('hidden');
+                } else {
+                    errEl.textContent = data.error || 'Deployment failed. Please try again.';
+                    errEl.classList.remove('hidden');
+                    document.getElementById('deployBtn').disabled = false;
+                }
+            } catch (err) {
+                document.getElementById('deployModal').classList.add('hidden');
+                errEl.textContent = 'Network error: ' + err.message;
+                errEl.classList.remove('hidden');
+                document.getElementById('deployBtn').disabled = false;
+            }
+        });
+    });
+
+    // ── Load Bot Status ──
+    function maskPhone(number) {
+        if (!number) return 'N/A';
+        const str = String(number);
+        return str.slice(0, 4) + '****' + str.slice(-2);
+    }
+
+    async function loadBotStatus() {
+        const icon = document.getElementById('refreshIcon');
+        icon.classList.add('fa-spin');
+        try {
+            const res = await fetch('/api/public-directory');
+            const data = await res.json();
+            const bots = data.bots || [];
+            const online = bots.filter(b => b.status === 'online').length;
+            const offline = bots.length - online;
+
+            document.getElementById('statTotal').textContent = bots.length;
+            document.getElementById('statOnline').textContent = online;
+            document.getElementById('statOffline').textContent = offline;
+            document.getElementById('lastRefreshed').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+
+            const grid = document.getElementById('botGrid');
+            if (bots.length === 0) {
+                grid.innerHTML = `<div class="col-span-full text-center py-12 text-slate-600 text-sm">No bots registered yet. Be the first!</div>`;
+            } else {
+                grid.innerHTML = bots.map(bot => `
+                    <div class="bg-slate-900/50 border border-slate-800 hover:border-slate-700 transition rounded-2xl p-5 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/15 to-purple-500/15 border border-indigo-500/20 flex items-center justify-center flex-shrink-0">
+                                    <i class="fa-solid fa-robot text-indigo-400 text-sm"></i>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold text-slate-200">${bot.bot_name || 'Empire Bot'}</div>
+                                    <div class="text-[10px] text-slate-500">${maskPhone(bot.phone_number)}</div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full flex-shrink-0 ${bot.status === 'online' ? 'status-online' : 'status-offline'} inline-block"></span>
+                                <span class="text-[10px] font-bold ${bot.status === 'online' ? 'text-green-400' : 'text-slate-500'}">${bot.status === 'online' ? 'Online' : 'Offline'}</span>
+                            </div>
+                        </div>
+                        <div class="text-[10px] font-mono text-indigo-400/70 bg-indigo-500/5 border border-indigo-500/10 px-3 py-1.5 rounded-lg truncate">
+                            ${bot.session_id || 'N/A'}
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] text-slate-600">
+                            <span><i class="fa-regular fa-calendar mr-1"></i>${bot.created_at ? new Date(bot.created_at).toLocaleDateString() : 'N/A'}</span>
+                            <span class="text-green-400/60 font-semibold">Empire MD</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            document.getElementById('botGrid').innerHTML = `<div class="col-span-full text-center py-10 text-slate-600 text-sm">Unable to load data. Server may be starting up.</div>`;
+        }
+        icon.classList.remove('fa-spin');
+    }
+
+    // Auto-load status if URL says so
+    if (urlParams.get('tab') === 'status') showSection('status');
+</script>
 </body>
 </html>

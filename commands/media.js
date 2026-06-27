@@ -20,14 +20,14 @@ async function downloadMedia(mek, type) {
 // Helper to send media with "leads to channel" button/link
 async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null) {
     const isGroup = chatJid.endsWith('@g.us');
-    const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VajW7P829759S4vJkM3e";
+    const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
     
     // Format caption with interactive "button" leading to channel
     const formattedCaption = isGroup 
         ? `${caption}
 
 ━━━━━━━━━━━━━━━━━━━━
-📢 *Join Our Official Channel:*
+📢 *Join Our Official BOT-WAN Channel:*
 👉 ${channelUrl}
 ━━━━━━━━━━━━━━━━━━━━`
         : caption;
@@ -84,7 +84,7 @@ async function downloadWithCobalt(url, options = {}) {
 }
 
 module.exports = {
-    // 🎨 Sticker Maker Command (Alias: s, sticker) - USES WA-STICKER-FORMATTER NPM LIBRARY
+    // 🎨 Sticker Maker Command (Alias: s, sticker)
     s: async ({ sock, chatJid, mek }) => {
         try {
             await sock.sendMessage(chatJid, { text: "🎨 *Sticker Maker:* Downloading and processing your media..." }, { quoted: mek });
@@ -123,7 +123,7 @@ module.exports = {
     },
     sticker: async (args) => module.exports.s(args),
 
-    // 🎵 YouTube Song / MP3 Downloader (Alias: play, ytmp3) - USES KEYLESS COBALT/DUCKDUCKGO SEARCH APIS
+    // 🎵 YouTube Song / MP3 Downloader
     play: async ({ sock, chatJid, mek, text }) => {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name or YouTube URL!" }, { quoted: mek });
         try {
@@ -143,7 +143,7 @@ module.exports = {
             const downloadData = await downloadWithCobalt(url, { downloadMode: "audio" });
             const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
             
-            await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... channel links will be attached if sent in a group." }, { quoted: mek });
+            await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
             await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
         } catch (err) {
             console.error("Play error:", err);
@@ -163,7 +163,7 @@ module.exports = {
         }
     },
 
-    // 📥 YouTube MP4 Downloader (Alias: ytmp4, video) - USES KEYLESS COBALT API
+    // 📥 YouTube MP4 Downloader
     ytmp4: async ({ sock, chatJid, mek, text }) => {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
         try {
@@ -177,7 +177,7 @@ module.exports = {
     },
     video: async (args) => module.exports.ytmp4(args),
 
-    // 📸 Instagram Video Downloader (Alias: insta, ig) - USES KEYLESS COBALT API
+    // 📸 Instagram Video Downloader
     insta: async ({ sock, chatJid, mek, text }) => {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide Instagram link!" }, { quoted: mek });
         try {
@@ -191,7 +191,7 @@ module.exports = {
     },
     ig: async (args) => module.exports.insta(args),
 
-    // 🎵 TikTok Downloader (Alias: tiktok, tt) - USES KEYLESS COBALT API
+    // 🎵 TikTok Downloader
     tiktok: async ({ sock, chatJid, mek, text }) => {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide TikTok link!" }, { quoted: mek });
         try {
@@ -205,7 +205,7 @@ module.exports = {
     },
     tt: async (args) => module.exports.tiktok(args),
 
-    // 📘 Facebook Downloader (Alias: fb, fbdl) - USES KEYLESS COBALT API
+    // 📘 Facebook Downloader
     fb: async ({ sock, chatJid, mek, text }) => {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide Facebook video link!" }, { quoted: mek });
         try {
@@ -219,7 +219,7 @@ module.exports = {
     },
     fbdl: async (args) => module.exports.fb(args),
 
-    // 🎭 Random Meme Generator (Alias: meme) - USES MEME-API.COM (KEYLESS PUBLIC SERVICE)
+    // 🎭 Random Meme Generator
     meme: async ({ sock, chatJid, mek }) => {
         try {
             await sock.sendMessage(chatJid, { text: "⏳ Fetching a fresh meme..." }, { quoted: mek });
@@ -233,55 +233,6 @@ Source: ${postLink}`;
         } catch (err) {
             console.error("Meme error:", err);
             await sock.sendMessage(chatJid, { text: "❌ Failed to fetch meme. Here is a joke instead: Why did the keyboard go to court? It lost its case! 😂" }, { quoted: mek });
-        }
-    },
-
-    // 🤪 Random Joke API (Alias: joke) - USES OFFICIAL-JOKE-API.APPSPOT.COM (KEYLESS PUBLIC SERVICE)
-    joke: async ({ sock, chatJid, mek }) => {
-        try {
-            const res = await axios.get("https://official-joke-api.appspot.com/random_joke");
-            const { setup, punchline } = res.data;
-            await sock.sendMessage(chatJid, { text: `🤪 *Joke Time!* 🤪
-
-*Q:* ${setup}
-
-*A:* _${punchline}_` }, { quoted: mek });
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: "❌ Failed to load joke. Why did the computer show up at work? To get a byte to eat! 😂" }, { quoted: mek });
-        }
-    },
-
-    // 🧠 Random Fact API (Alias: fact) - USES USELESSFACTS.JSPH.PL (KEYLESS PUBLIC SERVICE)
-    fact: async ({ sock, chatJid, mek }) => {
-        try {
-            const res = await axios.get("https://uselessfacts.jsph.pl/api/v2/facts/random");
-            const factText = res.data.text;
-            await sock.sendMessage(chatJid, { text: `🧠 *Did You Know?* 🧠
-
-${factText}` }, { quoted: mek });
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: "❌ Failed to fetch fact. Honey never spoils. You can theoretically eat 3,000-year-old honey!" }, { quoted: mek });
-        }
-    },
-
-    // 🎵 Lyrics Search API (Alias: lyrics) - USES LYRIST VERCEL API (KEYLESS PUBLIC SERVICE)
-    lyrics: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name!" }, { quoted: mek });
-        try {
-            await sock.sendMessage(chatJid, { text: `🔍 Searching lyrics for: *${text}* ...` }, { quoted: mek });
-            const searchRes = await axios.get(`https://lyrist.vercel.app/api/${encodeURIComponent(text)}`);
-            const data = searchRes.data;
-            if (data && data.lyrics) {
-                const messageText = `🎵 *Lyrics: ${data.title || text}*
-✍️ *Artist:* ${data.artist || 'Unknown'}
-
-${data.lyrics}`;
-                await sock.sendMessage(chatJid, { text: messageText }, { quoted: mek });
-            } else {
-                await sock.sendMessage(chatJid, { text: `❌ No lyrics found for *${text}*.` }, { quoted: mek });
-            }
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: `❌ Failed to load lyrics: ${err.message}` }, { quoted: mek });
         }
     }
 };

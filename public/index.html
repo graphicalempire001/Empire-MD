@@ -3,76 +3,525 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Empire MD - Ultimate WhatsApp Bot Onboarding</title>
+    <title>BOT-WAN · Empire MD — Get Your WhatsApp Bot in Minutes</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .gradient-text { background: linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .glow { box-shadow: 0 0 40px rgba(99,102,241,0.25); }
+        .glow-green { box-shadow: 0 0 30px rgba(34,197,94,0.25); }
+        .step { display: none; }
+        .step.active { display: block; }
+        @keyframes pulse-ring { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.08);opacity:0.8} }
+        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin-slow { to{transform:rotate(360deg)} }
+        .pulse-ring { animation: pulse-ring 2s infinite; }
+        .float-anim { animation: float 3s ease-in-out infinite; }
+        .fade-in { animation: fadeIn 0.5s ease forwards; }
+        .spin-slow { animation: spin-slow 8s linear infinite; }
+        .code-char { 
+            display:inline-block; padding:10px 14px; background:#1e1b4b; border:1.5px solid #4338ca;
+            border-radius:10px; font-size:1.4rem; font-weight:800; color:#a5b4fc; letter-spacing:0.05em;
+            min-width:44px; text-align:center;
+        }
+        .timer-ring-track { stroke: rgba(99,102,241,0.15); }
+        .timer-ring-fill { stroke: #6366f1; stroke-dasharray: 251.2; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+        .blink { animation: blink 1s step-start infinite; }
+        @keyframes blink { 50%{opacity:0} }
+        .terminal-line { animation: fadeIn 0.3s ease forwards; }
+        .status-dot-online { background:#22c55e; box-shadow:0 0 6px #22c55e; }
+        .status-dot-offline { background:#ef4444; }
+        .copy-flash { animation: fadeIn 0.2s ease; }
+        ::-webkit-scrollbar { width:4px; } 
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
+    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between">
-    <header class="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 py-4 px-6">
-        <div class="max-w-6xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
-                    <i class="fa-solid fa-crown text-white text-lg"></i>
-                </div>
-                <span class="font-extrabold text-xl tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">EMPIRE MD</span>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+<!-- ═══════════════════════════════ NAVBAR ═══════════════════════════════ -->
+<nav class="fixed top-0 inset-x-0 z-50 border-b border-slate-900/70 bg-slate-950/80 backdrop-blur-xl">
+    <div class="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <i class="fa-solid fa-robot text-white text-sm"></i>
             </div>
-            <a href="https://whatsapp.com/channel/0029VajW7P829759S4vJkM3e" target="_blank" class="flex items-center gap-2 text-xs font-semibold bg-slate-900 hover:bg-slate-850 text-slate-300 border border-slate-800/80 px-4 py-2 rounded-xl transition">
-                <i class="fa-brands fa-whatsapp text-green-500"></i>
-                <span>Follow Channel</span>
+            <span class="font-black text-base tracking-tight">BOT<span class="text-indigo-400">-WAN</span></span>
+            <span class="hidden sm:block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 uppercase tracking-widest">by Empire</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank"
+               class="flex items-center gap-2 text-[11px] font-bold bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 px-3.5 py-1.5 rounded-full transition-all">
+                <i class="fa-brands fa-whatsapp"></i>
+                <span>Join Channel</span>
             </a>
         </div>
-    </header>
+    </div>
+</nav>
 
-    <main class="max-w-4xl mx-auto px-6 py-12 flex-grow flex flex-col justify-center items-center text-center space-y-8">
-        <div class="space-y-4">
-            <span class="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 tracking-wide uppercase">WhatsApp Multi-Device Bot v1.0.0</span>
-            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400 leading-tight">
-                Empower Your WhatsApp with <br class="hidden md:block">
-                <span class="text-indigo-500">Fully Functional</span> Automation
+<!-- ════════════════════════════ HERO / LANDING ═══════════════════════════ -->
+<div id="landingView" class="fade-in pt-14">
+    <!-- Hero -->
+    <section class="relative overflow-hidden min-h-screen flex flex-col items-center justify-center px-5 py-20 text-center">
+        <!-- Background glow blobs -->
+        <div class="pointer-events-none absolute inset-0 overflow-hidden">
+            <div class="absolute -top-32 -left-32 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl"></div>
+            <div class="absolute top-1/3 -right-24 w-80 h-80 bg-purple-600/10 rounded-full blur-3xl"></div>
+            <div class="absolute bottom-0 left-1/4 w-72 h-72 bg-violet-600/8 rounded-full blur-3xl"></div>
+        </div>
+
+        <div class="relative z-10 max-w-3xl mx-auto space-y-7">
+            <!-- Badge -->
+            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] font-bold uppercase tracking-widest">
+                <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 pulse-ring inline-block"></span>
+                WhatsApp Automation · Zero Coding Required
+            </div>
+
+            <!-- Headline -->
+            <h1 class="text-4xl sm:text-6xl font-black leading-[1.1] tracking-tight">
+                Your Personal<br>
+                <span class="gradient-text">WhatsApp Bot</span><br>
+                <span class="text-slate-300">In Under 2 Minutes</span>
             </h1>
-            <p class="text-slate-400 max-w-xl mx-auto text-base">
-                Empire MD is a high-performance, resilient WhatsApp bot that features lightning-fast keyless media downloads, custom sticker creation, and full group moderation.
+
+            <!-- Sub -->
+            <p class="text-slate-400 text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
+                No code. No servers. No stress. Just connect your number and Empire MD handles everything — media downloads, stickers, group management, and more.
             </p>
+
+            <!-- CTA Buttons -->
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
+                <button onclick="startOnboarding()" class="group w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-8 rounded-2xl text-base shadow-2xl shadow-indigo-600/30 transition-all duration-200 glow flex items-center justify-center gap-3">
+                    <i class="fa-brands fa-whatsapp text-lg"></i>
+                    I Want My Bot
+                    <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                </button>
+                <a href="#status" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-semibold py-4 px-8 rounded-2xl text-base transition-all duration-200 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-circle-dot text-green-400"></i>
+                    View Live Bots
+                </a>
+            </div>
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-4 w-full justify-center">
-            <a href="/setup.html" class="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold py-3.5 px-8 rounded-xl transition shadow-lg shadow-indigo-600/20 flex justify-center items-center gap-2 text-sm">
-                <i class="fa-solid fa-gears"></i>
-                <span>Onboarding Setup</span>
+        <!-- Feature tiles -->
+        <div class="relative z-10 mt-16 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-4xl w-full mx-auto">
+            <div class="bg-slate-900/50 border border-slate-800/50 rounded-2xl p-5 text-center space-y-3 hover:border-indigo-500/30 transition">
+                <div class="text-2xl">📥</div>
+                <div class="text-xs font-semibold text-slate-300">Media Downloads</div>
+                <div class="text-[10px] text-slate-500">TikTok, YT, Reels, FB</div>
+            </div>
+            <div class="bg-slate-900/50 border border-slate-800/50 rounded-2xl p-5 text-center space-y-3 hover:border-purple-500/30 transition">
+                <div class="text-2xl">🎨</div>
+                <div class="text-xs font-semibold text-slate-300">Sticker Maker</div>
+                <div class="text-[10px] text-slate-500">Image & Video stickers</div>
+            </div>
+            <div class="bg-slate-900/50 border border-slate-800/50 rounded-2xl p-5 text-center space-y-3 hover:border-green-500/30 transition">
+                <div class="text-2xl">👥</div>
+                <div class="text-xs font-semibold text-slate-300">Group Manager</div>
+                <div class="text-[10px] text-slate-500">Welcome, kick, tagall</div>
+            </div>
+            <div class="bg-slate-900/50 border border-slate-800/50 rounded-2xl p-5 text-center space-y-3 hover:border-pink-500/30 transition">
+                <div class="text-2xl">🤖</div>
+                <div class="text-xs font-semibold text-slate-300">AI Assistant</div>
+                <div class="text-[10px] text-slate-500">Chat, jokes, facts</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Live Bot Status Section -->
+    <section id="status" class="max-w-4xl mx-auto px-5 py-16">
+        <div class="space-y-2 text-center mb-8">
+            <div class="text-xs font-bold uppercase tracking-widest text-indigo-400">Live Status</div>
+            <h2 class="text-2xl sm:text-3xl font-black">Active Empire Bots</h2>
+            <p class="text-slate-400 text-sm">Real-time registry of bots running on the Empire network.</p>
+        </div>
+        <div id="publicBotList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Loaded via JS -->
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 animate-pulse space-y-3">
+                <div class="h-4 bg-slate-800 rounded w-3/4"></div>
+                <div class="h-3 bg-slate-800 rounded w-1/2"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-900 bg-slate-950 py-8 px-5">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <i class="fa-solid fa-robot text-white text-xs"></i>
+                </div>
+                <span class="font-black text-sm">BOT-WAN <span class="text-slate-500 font-normal">by Empire</span></span>
+            </div>
+            <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank" class="flex items-center gap-2 text-xs text-green-400 hover:text-green-300 font-semibold transition">
+                <i class="fa-brands fa-whatsapp"></i>
+                Follow BOT-WAN Official Channel
             </a>
-            <a href="https://whatsapp.com/channel/0029VajW7P829759S4vJkM3e" target="_blank" class="bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 font-semibold py-3.5 px-8 rounded-xl transition flex justify-center items-center gap-2 text-sm">
-                <i class="fa-solid fa-bullhorn text-indigo-400"></i>
-                <span>Follow Channel</span>
-            </a>
+            <p class="text-xs text-slate-600">© 2026 Empire Digital. All rights reserved.</p>
         </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full pt-10">
-            <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-6 text-left space-y-3">
-                <div class="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-                    <i class="fa-solid fa-cloud-arrow-down text-indigo-400"></i>
-                </div>
-                <h3 class="font-bold text-slate-200">Media Downloads</h3>
-                <p class="text-xs text-slate-400">Download YouTube, TikTok, Reels, and Facebook videos directly using keyless high-speed APIs.</p>
-            </div>
-            <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-6 text-left space-y-3">
-                <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center border border-purple-500/20">
-                    <i class="fa-solid fa-lock text-purple-400"></i>
-                </div>
-                <h3 class="font-bold text-slate-200">Private by Default</h3>
-                <p class="text-xs text-slate-400">Strictly private mode is enabled by default to prevent spam, with customizable mode switches.</p>
-            </div>
-            <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-6 text-left space-y-3">
-                <div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center border border-green-500/20">
-                    <i class="fa-solid fa-bullhorn text-green-400"></i>
-                </div>
-                <h3 class="font-bold text-slate-200">Interactive Welcome</h3>
-                <p class="text-xs text-slate-400">Includes automatic channel follow buttons inside group welcomes and shared group media.</p>
-            </div>
-        </div>
-    </main>
-
-    <footer class="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-600">
-        <p>© 2026 Empire MD. Powered by Baileys & Express. All rights reserved.</p>
     </footer>
+</div>
+
+<!-- ════════════════════════ ONBOARDING WIZARD ════════════════════════════ -->
+<div id="onboardingView" class="hidden pt-14 min-h-screen">
+    <div class="max-w-xl mx-auto px-5 py-10">
+
+        <!-- Step Progress Bar -->
+        <div class="mb-8">
+            <div class="flex items-center justify-between mb-2">
+                <span id="stepLabel" class="text-xs font-bold text-indigo-400 uppercase tracking-widest">Step 1 of 3</span>
+                <span id="stepPct" class="text-xs text-slate-500">33%</span>
+            </div>
+            <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div id="progressBar" class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500" style="width:33%"></div>
+            </div>
+        </div>
+
+        <!-- ─── STEP 1: Enter Number & Bot Name ─── -->
+        <div id="step1" class="step active fade-in space-y-6">
+            <div class="text-center space-y-2">
+                <div class="w-16 h-16 mx-auto bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 rounded-3xl flex items-center justify-center float-anim">
+                    <i class="fa-brands fa-whatsapp text-3xl text-indigo-400"></i>
+                </div>
+                <h2 class="text-2xl font-black">Connect Your WhatsApp</h2>
+                <p class="text-slate-400 text-sm">Enter your details to get your personal pairing code.</p>
+            </div>
+
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-5">
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Bot Name <span class="text-red-400">*</span></label>
+                    <input id="botName" type="text" placeholder="e.g. My Empire Bot" maxlength="30"
+                        class="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm text-slate-100 placeholder-slate-600 outline-none transition">
+                    <p class="text-[10px] text-slate-600">This will be your bot's display name. Max 30 chars.</p>
+                </div>
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">WhatsApp Number <span class="text-red-400">*</span></label>
+                    <div class="flex gap-2">
+                        <div class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-3.5 flex items-center gap-1.5 text-sm text-slate-300 font-mono shrink-0">
+                            <i class="fa-solid fa-flag text-xs text-indigo-400"></i>
+                            <span>+</span>
+                        </div>
+                        <input id="phoneNumber" type="tel" placeholder="2348100000000" 
+                            class="flex-1 bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm font-mono text-slate-100 placeholder-slate-600 outline-none transition">
+                    </div>
+                    <p class="text-[10px] text-slate-600">Include country code. No spaces or dashes. E.g. 2348012345678</p>
+                </div>
+
+                <div id="step1Error" class="hidden text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3"></div>
+
+                <button onclick="requestPairing()" id="connectBtn"
+                    class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-6 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 disabled:opacity-50">
+                    <span id="connectBtnText"><i class="fa-solid fa-link mr-1.5"></i>Get Pairing Code</span>
+                    <span id="connectBtnLoader" class="hidden"><i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i>Connecting...</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- ─── STEP 2: Pairing Code + Countdown ─── -->
+        <div id="step2" class="step space-y-6">
+            <div class="text-center space-y-2">
+                <div class="w-16 h-16 mx-auto bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 rounded-3xl flex items-center justify-center">
+                    <i class="fa-solid fa-key text-3xl text-indigo-400"></i>
+                </div>
+                <h2 class="text-2xl font-black">Enter Pairing Code</h2>
+                <p class="text-slate-400 text-sm">Open WhatsApp → Linked Devices → Link a Device → Enter Code Manually</p>
+            </div>
+
+            <!-- Countdown Ring -->
+            <div class="flex flex-col items-center gap-4">
+                <div class="relative w-28 h-28 flex items-center justify-center">
+                    <svg class="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 88 88">
+                        <circle class="timer-ring-track" cx="44" cy="44" r="40" fill="none" stroke-width="4"/>
+                        <circle id="timerRing" class="timer-ring-fill" cx="44" cy="44" r="40" fill="none" stroke-width="4" stroke-dashoffset="0"/>
+                    </svg>
+                    <div class="text-center">
+                        <div id="countdownDisplay" class="text-3xl font-black text-indigo-400">2:00</div>
+                        <div class="text-[9px] text-slate-500 uppercase tracking-widest">expires</div>
+                    </div>
+                </div>
+                <p id="codeWaitMsg" class="text-xs text-slate-500 animate-pulse">⏳ Fetching your pairing code...</p>
+            </div>
+
+            <!-- Pairing Code Display -->
+            <div id="pairingCodeBox" class="hidden">
+                <div class="bg-slate-900/60 border border-indigo-500/30 rounded-2xl p-6 text-center space-y-4 glow">
+                    <p class="text-xs font-bold text-indigo-400 uppercase tracking-widest">Your Pairing Code</p>
+                    <div id="codeChars" class="flex items-center justify-center gap-2 flex-wrap"></div>
+                    <p class="text-[10px] text-slate-500">Enter this code in WhatsApp Linked Devices within the timer above.</p>
+                </div>
+            </div>
+
+            <!-- Waiting for connection -->
+            <div id="waitingBox" class="hidden bg-slate-900/50 border border-slate-800 rounded-2xl p-5 text-center space-y-3">
+                <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-2xl"></i>
+                <p class="text-sm text-slate-300 font-semibold">Waiting for WhatsApp to confirm...</p>
+                <p class="text-xs text-slate-500">Once you enter the code in WhatsApp, your bot will auto-connect.</p>
+            </div>
+
+            <div id="step2Error" class="hidden text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3"></div>
+        </div>
+
+        <!-- ─── STEP 3: SUCCESS + Session ID ─── -->
+        <div id="step3" class="step space-y-6 text-center">
+            <div class="space-y-4">
+                <div class="w-20 h-20 mx-auto bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-3xl flex items-center justify-center float-anim glow-green">
+                    <i class="fa-solid fa-check text-4xl text-green-400"></i>
+                </div>
+                <h2 class="text-2xl font-black text-green-400">🎉 Your Bot Is Live!</h2>
+                <p class="text-slate-400 text-sm">Check your WhatsApp DM — a welcome message was just sent to you.</p>
+            </div>
+
+            <!-- Session ID Card -->
+            <div class="bg-slate-900/60 border border-green-500/20 rounded-2xl p-6 space-y-4 text-left">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
+                        <i class="fa-solid fa-id-card text-green-400 text-sm"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-green-400 uppercase tracking-widest">Your Session ID</p>
+                        <p class="text-[10px] text-slate-500">Save this — you'll need it to configure your bot.</p>
+                    </div>
+                </div>
+                <div class="relative">
+                    <div id="sessionIdDisplay" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 font-mono text-sm text-indigo-300 break-all pr-12"></div>
+                    <button onclick="copySessionId()" id="copyBtn"
+                        class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-400 transition text-xs font-bold flex items-center gap-1">
+                        <i class="fa-regular fa-copy" id="copyIcon"></i>
+                    </button>
+                </div>
+                <div id="copiedMsg" class="hidden text-[11px] text-green-400 font-semibold text-center copy-flash">
+                    ✅ Session ID copied to clipboard!
+                </div>
+            </div>
+
+            <!-- Channel Follow Card -->
+            <div class="bg-green-500/5 border border-green-500/20 rounded-2xl p-5 space-y-3">
+                <p class="text-sm font-bold text-green-300">🚀 The Future is Now!</p>
+                <p class="text-xs text-slate-400">Your Empire bot is connected and fully active. Follow the BOT-WAN official channel to get updates, new features, and developer support.</p>
+                <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank"
+                   class="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-6 rounded-xl text-sm transition shadow-lg shadow-green-500/20 glow-green">
+                    <i class="fa-brands fa-whatsapp text-lg"></i>
+                    Follow BOT-WAN Channel
+                </a>
+            </div>
+
+            <!-- Proceed to Configure -->
+            <button onclick="proceedToSetup()" 
+                class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-6 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-gears"></i>
+                Configure & Activate My Bot
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const CHANNEL_URL = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
+    let currentSessionId = null;
+    let pollingInterval = null;
+    let countdownInterval = null;
+    let totalSeconds = 120;
+    let sessionIdForSetup = null;
+
+    // Load public bot directory
+    async function loadPublicBots() {
+        try {
+            const res = await fetch('/api/public-directory');
+            const data = await res.json();
+            const list = document.getElementById('publicBotList');
+            if (!data.bots || data.bots.length === 0) {
+                list.innerHTML = `<div class="col-span-full text-center py-10 text-slate-600 text-sm">No bots registered yet. Be the first!</div>`;
+                return;
+            }
+            list.innerHTML = data.bots.map(bot => `
+                <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-9 h-9 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 flex-shrink-0">
+                                <i class="fa-solid fa-robot text-indigo-400 text-sm"></i>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold text-slate-200">${bot.bot_name || 'Empire Bot'}</div>
+                                <div class="text-[10px] text-slate-500">${maskPhone(bot.phone_number)}</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5 text-[10px] font-semibold ${bot.status === 'online' ? 'text-green-400' : 'text-slate-500'}">
+                            <span class="w-1.5 h-1.5 rounded-full ${bot.status === 'online' ? 'status-dot-online' : 'status-dot-offline'} inline-block"></span>
+                            ${bot.status === 'online' ? 'Online' : 'Offline'}
+                        </div>
+                    </div>
+                    <div class="text-[10px] font-mono text-indigo-400/70 bg-indigo-500/5 px-3 py-1.5 rounded-lg border border-indigo-500/10 truncate">
+                        ${bot.session_id || 'N/A'}
+                    </div>
+                    <div class="text-[10px] text-slate-600">Registered ${bot.created_at ? new Date(bot.created_at).toLocaleDateString() : 'N/A'}</div>
+                </div>
+            `).join('');
+        } catch (e) {
+            document.getElementById('publicBotList').innerHTML = `<div class="col-span-full text-center py-10 text-slate-600 text-sm">Unable to load bot status. Backend may be offline.</div>`;
+        }
+    }
+
+    function maskPhone(number) {
+        if (!number) return 'N/A';
+        const str = String(number);
+        return str.slice(0, 5) + '****' + str.slice(-2);
+    }
+
+    function startOnboarding() {
+        document.getElementById('landingView').classList.add('hidden');
+        document.getElementById('onboardingView').classList.remove('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function setStep(n) {
+        document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+        document.getElementById(`step${n}`).classList.add('active');
+        const labels = { 1: 'Step 1 of 3', 2: 'Step 2 of 3', 3: 'Step 3 of 3' };
+        const pcts = { 1: '33%', 2: '66%', 3: '100%' };
+        document.getElementById('stepLabel').textContent = labels[n];
+        document.getElementById('stepPct').textContent = pcts[n];
+        document.getElementById('progressBar').style.width = pcts[n];
+    }
+
+    async function requestPairing() {
+        const botName = document.getElementById('botName').value.trim();
+        const phoneNumber = document.getElementById('phoneNumber').value.trim();
+        const errEl = document.getElementById('step1Error');
+        errEl.classList.add('hidden');
+
+        if (!botName || botName.length < 2) {
+            errEl.textContent = 'Please enter a bot name (at least 2 characters).';
+            errEl.classList.remove('hidden');
+            return;
+        }
+        if (!phoneNumber || !/^[0-9]{7,15}$/.test(phoneNumber)) {
+            errEl.textContent = 'Please enter a valid phone number with country code. Numbers only, no + or spaces.';
+            errEl.classList.remove('hidden');
+            return;
+        }
+
+        const btn = document.getElementById('connectBtn');
+        document.getElementById('connectBtnText').classList.add('hidden');
+        document.getElementById('connectBtnLoader').classList.remove('hidden');
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ botName, phoneNumber })
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                errEl.textContent = data.error || 'Failed to initiate connection.';
+                errEl.classList.remove('hidden');
+                btn.disabled = false;
+                document.getElementById('connectBtnText').classList.remove('hidden');
+                document.getElementById('connectBtnLoader').classList.add('hidden');
+                return;
+            }
+
+            currentSessionId = data.sessionId;
+            sessionIdForSetup = data.sessionId;
+            totalSeconds = data.expiryIn || 120;
+            setStep(2);
+            startCountdown();
+            startPolling();
+        } catch (e) {
+            errEl.textContent = 'Network error. Make sure the server is running.';
+            errEl.classList.remove('hidden');
+            btn.disabled = false;
+            document.getElementById('connectBtnText').classList.remove('hidden');
+            document.getElementById('connectBtnLoader').classList.add('hidden');
+        }
+    }
+
+    function startCountdown() {
+        let secs = totalSeconds;
+        const ring = document.getElementById('timerRing');
+        const circumference = 251.2;
+
+        function updateDisplay() {
+            const m = Math.floor(secs / 60);
+            const s = secs % 60;
+            document.getElementById('countdownDisplay').textContent = `${m}:${String(s).padStart(2, '0')}`;
+            const progress = (secs / totalSeconds) * circumference;
+            ring.style.strokeDashoffset = circumference - progress;
+        }
+
+        updateDisplay();
+        countdownInterval = setInterval(() => {
+            secs--;
+            updateDisplay();
+            if (secs <= 0) {
+                clearInterval(countdownInterval);
+                document.getElementById('countdownDisplay').textContent = '0:00';
+                document.getElementById('step2Error').textContent = 'Code expired. Please go back and try again.';
+                document.getElementById('step2Error').classList.remove('hidden');
+                clearInterval(pollingInterval);
+            }
+        }, 1000);
+    }
+
+    function startPolling() {
+        pollingInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/status/${currentSessionId}`);
+                const data = await res.json();
+
+                if (data.status === 'pairing' && data.pairingCode) {
+                    const codeEl = document.getElementById('codeChars');
+                    const code = data.pairingCode.replace(/[^A-Z0-9]/gi, '');
+                    const formatted = code.match(/.{1,4}/g)?.join('-') || code;
+                    const parts = formatted.split('-');
+                    codeEl.innerHTML = parts.map(p => `<span class="code-char">${p}</span>`).join('');
+                    document.getElementById('pairingCodeBox').classList.remove('hidden');
+                    document.getElementById('codeWaitMsg').classList.add('hidden');
+                    document.getElementById('waitingBox').classList.remove('hidden');
+                }
+
+                if (data.status === 'connected') {
+                    clearInterval(pollingInterval);
+                    clearInterval(countdownInterval);
+                    document.getElementById('sessionIdDisplay').textContent = currentSessionId;
+                    setStep(3);
+                    document.getElementById('step3').classList.add('fade-in');
+                }
+
+                if (data.status === 'expired') {
+                    clearInterval(pollingInterval);
+                }
+            } catch (e) {
+                console.error("Polling error:", e);
+            }
+        }, 3000);
+    }
+
+    function copySessionId() {
+        const sid = document.getElementById('sessionIdDisplay').textContent;
+        navigator.clipboard.writeText(sid).then(() => {
+            document.getElementById('copiedMsg').classList.remove('hidden');
+            document.getElementById('copyIcon').className = 'fa-solid fa-check text-green-400';
+            setTimeout(() => {
+                document.getElementById('copiedMsg').classList.add('hidden');
+                document.getElementById('copyIcon').className = 'fa-regular fa-copy';
+            }, 2500);
+        });
+    }
+
+    function proceedToSetup() {
+        window.location.href = `/setup.html?session=${encodeURIComponent(sessionIdForSetup)}`;
+    }
+
+    // Load bots on page load
+    window.addEventListener('load', loadPublicBots);
+</script>
 </body>
 </html>

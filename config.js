@@ -3,13 +3,13 @@
 module.exports = {
     botName: "Empire MD",
     ownerName: "Empire Owner",
-    ownerNumber: ["2348100000000"], // Set your owner number here (without @s.whatsapp.net)
+    ownerNumber: ["2348100000000"], // Customizable during onboarding
     prefix: ".", // Default prefix
-    mode: "private", // Default set to private as requested!
-    pairingCode: true, // Force pairing code login
-    channelUrl: "https://whatsapp.com/channel/0029VajW7P829759S4vJkM3e", // Default Follow Channel Link
+    mode: "private", // Starts in private mode for user security
+    pairingCode: true, // Pairing code enabled by default
+    channelUrl: "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15", // Official BOT-WAN WhatsApp Channel
 
-    // Background settings (defaults)
+    // Core default user settings
     settings: {
         autostatusview: true,
         autostatusreact: true,
@@ -27,12 +27,7 @@ module.exports = {
         antibot: false,
         antifake: false,
         antiarabic: false,
-        agentmode: false,
-        learnMode: false,
-        smartreply: false,
-        personality: "helpful", // funny, serious, savage, helpful
         alwaysOnline: true,
-        readreceipt: false,
         welcome: true,
         goodbye: true
     }

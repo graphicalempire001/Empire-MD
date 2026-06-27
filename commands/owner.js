@@ -28,7 +28,7 @@ module.exports = {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide text to broadcast!" }, { quoted: mek });
 
-        const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VajW7P829759S4vJkM3e";
+        const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
         const message = `📢 *[EMPIRE MD OWNER BROADCAST]* 📢
 
 ${text}
