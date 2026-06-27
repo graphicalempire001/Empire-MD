@@ -506,7 +506,7 @@ let sessionIdForSetup = null;
 let currentPairingCode = null;
 let pollingInterval   = null;
 let countdownInterval = null;
-let totalSeconds      = 30;
+let totalSeconds      = 60;
 let codeShown         = false;
 
 // ═══════════════════════════════════════════════════════════════
@@ -695,7 +695,12 @@ async function requestPairing() {
 
         currentSessionId  = data.sessionId;
         sessionIdForSetup = data.sessionId;
-        totalSeconds      = data.expiryIn || 30;
+localStorage.setItem('empire_pairing', JSON.stringify({
+    sessionId: data.sessionId,
+    startedAt: Date.now(),
+    expiryIn: data.expiryIn || 60
+}));
+        totalSeconds      = data.expiryIn || 60;
 
         // Advance to step 2
         setStep(2);
@@ -972,8 +977,39 @@ document.getElementById('sessionModal').addEventListener('click', function(e) {
 // ═══════════════════════════════════════════════════════════════
 window.addEventListener('load', () => {
     checkBackendHealth();
+    const saved = localStorage.getItem('empire_pairing');
+if (saved) {
+    try {
+        const p = JSON.parse(saved);
+        const elapsed = Math.floor((Date.now() - p.startedAt) / 1000);
+        const remaining = (p.expiryIn || 60) - elapsed;
+        if (remaining > 3) {
+            currentSessionId = p.sessionId;
+            sessionIdForSetup = p.sessionId;
+            totalSeconds = remaining;
+            startOnboarding(); setStep(2);
+            startCountdown(); startPolling();
+        } else { localStorage.removeItem('empire_pairing'); }
+    } catch(e) { localStorage.removeItem('empire_pairing'); }
+}
+
     loadPublicBots();
 });
+
+    function clearAndRetry() {
+    localStorage.removeItem('empire_pairing');
+    codeShown = false; currentPairingCode = null; currentSessionId = null;
+    clearInterval(pollingInterval); clearInterval(countdownInterval);
+    document.getElementById('step2Error').classList.add('hidden');
+    document.getElementById('pairingCodeBox')?.classList.add('hidden');
+    document.getElementById('waitingBox')?.classList.add('hidden');
+    document.getElementById('codeChars') && (document.getElementById('codeChars').innerHTML = '');
+    setStep(1);
+    document.getElementById('connectBtn').disabled = false;
+    document.getElementById('connectBtnText').classList.remove('hidden');
+    document.getElementById('connectBtnLoader')?.classList.add('hidden');
+}
+
 </script>
 </body>
 </html>
