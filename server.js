@@ -70,7 +70,7 @@ app.post('/api/connect', async (req, res) => {
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
             // ✅ CRITICAL: Browser must be in this format to trigger phone notifications
-            browser: ["Ubuntu", "Chrome", "20.0.04"] 
+           browser: ["Mac OS", "Chrome", "121.0.6167.159"]
         });
 
         // Store session status in memory
@@ -80,7 +80,7 @@ app.post('/api/connect', async (req, res) => {
             phoneNumber: cleanPhone,
             status: 'pairing',
             pairingCode: null,
-            expiry: Date.now() + 60000, // ✅ Updated to 60 seconds
+           expiry: Date.now() + 60000, // ⏱️ 60 seconds
             saveCreds
         };
 
@@ -133,19 +133,22 @@ app.post('/api/connect', async (req, res) => {
         // We wait 3 seconds to ensure the socket is authenticated with WA servers
         // before requesting the code that buzzes the user's phone.
         setTimeout(async () => {
-            try {
-                if (activeSessions[sessionId] && !sock.authState.creds.registered) {
-                    const code = await sock.requestPairingCode(cleanPhone);
-                    console.log(`🔑 REAL Pairing code generated: ${code}`);
-                    activeSessions[sessionId].pairingCode = code;
-                }
-            } catch (err) {
-                console.error("Pairing Trigger Error:", err.message);
-                if (activeSessions[sessionId]) {
-                    activeSessions[sessionId].pairingCodeError = "WhatsApp rejected the request. Try again in a moment.";
-                }
-            }
-        }, 3000);
+    try {
+        const code = await sock.requestPairingCode(cleanPhone);
+        console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
+        if (activeSessions[sessionId]) {
+            activeSessions[sessionId].pairingCode = code;
+        }
+    } catch (err) {
+        console.error("Error requesting pairing code:", err.message);
+        if (activeSessions[sessionId]) {
+            activeSessions[sessionId].pairingCodeError = err.message.includes('429')
+                ? "Rate limited (Error 429). Please wait 5 minutes before retrying."
+                : err.message;
+        }
+    }
+}, 3000);
+
 
         return res.json({
             success: true,
