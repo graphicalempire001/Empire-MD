@@ -18,25 +18,70 @@
         @keyframes pulse-ring { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.08);opacity:0.8} }
         @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
         @keyframes fadeIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes spin-slow { to{transform:rotate(360deg)} }
+        @keyframes slideUp { from{opacity:0;transform:translateY(40px) scale(0.96)} to{opacity:1;transform:translateY(0) scale(1)} }
+        @keyframes overlayIn { from{opacity:0} to{opacity:1} }
+        @keyframes badgePulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .pulse-ring { animation: pulse-ring 2s infinite; }
         .float-anim { animation: float 3s ease-in-out infinite; }
         .fade-in { animation: fadeIn 0.5s ease forwards; }
-        .spin-slow { animation: spin-slow 8s linear infinite; }
-        .code-char { 
-            display:inline-block; padding:10px 14px; background:#1e1b4b; border:1.5px solid #4338ca;
-            border-radius:10px; font-size:1.4rem; font-weight:800; color:#a5b4fc; letter-spacing:0.05em;
-            min-width:44px; text-align:center;
+        .slide-up { animation: slideUp 0.4s cubic-bezier(0.16,1,0.3,1) forwards; }
+        .overlay-in { animation: overlayIn 0.25s ease forwards; }
+        .badge-pulse { animation: badgePulse 1.5s ease-in-out infinite; }
+
+        /* ── Pairing Code Characters ── */
+        .code-char {
+            display:inline-flex; align-items:center; justify-content:center;
+            padding:12px 16px; background:#1e1b4b; border:2px solid #4338ca;
+            border-radius:12px; font-size:1.5rem; font-weight:900; color:#a5b4fc;
+            letter-spacing:0.05em; min-width:52px; text-align:center;
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+            cursor:default;
         }
+        .code-char:hover {
+            border-color: #6366f1;
+            box-shadow: 0 0 18px rgba(99,102,241,0.35);
+            transform: translateY(-2px);
+        }
+
+        /* ── Countdown Ring ── */
         .timer-ring-track { stroke: rgba(99,102,241,0.15); }
-        .timer-ring-fill { stroke: #6366f1; stroke-dasharray: 251.2; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
-        .blink { animation: blink 1s step-start infinite; }
-        @keyframes blink { 50%{opacity:0} }
-        .terminal-line { animation: fadeIn 0.3s ease forwards; }
-        .status-dot-online { background:#22c55e; box-shadow:0 0 6px #22c55e; }
-        .status-dot-offline { background:#ef4444; }
-        .copy-flash { animation: fadeIn 0.2s ease; }
-        ::-webkit-scrollbar { width:4px; } 
+        .timer-ring-fill {
+            stroke: #6366f1;
+            stroke-dasharray: 251.2;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1s linear, stroke 0.5s;
+        }
+        .timer-ring-urgent { stroke: #ef4444; }
+
+        /* ── Process Log Terminal ── */
+        .log-line { animation: fadeIn 0.3s ease forwards; border-left: 2px solid transparent; padding-left: 10px; margin-bottom: 4px; }
+        .log-info  { border-color: #6366f1; }
+        .log-success { border-color: #22c55e; }
+        .log-error { border-color: #ef4444; }
+        .log-wait  { border-color: #f59e0b; }
+
+        /* ── Copy Button ── */
+        .copy-btn { transition: all 0.15s ease; }
+        .copy-btn:active { transform: scale(0.92); }
+
+        /* ── Modal ── */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(2,6,23,0.88);
+            backdrop-filter: blur(8px); z-index: 999;
+            display: flex; align-items: center; justify-content: center; padding: 20px;
+        }
+
+        /* ── Status Dot ── */
+        .dot-online  { background:#22c55e; box-shadow:0 0 6px #22c55e; }
+        .dot-offline { background:#6b7280; }
+
+        /* ── Status Badge ── */
+        .badge-wait    { background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); color:#fbbf24; }
+        .badge-success { background:rgba(34,197,94,0.08);  border:1px solid rgba(34,197,94,0.25);  color:#4ade80; }
+        .badge-error   { background:rgba(239,68,68,0.08);  border:1px solid rgba(239,68,68,0.25);  color:#f87171; }
+        .badge-info    { background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.25); color:#a5b4fc; }
+
+        ::-webkit-scrollbar { width:4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
     </style>
@@ -54,6 +99,11 @@
             <span class="hidden sm:block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 uppercase tracking-widest">by Empire</span>
         </div>
         <div class="flex items-center gap-3">
+            <!-- Backend Status Indicator -->
+            <div id="backendStatus" class="hidden sm:flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-full bg-slate-900 border border-slate-800">
+                <span id="backendDot" class="w-1.5 h-1.5 rounded-full bg-slate-600 inline-block transition-all"></span>
+                <span id="backendLabel" class="text-slate-500">Checking...</span>
+            </div>
             <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank"
                class="flex items-center gap-2 text-[11px] font-bold bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 px-3.5 py-1.5 rounded-full transition-all">
                 <i class="fa-brands fa-whatsapp"></i>
@@ -65,9 +115,9 @@
 
 <!-- ════════════════════════════ HERO / LANDING ═══════════════════════════ -->
 <div id="landingView" class="fade-in pt-14">
-    <!-- Hero -->
+
+    <!-- Hero Section -->
     <section class="relative overflow-hidden min-h-screen flex flex-col items-center justify-center px-5 py-20 text-center">
-        <!-- Background glow blobs -->
         <div class="pointer-events-none absolute inset-0 overflow-hidden">
             <div class="absolute -top-32 -left-32 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl"></div>
             <div class="absolute top-1/3 -right-24 w-80 h-80 bg-purple-600/10 rounded-full blur-3xl"></div>
@@ -75,25 +125,21 @@
         </div>
 
         <div class="relative z-10 max-w-3xl mx-auto space-y-7">
-            <!-- Badge -->
             <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] font-bold uppercase tracking-widest">
                 <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 pulse-ring inline-block"></span>
                 WhatsApp Automation · Zero Coding Required
             </div>
 
-            <!-- Headline -->
             <h1 class="text-4xl sm:text-6xl font-black leading-[1.1] tracking-tight">
                 Your Personal<br>
                 <span class="gradient-text">WhatsApp Bot</span><br>
                 <span class="text-slate-300">In Under 2 Minutes</span>
             </h1>
 
-            <!-- Sub -->
             <p class="text-slate-400 text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
                 No code. No servers. No stress. Just connect your number and Empire MD handles everything — media downloads, stickers, group management, and more.
             </p>
 
-            <!-- CTA Buttons -->
             <div class="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
                 <button onclick="startOnboarding()" class="group w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-8 rounded-2xl text-base shadow-2xl shadow-indigo-600/30 transition-all duration-200 glow flex items-center justify-center gap-3">
                     <i class="fa-brands fa-whatsapp text-lg"></i>
@@ -140,7 +186,6 @@
             <p class="text-slate-400 text-sm">Real-time registry of bots running on the Empire network.</p>
         </div>
         <div id="publicBotList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <!-- Loaded via JS -->
             <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 animate-pulse space-y-3">
                 <div class="h-4 bg-slate-800 rounded w-3/4"></div>
                 <div class="h-3 bg-slate-800 rounded w-1/2"></div>
@@ -195,7 +240,8 @@
                 <div class="space-y-2">
                     <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Bot Name <span class="text-red-400">*</span></label>
                     <input id="botName" type="text" placeholder="e.g. My Empire Bot" maxlength="30"
-                        class="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm text-slate-100 placeholder-slate-600 outline-none transition">
+                        class="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm text-slate-100 placeholder-slate-600 outline-none transition"
+                        oninput="clearFieldError('step1Error')">
                     <p class="text-[10px] text-slate-600">This will be your bot's display name. Max 30 chars.</p>
                 </div>
                 <div class="space-y-2">
@@ -205,19 +251,31 @@
                             <i class="fa-solid fa-flag text-xs text-indigo-400"></i>
                             <span>+</span>
                         </div>
-                        <input id="phoneNumber" type="tel" placeholder="2348100000000" 
-                            class="flex-1 bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm font-mono text-slate-100 placeholder-slate-600 outline-none transition">
+                        <input id="phoneNumber" type="tel" placeholder="2348100000000"
+                            class="flex-1 bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-sm font-mono text-slate-100 placeholder-slate-600 outline-none transition"
+                            oninput="clearFieldError('step1Error')">
                     </div>
-                    <p class="text-[10px] text-slate-600">Include country code. No spaces or dashes. E.g. 2348012345678</p>
+                    <p class="text-[10px] text-slate-600">Include country code. No spaces or dashes. E.g. <span class="text-indigo-400 font-mono">2348012345678</span></p>
+                </div>
+
+                <!-- ── Live Process Log (Step 1) ── -->
+                <div id="processLog" class="hidden bg-slate-950 border border-slate-800/60 rounded-xl p-4 max-h-36 overflow-y-auto">
+                    <div class="flex items-center gap-2 pb-2 mb-2 border-b border-slate-800/60">
+                        <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 badge-pulse inline-block"></span>
+                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Process Log</span>
+                    </div>
+                    <div id="logLines" class="space-y-0"></div>
                 </div>
 
                 <div id="step1Error" class="hidden text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3"></div>
 
                 <button onclick="requestPairing()" id="connectBtn"
-                    class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-6 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 disabled:opacity-50">
+                    class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-6 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                     <span id="connectBtnText"><i class="fa-solid fa-link mr-1.5"></i>Get Pairing Code</span>
-                    <span id="connectBtnLoader" class="hidden"><i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i>Connecting...</span>
+                    <span id="connectBtnLoader" class="hidden"><i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i>Connecting to WhatsApp...</span>
                 </button>
+
+                <p class="text-[10px] text-center text-slate-600">Your number is never stored publicly. This is your own personal bot connection.</p>
             </div>
         </div>
 
@@ -228,7 +286,7 @@
                     <i class="fa-solid fa-key text-3xl text-indigo-400"></i>
                 </div>
                 <h2 class="text-2xl font-black">Enter Pairing Code</h2>
-                <p class="text-slate-400 text-sm">Open WhatsApp → Linked Devices → Link a Device → Enter Code Manually</p>
+                <p class="text-slate-400 text-sm">Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> → <strong>Enter Code Manually</strong></p>
             </div>
 
             <!-- Countdown Ring -->
@@ -238,31 +296,74 @@
                         <circle class="timer-ring-track" cx="44" cy="44" r="40" fill="none" stroke-width="4"/>
                         <circle id="timerRing" class="timer-ring-fill" cx="44" cy="44" r="40" fill="none" stroke-width="4" stroke-dashoffset="0"/>
                     </svg>
-                    <div class="text-center">
-                        <div id="countdownDisplay" class="text-3xl font-black text-indigo-400">2:00</div>
+                    <div class="text-center z-10">
+                        <div id="countdownDisplay" class="text-3xl font-black text-indigo-400">0:30</div>
                         <div class="text-[9px] text-slate-500 uppercase tracking-widest">expires</div>
                     </div>
                 </div>
-                <p id="codeWaitMsg" class="text-xs text-slate-500 animate-pulse">⏳ Fetching your pairing code...</p>
-            </div>
 
-            <!-- Pairing Code Display -->
-            <div id="pairingCodeBox" class="hidden">
-                <div class="bg-slate-900/60 border border-indigo-500/30 rounded-2xl p-6 text-center space-y-4 glow">
-                    <p class="text-xs font-bold text-indigo-400 uppercase tracking-widest">Your Pairing Code</p>
-                    <div id="codeChars" class="flex items-center justify-center gap-2 flex-wrap"></div>
-                    <p class="text-[10px] text-slate-500">Enter this code in WhatsApp Linked Devices within the timer above.</p>
+                <!-- Status Badge -->
+                <div id="statusBadge" class="flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-full badge-wait">
+                    <i id="statusBadgeIcon" class="fa-solid fa-circle-notch fa-spin text-[10px]"></i>
+                    <span id="statusBadgeText">Connecting to WhatsApp servers...</span>
                 </div>
             </div>
 
-            <!-- Waiting for connection -->
+            <!-- Live Feed Terminal (Step 2) -->
+            <div class="bg-slate-950 border border-slate-800/60 rounded-xl p-4 max-h-44 overflow-y-auto">
+                <div class="flex items-center gap-2 pb-2 mb-2 border-b border-slate-800/60">
+                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 badge-pulse inline-block"></span>
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Live Feed</span>
+                </div>
+                <div id="logLines2" class="space-y-0"></div>
+            </div>
+
+            <!-- Pairing Code Box (appears once code arrives) -->
+            <div id="pairingCodeBox" class="hidden fade-in">
+                <div class="bg-slate-900/60 border border-indigo-500/40 rounded-2xl p-6 space-y-5 glow">
+                    <p class="text-xs font-bold text-indigo-400 uppercase tracking-widest text-center">🔑 Your Pairing Code</p>
+
+                    <!-- Code Character Blocks -->
+                    <div id="codeChars" class="flex items-center justify-center gap-2 flex-wrap"></div>
+
+                    <!-- Copy Code Button -->
+                    <div class="flex flex-col items-center gap-2">
+                        <button onclick="copyPairingCode()" id="copyCodeBtn"
+                            class="copy-btn flex items-center gap-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold py-2.5 px-6 rounded-xl text-xs transition-all">
+                            <i class="fa-regular fa-copy" id="copyCodeIcon"></i>
+                            <span id="copyCodeText">Copy Code</span>
+                        </button>
+                        <div id="codeCopiedMsg" class="hidden text-[11px] text-green-400 font-semibold">
+                            ✅ Code copied to clipboard!
+                        </div>
+                    </div>
+
+                    <!-- Instructions -->
+                    <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-4">
+                        <p class="text-[11px] font-bold text-slate-300 uppercase tracking-widest mb-2">How to enter this code:</p>
+                        <ol class="space-y-1.5">
+                            <li class="flex items-start gap-2 text-xs text-slate-400"><span class="text-indigo-400 font-bold shrink-0">1.</span> Open WhatsApp on your phone</li>
+                            <li class="flex items-start gap-2 text-xs text-slate-400"><span class="text-indigo-400 font-bold shrink-0">2.</span> Tap <span class="text-slate-200 font-semibold">⋮ → Linked Devices</span></li>
+                            <li class="flex items-start gap-2 text-xs text-slate-400"><span class="text-indigo-400 font-bold shrink-0">3.</span> Tap <span class="text-slate-200 font-semibold">Link a Device → Enter code manually</span></li>
+                            <li class="flex items-start gap-2 text-xs text-slate-400"><span class="text-indigo-400 font-bold shrink-0">4.</span> Type or paste the 8-character code above</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Waiting for confirmation (after code shown) -->
             <div id="waitingBox" class="hidden bg-slate-900/50 border border-slate-800 rounded-2xl p-5 text-center space-y-3">
-                <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-2xl"></i>
+                <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-xl"></i>
                 <p class="text-sm text-slate-300 font-semibold">Waiting for WhatsApp to confirm...</p>
-                <p class="text-xs text-slate-500">Once you enter the code in WhatsApp, your bot will auto-connect.</p>
+                <p class="text-xs text-slate-500">Once you enter the code in WhatsApp, your bot auto-connects.</p>
             </div>
 
             <div id="step2Error" class="hidden text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3"></div>
+
+            <button onclick="goBack()"
+                class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 font-semibold py-3 px-6 rounded-xl text-sm transition-all flex items-center justify-center gap-2">
+                <i class="fa-solid fa-arrow-left text-xs"></i> Try Different Number
+            </button>
         </div>
 
         <!-- ─── STEP 3: SUCCESS + Session ID ─── -->
@@ -287,33 +388,34 @@
                     </div>
                 </div>
                 <div class="relative">
-                    <div id="sessionIdDisplay" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 font-mono text-sm text-indigo-300 break-all pr-12"></div>
+                    <div id="sessionIdDisplay" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 font-mono text-sm text-indigo-300 break-all pr-14"></div>
                     <button onclick="copySessionId()" id="copyBtn"
-                        class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-400 transition text-xs font-bold flex items-center gap-1">
+                        class="copy-btn absolute right-3 top-1/2 -translate-y-1/2 bg-indigo-600/15 hover:bg-indigo-600/25 border border-indigo-500/25 text-slate-300 hover:text-indigo-300 transition rounded-lg px-2.5 py-1.5 text-xs font-bold flex items-center gap-1.5">
                         <i class="fa-regular fa-copy" id="copyIcon"></i>
+                        <span id="copyBtnText">Copy</span>
                     </button>
                 </div>
-                <div id="copiedMsg" class="hidden text-[11px] text-green-400 font-semibold text-center copy-flash">
+                <div id="copiedMsg" class="hidden text-[11px] text-green-400 font-semibold text-center">
                     ✅ Session ID copied to clipboard!
                 </div>
             </div>
 
-            <!-- Channel Follow Card -->
+            <!-- Follow Channel -->
             <div class="bg-green-500/5 border border-green-500/20 rounded-2xl p-5 space-y-3">
-                <p class="text-sm font-bold text-green-300">🚀 The Future is Now!</p>
-                <p class="text-xs text-slate-400">Your Empire bot is connected and fully active. Follow the BOT-WAN official channel to get updates, new features, and developer support.</p>
+                <p class="text-sm font-bold text-green-300">🚀 Your Bot Is Active!</p>
+                <p class="text-xs text-slate-400">Follow the BOT-WAN channel for feature updates, support, and new commands.</p>
                 <a href="https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15" target="_blank"
-                   class="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-6 rounded-xl text-sm transition shadow-lg shadow-green-500/20 glow-green">
+                   class="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-6 rounded-xl text-sm transition shadow-lg shadow-green-500/20">
                     <i class="fa-brands fa-whatsapp text-lg"></i>
                     Follow BOT-WAN Channel
                 </a>
             </div>
 
-            <!-- Proceed to Configure -->
-            <button onclick="proceedToSetup()" 
+            <!-- Configure Button -->
+            <button onclick="proceedToSetup()"
                 class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-6 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
                 <i class="fa-solid fa-gears"></i>
-                Configure & Activate My Bot
+                Configure &amp; Activate My Bot
                 <i class="fa-solid fa-arrow-right"></i>
             </button>
         </div>
@@ -321,207 +423,554 @@
     </div>
 </div>
 
+<!-- ══════════════════ SUCCESS MODAL — SESSION ID POPUP ═══════════════════ -->
+<div id="sessionModal" class="modal-overlay hidden overlay-in">
+    <div class="w-full max-w-md bg-slate-900 border border-green-500/30 rounded-3xl p-7 sm:p-8 space-y-6 text-center slide-up glow-green">
+
+        <!-- Header -->
+        <div class="space-y-3">
+            <div class="w-20 h-20 mx-auto bg-gradient-to-br from-green-500/20 to-emerald-600/20 border-2 border-green-500/40 rounded-3xl flex items-center justify-center">
+                <i class="fa-solid fa-shield-check text-4xl text-green-400"></i>
+            </div>
+            <h2 class="text-2xl font-black text-green-400">🎉 Bot Connected!</h2>
+            <p class="text-slate-400 text-sm">Your WhatsApp bot is live. Save your Session ID below — you'll need it to configure your bot.</p>
+        </div>
+
+        <!-- Session ID -->
+        <div class="space-y-3">
+            <p class="text-xs font-bold text-green-400 uppercase tracking-widest">Your Session ID</p>
+            <div class="bg-slate-950 border border-indigo-500/40 rounded-2xl px-5 py-4 font-mono text-base text-indigo-300 break-all text-center leading-relaxed" id="modalSessionId"></div>
+
+            <button onclick="copyModalSessionId()" id="modalCopyBtn"
+                class="copy-btn w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20">
+                <i class="fa-regular fa-copy" id="modalCopyIcon"></i>
+                <span id="modalCopyText">Copy Session ID</span>
+            </button>
+
+            <div id="modalCopiedMsg" class="hidden text-xs text-green-400 font-semibold">
+                ✅ Copied to clipboard!
+            </div>
+
+            <p class="text-[10px] text-slate-500">⚠️ Keep this private — it's your bot's unique identity.</p>
+        </div>
+
+        <!-- What happened summary -->
+        <div class="bg-green-500/5 border border-green-500/15 rounded-2xl p-4 text-left space-y-2">
+            <p class="text-xs font-bold text-green-300 uppercase tracking-wider mb-2">✅ What just happened:</p>
+            <p class="text-xs text-slate-400 flex gap-2"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i> WhatsApp pairing confirmed</p>
+            <p class="text-xs text-slate-400 flex gap-2"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i> Welcome DM sent to your WhatsApp number</p>
+            <p class="text-xs text-slate-400 flex gap-2"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i> Session registered in Empire database</p>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex flex-col gap-3">
+            <button onclick="closeModalAndProceed()"
+                class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3.5 px-6 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-gears"></i>
+                Configure My Bot
+            </button>
+            <button onclick="closeModal()"
+                class="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 font-semibold py-3 px-6 rounded-xl text-sm transition-all">
+                Close &amp; Go Back
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════ SCRIPTS ═══════════════════════════════ -->
 <script>
-    const CHANNEL_URL = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-    let currentSessionId = null;
-    let pollingInterval = null;
-    let countdownInterval = null;
-    let totalSeconds = 120;
-    let sessionIdForSetup = null;
+// ═══════════════════════════════════════════════════════════════
+// CONFIG — Smart backend URL resolution
+// ═══════════════════════════════════════════════════════════════
+const API_BASE = (() => {
+    // 1. Check if a custom backend URL was saved in localStorage (for separate deployments)
+    const saved = localStorage.getItem('empire_backend_url');
+    if (saved && saved.startsWith('http')) return saved.replace(/\/$/, '');
 
-    // Load public bot directory
-    async function loadPublicBots() {
-        try {
-            const res = await fetch('/api/public-directory');
-            const data = await res.json();
-            const list = document.getElementById('publicBotList');
-            if (!data.bots || data.bots.length === 0) {
-                list.innerHTML = `<div class="col-span-full text-center py-10 text-slate-600 text-sm">No bots registered yet. Be the first!</div>`;
-                return;
-            }
-            list.innerHTML = data.bots.map(bot => `
-                <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition space-y-3">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2.5">
-                            <div class="w-9 h-9 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 flex-shrink-0">
-                                <i class="fa-solid fa-robot text-indigo-400 text-sm"></i>
-                            </div>
-                            <div>
-                                <div class="text-sm font-bold text-slate-200">${bot.bot_name || 'Empire Bot'}</div>
-                                <div class="text-[10px] text-slate-500">${maskPhone(bot.phone_number)}</div>
-                            </div>
+    // 2. If running on Railway/localhost, use relative paths (same-origin)
+    const h = window.location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1' || h.includes('.railway.app')) return '';
+
+    // 3. Fallback — same origin (works when frontend is served by the same Express server)
+    return '';
+})();
+
+const CHANNEL_URL = 'https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15';
+
+// State
+let currentSessionId = null;
+let sessionIdForSetup = null;
+let currentPairingCode = null;
+let pollingInterval   = null;
+let countdownInterval = null;
+let totalSeconds      = 30;
+let codeShown         = false;
+
+// ═══════════════════════════════════════════════════════════════
+// BACKEND HEALTH CHECK
+// ═══════════════════════════════════════════════════════════════
+async function checkBackendHealth() {
+    const el   = document.getElementById('backendStatus');
+    const dot  = document.getElementById('backendDot');
+    const lbl  = document.getElementById('backendLabel');
+    el.classList.remove('hidden');
+    try {
+        const r = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5000) });
+        if (r.ok) {
+            dot.className = 'w-1.5 h-1.5 rounded-full dot-online inline-block';
+            lbl.textContent = 'Backend Online';
+            lbl.className = 'text-green-400';
+        } else throw new Error();
+    } catch {
+        dot.className = 'w-1.5 h-1.5 rounded-full dot-offline inline-block';
+        lbl.textContent = 'Backend Offline';
+        lbl.className = 'text-red-400';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROCESS LOG HELPERS
+// ═══════════════════════════════════════════════════════════════
+function addLog(containerId, msg, type = 'info') {
+    const c   = document.getElementById(containerId);
+    if (!c) return;
+    const icons = { info: '🔵', success: '✅', error: '❌', wait: '⏳' };
+    const cls   = { info: 'log-info', success: 'log-success', error: 'log-error', wait: 'log-wait' };
+    const el    = document.createElement('div');
+    el.className = `log-line ${cls[type] || 'log-info'} text-[11px] font-mono`;
+    const ts     = new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    el.innerHTML = `<span class="text-slate-600 mr-1.5">[${ts}]</span><span class="text-slate-300">${icons[type] || '🔵'} ${msg}</span>`;
+    c.appendChild(el);
+    const scroll = c.closest('.overflow-y-auto') || c.parentElement;
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PUBLIC BOT DIRECTORY
+// ═══════════════════════════════════════════════════════════════
+async function loadPublicBots() {
+    const list = document.getElementById('publicBotList');
+    try {
+        const r    = await fetch(`${API_BASE}/api/public-directory`);
+        const data = await r.json();
+        if (!data.bots || data.bots.length === 0) {
+            list.innerHTML = `<div class="col-span-full text-center py-12 text-slate-600 text-sm">No bots registered yet. Be the first! 🚀</div>`;
+            return;
+        }
+        list.innerHTML = data.bots.map(bot => `
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition space-y-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 shrink-0">
+                            <i class="fa-solid fa-robot text-indigo-400 text-sm"></i>
                         </div>
-                        <div class="flex items-center gap-1.5 text-[10px] font-semibold ${bot.status === 'online' ? 'text-green-400' : 'text-slate-500'}">
-                            <span class="w-1.5 h-1.5 rounded-full ${bot.status === 'online' ? 'status-dot-online' : 'status-dot-offline'} inline-block"></span>
-                            ${bot.status === 'online' ? 'Online' : 'Offline'}
+                        <div>
+                            <div class="text-sm font-bold text-slate-200">${xss(bot.bot_name || 'Empire Bot')}</div>
+                            <div class="text-[10px] text-slate-500">${maskPhone(bot.phone_number)}</div>
                         </div>
                     </div>
-                    <div class="text-[10px] font-mono text-indigo-400/70 bg-indigo-500/5 px-3 py-1.5 rounded-lg border border-indigo-500/10 truncate">
-                        ${bot.session_id || 'N/A'}
+                    <div class="flex items-center gap-1.5 text-[10px] font-semibold ${bot.status === 'online' ? 'text-green-400' : 'text-slate-500'}">
+                        <span class="w-1.5 h-1.5 rounded-full ${bot.status === 'online' ? 'dot-online' : 'dot-offline'} inline-block"></span>
+                        ${bot.status === 'online' ? 'Online' : 'Offline'}
                     </div>
-                    <div class="text-[10px] text-slate-600">Registered ${bot.created_at ? new Date(bot.created_at).toLocaleDateString() : 'N/A'}</div>
                 </div>
-            `).join('');
-        } catch (e) {
-            document.getElementById('publicBotList').innerHTML = `<div class="col-span-full text-center py-10 text-slate-600 text-sm">Unable to load bot status. Backend may be offline.</div>`;
-        }
+                <div class="text-[10px] font-mono text-indigo-400/70 bg-indigo-500/5 px-3 py-1.5 rounded-lg border border-indigo-500/10 truncate">
+                    ${xss(bot.session_id || 'N/A')}
+                </div>
+                <div class="text-[10px] text-slate-600">
+                    Registered ${bot.created_at ? new Date(bot.created_at).toLocaleDateString() : 'N/A'}
+                </div>
+            </div>
+        `).join('');
+    } catch {
+        list.innerHTML = `<div class="col-span-full text-center py-12 text-slate-600 text-sm">Unable to load bots. Backend may be warming up.</div>`;
+    }
+}
+
+function maskPhone(n) {
+    if (!n) return 'N/A';
+    const s = String(n);
+    return s.length < 6 ? s : s.slice(0, 5) + '****' + s.slice(-2);
+}
+function xss(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════════
+function startOnboarding() {
+    document.getElementById('landingView').classList.add('hidden');
+    document.getElementById('onboardingView').classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goBack() {
+    clearInterval(pollingInterval);
+    clearInterval(countdownInterval);
+    codeShown         = false;
+    currentPairingCode = null;
+    const btn = document.getElementById('connectBtn');
+    if (btn) btn.disabled = false;
+    document.getElementById('connectBtnText').classList.remove('hidden');
+    document.getElementById('connectBtnLoader').classList.add('hidden');
+    document.getElementById('step1Error').classList.add('hidden');
+    document.getElementById('processLog').classList.add('hidden');
+    document.getElementById('logLines').innerHTML = '';
+    setStep(1);
+}
+
+function setStep(n) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById(`step${n}`).classList.add('active');
+    const labels = { 1: 'Step 1 of 3', 2: 'Step 2 of 3', 3: 'Step 3 of 3' };
+    const pcts   = { 1: '33%', 2: '66%', 3: '100%' };
+    document.getElementById('stepLabel').textContent = labels[n];
+    document.getElementById('stepPct').textContent   = pcts[n];
+    document.getElementById('progressBar').style.width = pcts[n];
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function clearFieldError(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STEP 1 → REQUEST PAIRING CODE (REAL BACKEND CALL)
+// ═══════════════════════════════════════════════════════════════
+async function requestPairing() {
+    const botName     = document.getElementById('botName').value.trim();
+    const phoneNumber = document.getElementById('phoneNumber').value.trim().replace(/\D/g, '');
+    const errEl       = document.getElementById('step1Error');
+    errEl.classList.add('hidden');
+
+    // Validate inputs
+    if (!botName || botName.length < 2) {
+        errEl.textContent = '⚠️ Please enter a bot name (at least 2 characters).';
+        errEl.classList.remove('hidden');
+        return;
+    }
+    if (!phoneNumber || phoneNumber.length < 7 || phoneNumber.length > 15) {
+        errEl.textContent = '⚠️ Enter your WhatsApp number with country code, digits only. Example: 2348012345678';
+        errEl.classList.remove('hidden');
+        return;
     }
 
-    function maskPhone(number) {
-        if (!number) return 'N/A';
-        const str = String(number);
-        return str.slice(0, 5) + '****' + str.slice(-2);
-    }
+    // UI: loading state
+    const btn = document.getElementById('connectBtn');
+    btn.disabled = true;
+    document.getElementById('connectBtnText').classList.add('hidden');
+    document.getElementById('connectBtnLoader').classList.remove('hidden');
 
-    function startOnboarding() {
-        document.getElementById('landingView').classList.add('hidden');
-        document.getElementById('onboardingView').classList.remove('hidden');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    // Show process log
+    document.getElementById('processLog').classList.remove('hidden');
+    addLog('logLines', `Starting connection for <strong>${xss(botName)}</strong>`, 'info');
+    addLog('logLines', `Number +${phoneNumber} → Sending to Empire backend...`, 'wait');
 
-    function setStep(n) {
-        document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
-        document.getElementById(`step${n}`).classList.add('active');
-        const labels = { 1: 'Step 1 of 3', 2: 'Step 2 of 3', 3: 'Step 3 of 3' };
-        const pcts = { 1: '33%', 2: '66%', 3: '100%' };
-        document.getElementById('stepLabel').textContent = labels[n];
-        document.getElementById('stepPct').textContent = pcts[n];
-        document.getElementById('progressBar').style.width = pcts[n];
-    }
+    try {
+        // ↓↓ REAL POST to /api/connect ↓↓
+        const res  = await fetch(`${API_BASE}/api/connect`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ botName, phoneNumber })
+        });
+        const data = await res.json();
 
-    async function requestPairing() {
-        const botName = document.getElementById('botName').value.trim();
-        const phoneNumber = document.getElementById('phoneNumber').value.trim();
-        const errEl = document.getElementById('step1Error');
-        errEl.classList.add('hidden');
-
-        if (!botName || botName.length < 2) {
-            errEl.textContent = 'Please enter a bot name (at least 2 characters).';
-            errEl.classList.remove('hidden');
-            return;
-        }
-        if (!phoneNumber || !/^[0-9]{7,15}$/.test(phoneNumber)) {
-            errEl.textContent = 'Please enter a valid phone number with country code. Numbers only, no + or spaces.';
-            errEl.classList.remove('hidden');
-            return;
-        }
-
-        const btn = document.getElementById('connectBtn');
-        document.getElementById('connectBtnText').classList.add('hidden');
-        document.getElementById('connectBtnLoader').classList.remove('hidden');
-        btn.disabled = true;
-
-        try {
-            const res = await fetch('/api/connect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ botName, phoneNumber })
-            });
-            const data = await res.json();
-
-            if (!data.success) {
-                errEl.textContent = data.error || 'Failed to initiate connection.';
-                errEl.classList.remove('hidden');
-                btn.disabled = false;
-                document.getElementById('connectBtnText').classList.remove('hidden');
-                document.getElementById('connectBtnLoader').classList.add('hidden');
-                return;
-            }
-
-            currentSessionId = data.sessionId;
-            sessionIdForSetup = data.sessionId;
-            totalSeconds = data.expiryIn || 120;
-            setStep(2);
-            startCountdown();
-            startPolling();
-        } catch (e) {
-            errEl.textContent = 'Network error. Make sure the server is running.';
+        if (!data.success) {
+            addLog('logLines', `Backend error: ${data.error || 'Unknown error'}`, 'error');
+            errEl.textContent = '❌ ' + (data.error || 'Failed to connect. Please try again.');
             errEl.classList.remove('hidden');
             btn.disabled = false;
             document.getElementById('connectBtnText').classList.remove('hidden');
             document.getElementById('connectBtnLoader').classList.add('hidden');
+            return;
+        }
+
+        addLog('logLines', `✅ Session created: ${data.sessionId}`, 'success');
+        addLog('logLines', `Waiting for WhatsApp to issue pairing code...`, 'wait');
+
+        currentSessionId  = data.sessionId;
+        sessionIdForSetup = data.sessionId;
+        totalSeconds      = data.expiryIn || 30;
+
+        // Advance to step 2
+        setStep(2);
+        addLog('logLines2', `Session: <strong>${data.sessionId}</strong>`, 'info');
+        addLog('logLines2', `Polling WhatsApp servers for pairing code...`, 'wait');
+
+        startCountdown();
+        startPolling();
+
+    } catch (err) {
+        addLog('logLines', `Network error: ${err.message}`, 'error');
+        errEl.textContent = `❌ Network error — check your backend URL and ensure the server is running. (${err.message})`;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        document.getElementById('connectBtnText').classList.remove('hidden');
+        document.getElementById('connectBtnLoader').classList.add('hidden');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 30-SECOND COUNTDOWN TIMER
+// ═══════════════════════════════════════════════════════════════
+function startCountdown() {
+    let secs = totalSeconds;
+    const ring   = document.getElementById('timerRing');
+    const circ   = 251.2;
+
+    function tick() {
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        const disp = document.getElementById('countdownDisplay');
+        disp.textContent = `${m}:${String(s).padStart(2,'0')}`;
+
+        // Animate ring
+        const progress = (secs / totalSeconds) * circ;
+        ring.style.strokeDashoffset = String(circ - progress);
+
+        // Red warning under 10 seconds
+        if (secs <= 10) {
+            ring.classList.add('timer-ring-urgent');
+            disp.className = 'text-3xl font-black text-red-400';
+        } else {
+            ring.classList.remove('timer-ring-urgent');
+            disp.className = 'text-3xl font-black text-indigo-400';
         }
     }
 
-    function startCountdown() {
-        let secs = totalSeconds;
-        const ring = document.getElementById('timerRing');
-        const circumference = 251.2;
-
-        function updateDisplay() {
-            const m = Math.floor(secs / 60);
-            const s = secs % 60;
-            document.getElementById('countdownDisplay').textContent = `${m}:${String(s).padStart(2, '0')}`;
-            const progress = (secs / totalSeconds) * circumference;
-            ring.style.strokeDashoffset = circumference - progress;
-        }
-
-        updateDisplay();
-        countdownInterval = setInterval(() => {
-            secs--;
-            updateDisplay();
-            if (secs <= 0) {
-                clearInterval(countdownInterval);
-                document.getElementById('countdownDisplay').textContent = '0:00';
-                document.getElementById('step2Error').textContent = 'Code expired. Please go back and try again.';
-                document.getElementById('step2Error').classList.remove('hidden');
+    tick();
+    countdownInterval = setInterval(() => {
+        secs--;
+        tick();
+        if (secs <= 0) {
+            clearInterval(countdownInterval);
+            document.getElementById('countdownDisplay').textContent = '0:00';
+            if (!codeShown) {
+                const e = document.getElementById('step2Error');
+                e.textContent = '⏰ Session timed out — the pairing code expired. Go back and try again.';
+                e.classList.remove('hidden');
+                addLog('logLines2', 'Session expired — code was not received in time.', 'error');
+                setStatusBadge('Timed out. Please try again.', 'error');
                 clearInterval(pollingInterval);
             }
-        }, 1000);
-    }
+        }
+    }, 1000);
+}
 
-    function startPolling() {
-        pollingInterval = setInterval(async () => {
-            try {
-                const res = await fetch(`/api/status/${currentSessionId}`);
-                const data = await res.json();
+// ═══════════════════════════════════════════════════════════════
+// STATUS BADGE HELPER
+// ═══════════════════════════════════════════════════════════════
+function setStatusBadge(text, type = 'info') {
+    const badge = document.getElementById('statusBadge');
+    const icon  = document.getElementById('statusBadgeIcon');
+    const span  = document.getElementById('statusBadgeText');
+    badge.className = 'flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-full transition-all';
+    const classes = {
+        wait:    'badge-wait',
+        success: 'badge-success',
+        error:   'badge-error',
+        info:    'badge-info'
+    };
+    badge.classList.add(classes[type] || 'badge-info');
+    const icons = {
+        wait:    'fa-solid fa-circle-notch fa-spin text-[10px]',
+        success: 'fa-solid fa-check text-[10px]',
+        error:   'fa-solid fa-triangle-exclamation text-[10px]',
+        info:    'fa-solid fa-circle-notch fa-spin text-[10px]'
+    };
+    icon.className = icons[type] || icons.info;
+    span.textContent = text;
+}
 
-                if (data.status === 'pairing' && data.pairingCode) {
-                    const codeEl = document.getElementById('codeChars');
-                    const code = data.pairingCode.replace(/[^A-Z0-9]/gi, '');
-                    const formatted = code.match(/.{1,4}/g)?.join('-') || code;
-                    const parts = formatted.split('-');
-                    codeEl.innerHTML = parts.map(p => `<span class="code-char">${p}</span>`).join('');
-                    document.getElementById('pairingCodeBox').classList.remove('hidden');
-                    document.getElementById('codeWaitMsg').classList.add('hidden');
-                    document.getElementById('waitingBox').classList.remove('hidden');
+// ═══════════════════════════════════════════════════════════════
+// REAL-TIME POLLING → GET /api/status/:sessionId
+// ═══════════════════════════════════════════════════════════════
+function startPolling() {
+    let lastCode = null;
+
+    pollingInterval = setInterval(async () => {
+        if (!currentSessionId) return;
+        try {
+            const res  = await fetch(`${API_BASE}/api/status/${currentSessionId}`);
+            const data = await res.json();
+
+            // ── New pairing code received ──
+            if (data.status === 'pairing' && data.pairingCode && data.pairingCode !== lastCode) {
+                lastCode           = data.pairingCode;
+                currentPairingCode = data.pairingCode;
+
+                if (!codeShown) {
+                    codeShown = true;
+                    addLog('logLines2', `✅ Pairing code received! Enter it in WhatsApp now.`, 'success');
+                    setStatusBadge('Code ready — enter it in WhatsApp!', 'success');
                 }
 
-                if (data.status === 'connected') {
-                    clearInterval(pollingInterval);
-                    clearInterval(countdownInterval);
-                    document.getElementById('sessionIdDisplay').textContent = currentSessionId;
-                    setStep(3);
-                    document.getElementById('step3').classList.add('fade-in');
-                }
-
-                if (data.status === 'expired') {
-                    clearInterval(pollingInterval);
-                }
-            } catch (e) {
-                console.error("Polling error:", e);
+                renderPairingCode(data.pairingCode);
+                document.getElementById('pairingCodeBox').classList.remove('hidden');
+                document.getElementById('codeWaitMsg') && document.getElementById('codeWaitMsg').classList.add('hidden');
+                document.getElementById('waitingBox').classList.remove('hidden');
             }
+
+            // ── Still waiting for code ──
+            if (data.status === 'pairing' && !data.pairingCode && !codeShown) {
+                setStatusBadge('Generating your pairing code...', 'wait');
+                if (data.secondsLeft !== undefined) {
+                    addLog('logLines2', `Waiting... ${data.secondsLeft}s remaining.`, 'wait');
+                }
+            }
+
+            // ── Backend reported an error getting the code ──
+            if (data.pairingCodeError && !codeShown) {
+                addLog('logLines2', `⚠️ Code error: ${data.pairingCodeError}`, 'error');
+                setStatusBadge('Failed to get code. Try again.', 'error');
+            }
+
+            // ── CONNECTED! ──
+            if (data.status === 'connected') {
+                clearInterval(pollingInterval);
+                clearInterval(countdownInterval);
+
+                addLog('logLines2', `🎉 WhatsApp confirmed! Bot is now live!`, 'success');
+                setStatusBadge('Bot connected! 🎉', 'success');
+
+                // Populate inline step 3
+                document.getElementById('sessionIdDisplay').textContent = currentSessionId;
+
+                // Show success MODAL POPUP
+                document.getElementById('modalSessionId').textContent = currentSessionId;
+                document.getElementById('sessionModal').classList.remove('hidden');
+                document.getElementById('sessionModal').classList.add('overlay-in');
+
+                // Also advance wizard step behind modal
+                setStep(3);
+            }
+
+            // ── Expired on server ──
+            if (data.status === 'expired') {
+                clearInterval(pollingInterval);
+                if (!codeShown) {
+                    addLog('logLines2', 'Server session expired.', 'error');
+                    const e = document.getElementById('step2Error');
+                    e.textContent = '⏰ Session expired on the server. Please go back and try again.';
+                    e.classList.remove('hidden');
+                    setStatusBadge('Expired. Please retry.', 'error');
+                }
+            }
+
+        } catch (err) {
+            addLog('logLines2', `Poll error: ${err.message}`, 'error');
+        }
+    }, 2500); // Poll every 2.5 seconds
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER PAIRING CODE CHARACTERS
+// ═══════════════════════════════════════════════════════════════
+function renderPairingCode(raw) {
+    const code  = raw.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    const parts = code.match(/.{1,4}/g) || [code];
+    document.getElementById('codeChars').innerHTML = parts.map(p =>
+        `<span class="code-char">${p}</span>`
+    ).join(`<span class="text-slate-600 font-black text-xl select-none mx-0.5">-</span>`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COPY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+function copyPairingCode() {
+    const code = currentPairingCode;
+    if (!code) return;
+    clipboardWrite(code, () => {
+        document.getElementById('codeCopiedMsg').classList.remove('hidden');
+        document.getElementById('copyCodeIcon').className = 'fa-solid fa-check text-green-400';
+        document.getElementById('copyCodeText').textContent = 'Copied!';
+        setTimeout(() => {
+            document.getElementById('codeCopiedMsg').classList.add('hidden');
+            document.getElementById('copyCodeIcon').className = 'fa-regular fa-copy';
+            document.getElementById('copyCodeText').textContent = 'Copy Code';
         }, 3000);
-    }
+    });
+}
 
-    function copySessionId() {
-        const sid = document.getElementById('sessionIdDisplay').textContent;
-        navigator.clipboard.writeText(sid).then(() => {
-            document.getElementById('copiedMsg').classList.remove('hidden');
-            document.getElementById('copyIcon').className = 'fa-solid fa-check text-green-400';
-            setTimeout(() => {
-                document.getElementById('copiedMsg').classList.add('hidden');
-                document.getElementById('copyIcon').className = 'fa-regular fa-copy';
-            }, 2500);
+function copySessionId() {
+    const sid = document.getElementById('sessionIdDisplay').textContent.trim();
+    if (!sid) return;
+    clipboardWrite(sid, () => {
+        document.getElementById('copiedMsg').classList.remove('hidden');
+        document.getElementById('copyIcon').className = 'fa-solid fa-check text-green-400';
+        document.getElementById('copyBtnText').textContent = 'Copied!';
+        setTimeout(() => {
+            document.getElementById('copiedMsg').classList.add('hidden');
+            document.getElementById('copyIcon').className = 'fa-regular fa-copy';
+            document.getElementById('copyBtnText').textContent = 'Copy';
+        }, 3000);
+    });
+}
+
+function copyModalSessionId() {
+    const sid = document.getElementById('modalSessionId').textContent.trim();
+    if (!sid) return;
+    clipboardWrite(sid, () => {
+        document.getElementById('modalCopiedMsg').classList.remove('hidden');
+        document.getElementById('modalCopyIcon').className = 'fa-solid fa-check';
+        document.getElementById('modalCopyText').textContent = 'Copied!';
+        setTimeout(() => {
+            document.getElementById('modalCopiedMsg').classList.add('hidden');
+            document.getElementById('modalCopyIcon').className = 'fa-regular fa-copy';
+            document.getElementById('modalCopyText').textContent = 'Copy Session ID';
+        }, 3000);
+    });
+}
+
+function clipboardWrite(text, onSuccess) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+            // Fallback for older/mobile browsers
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); onSuccess(); } catch {}
+            document.body.removeChild(ta);
         });
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); onSuccess(); } catch {}
+        document.body.removeChild(ta);
     }
+}
 
-    function proceedToSetup() {
-        window.location.href = `/setup.html?session=${encodeURIComponent(sessionIdForSetup)}`;
-    }
+// ═══════════════════════════════════════════════════════════════
+// MODAL CONTROLS
+// ═══════════════════════════════════════════════════════════════
+function closeModal() {
+    document.getElementById('sessionModal').classList.add('hidden');
+}
 
-    // Load bots on page load
-    window.addEventListener('load', loadPublicBots);
+function closeModalAndProceed() {
+    closeModal();
+    proceedToSetup();
+}
+
+function proceedToSetup() {
+    window.location.href = `setup.html?session=${encodeURIComponent(sessionIdForSetup || '')}`;
+}
+
+// Close modal on backdrop click
+document.getElementById('sessionModal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+    checkBackendHealth();
+    loadPublicBots();
+});
 </script>
 </body>
 </html>
