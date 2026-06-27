@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOT-WAN Admin Dashboard · Empire MD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .gradient-text { background: linear-gradient(135deg, #f43f5e, #ec4899, #d946ef); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+<!-- NAVBAR -->
+<nav class="fixed top-0 inset-x-0 z-50 border-b border-slate-900/70 bg-slate-950/80 backdrop-blur-xl">
+    <div class="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <i class="fa-solid fa-robot text-white text-sm"></i>
+            </div>
+            <span class="font-black text-base tracking-tight">BOT<span class="text-indigo-400">-WAN</span> <span class="text-xs text-rose-500 font-bold ml-1">Admin</span></span>
+        </a>
+        <div class="flex items-center gap-3">
+            <a href="/setup.html" class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 hover:text-slate-200">
+                Setup Portal
+            </a>
+            <button onclick="loadAdminBots()" class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-rose-400 bg-rose-500/10 border border-rose-500/20">
+                <i class="fa-solid fa-arrows-rotate mr-1"></i> Refresh
+            </button>
+        </div>
+    </div>
+</nav>
+
+<div class="pt-20 max-w-6xl mx-auto px-5 pb-16 space-y-8">
+    <!-- Header -->
+    <div class="space-y-2">
+        <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-400 tracking-wide uppercase">Admin Registry Control</span>
+        <h1 class="text-3xl font-black">All Registered Bots</h1>
+        <p class="text-slate-400 text-sm">Monitor, inspect, and audit every active WhatsApp bot instance registered on the BOT-WAN network.</p>
+    </div>
+
+    <!-- Stats Panel -->
+    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
+            <div id="totalCount" class="text-3xl font-black text-indigo-400">—</div>
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Registrations</div>
+        </div>
+        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
+            <div id="onlineCount" class="text-3xl font-black text-green-400">—</div>
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Online</div>
+        </div>
+        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
+            <div id="offlineCount" class="text-3xl font-black text-slate-500">—</div>
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Offline Instances</div>
+        </div>
+        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
+            <div class="text-2xl font-black text-rose-400 flex items-center gap-1.5 pt-1">
+                <i class="fa-solid fa-shield-halved"></i> Secured
+            </div>
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Supabase Node State</div>
+        </div>
+    </div>
+
+    <!-- Admin Search / Filter -->
+    <div class="flex items-center gap-3 bg-slate-900/30 border border-slate-900 rounded-2xl p-4">
+        <div class="relative flex-1">
+            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
+            <input type="text" id="adminSearch" oninput="filterBots()" placeholder="Search by Session ID, Bot Name, or Phone Number..."
+                class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-sm text-slate-200 outline-none focus:border-rose-500 transition">
+        </div>
+    </div>
+
+    <!-- Admin Registry Table -->
+    <div class="bg-slate-900/20 border border-slate-900 rounded-2xl overflow-hidden shadow-2xl">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="border-b border-slate-900 bg-slate-900/40 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        <th class="px-6 py-4">Bot Details</th>
+                        <th class="px-6 py-4">Phone Number</th>
+                        <th class="px-6 py-4">Session ID</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Created At</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="adminBotTableBody" class="divide-y divide-slate-900 text-sm">
+                    <!-- Loaded via JS -->
+                    <tr class="animate-pulse">
+                        <td class="px-6 py-8" colspan="6">
+                            <div class="flex items-center justify-center gap-2 text-slate-500">
+                                <i class="fa-solid fa-circle-notch fa-spin text-lg"></i>
+                                <span>Loading system registry...</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allBots = [];
+
+    async function loadAdminBots() {
+        try {
+            const res = await fetch('/api/public-directory');
+            const data = await res.json();
+            allBots = data.bots || [];
+            
+            // Update stats
+            document.getElementById('totalCount').textContent = allBots.length;
+            const online = allBots.filter(b => b.status === 'online').length;
+            document.getElementById('onlineCount').textContent = online;
+            document.getElementById('offlineCount').textContent = allBots.length - online;
+
+            renderTable(allBots);
+        } catch (e) {
+            document.getElementById('adminBotTableBody').innerHTML = `
+                <tr>
+                    <td class="px-6 py-8 text-center text-rose-400" colspan="6">
+                        <i class="fa-solid fa-triangle-exclamation mr-2"></i> Failed to connect to admin database registry.
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    function renderTable(bots) {
+        const tbody = document.getElementById('adminBotTableBody');
+        if (bots.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td class="px-6 py-8 text-center text-slate-500" colspan="6">
+                        No bots found in registry.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = bots.map(bot => `
+            <tr class="hover:bg-slate-900/20 transition">
+                <td class="px-6 py-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+                            <i class="fa-solid fa-robot text-indigo-400 text-sm"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-slate-200">${bot.bot_name || 'Empire Bot'}</div>
+                            <div class="text-[10px] text-slate-500 uppercase tracking-widest">Instance</div>
+                        </div>
+                    </div>
+                </td>
+                <td class="px-6 py-4 font-mono text-slate-300">
+                    +${bot.phone_number || 'N/A'}
+                </td>
+                <td class="px-6 py-4 font-mono text-indigo-300">
+                    <span class="bg-indigo-500/5 px-2.5 py-1 rounded-lg border border-indigo-500/10">${bot.session_id || 'N/A'}</span>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${bot.status === 'online' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'}">
+                        <span class="w-1.5 h-1.5 rounded-full ${bot.status === 'online' ? 'bg-green-400' : 'bg-slate-500'}"></span>
+                        ${bot.status === 'online' ? 'Online' : 'Offline'}
+                    </span>
+                </td>
+                <td class="px-6 py-4 text-xs text-slate-500">
+                    ${bot.created_at ? new Date(bot.created_at).toLocaleString() : 'N/A'}
+                </td>
+                <td class="px-6 py-4 text-right">
+                    <button onclick="copySessionId('${bot.session_id}')" class="text-slate-400 hover:text-indigo-400 p-1.5 transition" title="Copy Session ID">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function copySessionId(sid) {
+        navigator.clipboard.writeText(sid).then(() => {
+            alert(`✅ Session ID copied: ${sid}`);
+        });
+    }
+
+    function filterBots() {
+        const query = document.getElementById('adminSearch').value.toLowerCase().trim();
+        if (!query) {
+            renderTable(allBots);
+            return;
+        }
+
+        const filtered = allBots.filter(bot => 
+            (bot.bot_name && bot.bot_name.toLowerCase().includes(query)) ||
+            (bot.session_id && bot.session_id.toLowerCase().includes(query)) ||
+            (bot.phone_number && bot.phone_number.includes(query))
+        );
+
+        renderTable(filtered);
+    }
+
+    window.addEventListener('load', loadAdminBots);
+</script>
+</body>
+</html>
