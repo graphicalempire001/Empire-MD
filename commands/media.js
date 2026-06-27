@@ -133,7 +133,7 @@ module.exports = {
             if (!text.startsWith("http")) {
                 const searchRes = await axios.get(`https://html.duckduckgo.com/html/?q=site:youtube.com+${encodeURIComponent(text)}`);
                 const html = searchRes.data;
-                const match = html.match(//watch\?v=[a-zA-Z0-9_-]+/);
+             const match = html.match(/\/watch\?v=[a-zA-Z0-9_-]+/);
                 if (!match) {
                     return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
                 }
