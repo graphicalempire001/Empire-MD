@@ -752,20 +752,30 @@ function startCountdown() {
     countdownInterval = setInterval(() => {
         secs--;
         tick();
-        if (secs <= 0) {
+                if (secs <= 0) {
             clearInterval(countdownInterval);
-            document.getElementById('countdownDisplay').textContent = '0:00';
-            if (!codeShown) {
-                const e = document.getElementById('step2Error');
-                e.textContent = '⏰ Session timed out — the pairing code expired. Go back and try again.';
-                e.classList.remove('hidden');
-                addLog('logLines2', 'Session expired — code was not received in time.', 'error');
-                setStatusBadge('Timed out. Please try again.', 'error');
-                clearInterval(pollingInterval);
-            }
+            clearInterval(pollingInterval);
+            localStorage.removeItem('empire_pairing');
+            fetch(`${API_BASE}/api/status/${currentSessionId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const errEl = document.getElementById('step2Error');
+                    errEl.classList.remove('hidden');
+                    if (data.status === 'connected') {
+                        document.getElementById('sessionIdDisplay').textContent = currentSessionId;
+                        document.getElementById('modalSessionId') && (document.getElementById('modalSessionId').textContent = currentSessionId);
+                        document.getElementById('sessionModal')?.classList.remove('hidden');
+                        setStep(3);
+                    } else if (data.pairingCodeError?.includes('429')) {
+                        errEl.innerHTML = `<div class="space-y-2"><p class="text-red-400 font-bold">⚠️ Rate Limited (Error 429)</p><p class="text-slate-400 text-xs">WhatsApp rate-limited this number. Wait 5 min then retry.</p><button onclick="clearAndRetry()" class="mt-2 bg-slate-800 hover:bg-slate-700 px-5 py-2 rounded-xl text-xs font-bold">🔁 Retry After 5 Minutes</button></div>`;
+                    } else if (data.pairingCodeError) {
+                        errEl.innerHTML = `<div class="space-y-2"><p class="text-red-400 font-bold">❌ Pairing Failed: ${data.pairingCodeError}</p><button onclick="clearAndRetry()" class="mt-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl text-xs font-bold">🔁 Try Again</button></div>`;
+                    } else {
+                        errEl.innerHTML = `<div class="space-y-2"><p class="text-amber-400 font-bold">⏰ Code Expired — Not Confirmed</p><p class="text-slate-400 text-xs">You did not enter the code in time, or WhatsApp did not confirm.</p><button onclick="clearAndRetry()" class="mt-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl text-xs font-bold">🔁 Retry Now</button></div>`;
+                    }
+                });
         }
-    }, 1000);
-}
+
 
 // ═══════════════════════════════════════════════════════════════
 // STATUS BADGE HELPER
