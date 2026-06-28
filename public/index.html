@@ -773,15 +773,10 @@ function startCountdown() {
                     } else {
                         errEl.innerHTML = `<div class="space-y-2"><p class="text-amber-400 font-bold">⏰ Code Expired — Not Confirmed</p><p class="text-slate-400 text-xs">You did not enter the code in time, or WhatsApp did not confirm.</p><button onclick="clearAndRetry()" class="mt-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl text-xs font-bold">🔁 Retry Now</button></div>`;
                     }
-                        });
+                });
         }
-    }, 1000);   // ← closes setInterval callback + interval delay
-}               // ← closes startCountdown() function
-
-
-// ═══════════════════════════════════════════════════════════════
-// STATUS BADGE HELPER
-
+    }, 1000);
+}
 
 
 // ═══════════════════════════════════════════════════════════════
