@@ -1,6 +1,4 @@
 // Empire MD - Connection Server, Pairing Engine, & Onboarding Portal
-const fs = require('fs');
-
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -9,6 +7,7 @@ const pino = require('pino');
 const config = require('./config');
 const { handleMessage } = require('./lib/msgHandler');
 const { registerBot, getPublicBots, updateSettings, getSettings } = require('./lib/database');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,7 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 // ✅ CORS headers — allow frontend hosted on Vercel/Netlify to call Railway backend
 app.use((req, res, next) => {
     const allowedOrigins = [
-        process.env.FRONTEND_URL,
+        process.env.FRONTEND_URL || 'https://empire-md-production.up.railway.app',
         'http://localhost:3000',
         'http://localhost:5500'
     ].filter(Boolean);
@@ -54,34 +53,32 @@ app.post('/api/connect', async (req, res) => {
             return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
         }
 
-        // Ensure number is strictly digits for WhatsApp API
         const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
         if (cleanPhone.length < 7 || cleanPhone.length > 15) {
             return res.status(400).json({ success: false, error: "Invalid phone number. Include country code, digits only." });
         }
 
         const sessionId = generateSessionId(botName);
-        console.log(`📡 Triggering real WhatsApp notification for: ${botName} (${cleanPhone})`);
+
+        console.log(`📡 Starting connection pairing for: ${botName} (${cleanPhone}) with Session ID: ${sessionId}`);
 
         // Setup individual multi-file auth credentials path for this user
-     const sessionFolder = path.join(__dirname, `sessions/${sessionId}`);
+        const sessionFolder = path.join(__dirname, `sessions/${sessionId}`);
+        
+        // ✅ Force clear cache to avoid key mismatches or bad states
+        if (fs.existsSync(sessionFolder)) {
+            fs.rmSync(sessionFolder, { recursive: true, force: true });
+        }
+        fs.mkdirSync(sessionFolder, { recursive: true });
 
-// ✅ Wipe any dirty/old credentials so WhatsApp accepts the code
-if (fs.existsSync(sessionFolder)) {
-    fs.rmSync(sessionFolder, { recursive: true, force: true });
-}
-fs.mkdirSync(sessionFolder, { recursive: true });
-
-const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-
+        const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
 
         const sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
             // ✅ CRITICAL: Browser must be in this format to trigger phone notifications
-          browser: ["Chrome (Linux)", "", ""]
-
+            browser: ["Mac OS", "Chrome", "121.0.6167.159"]
         });
 
         // Store session status in memory
@@ -91,18 +88,23 @@ const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
             phoneNumber: cleanPhone,
             status: 'pairing',
             pairingCode: null,
-           expiry: Date.now() + 60000, // ⏱️ 60 seconds
+            expiry: Date.now() + 60000, // ⏱️ 60 seconds expiry
             saveCreds
         };
 
+        // Listen for credentials update
         sock.ev.on('creds.update', saveCreds);
 
+        // Listen for connection changes
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
             if (connection === 'close') {
                 const reason = lastDisconnect?.error?.output?.statusCode;
+                console.log(`🔌 Connection closed for session ${sessionId}. Reason code: ${reason}`);
                 if (reason === DisconnectReason.loggedOut) {
                     delete activeSessions[sessionId];
+                } else {
+                    console.log(`🔄 Reconnecting session ${sessionId}...`);
                 }
             } else if (connection === 'open') {
                 console.log(`✅ Session ${sessionId} connected successfully!`);
@@ -110,10 +112,25 @@ const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
                     activeSessions[sessionId].status = 'connected';
                 }
 
+                // Send welcome message on successful connection
                 const ownerJid = cleanPhone + '@s.whatsapp.net';
                 const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
 
-                const welcomeDm = `✨ *Welcome to ${botName}!* ✨\n\nYour bot is registered under Session ID:\n👉 *${sessionId}*\n\n_Type .help to begin!_`;
+                const welcomeDm = `✨ *Welcome to ${botName}!* ✨
+
+Your advanced Empire WhatsApp bot has been successfully connected and registered under Session ID:
+👉 *${sessionId}*
+
+🔮 *The Future is Now!*
+Experience lightning-fast keyless downloads, high-speed stickers, automatic group follow button redirects, and interactive moderation.
+
+━━━━━━━━━━━━━━━━━━━━
+📢 *JOIN OUR OFFICIAL CHANNEL*
+Stay up to date with updates, developer tips, and new features:
+👉 ${channelUrl}
+━━━━━━━━━━━━━━━━━━━━
+
+_Type .help in any chat to view your premium suite of commands!_`;
 
                 try {
                     await sock.sendMessage(ownerJid, {
@@ -121,7 +138,7 @@ const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
                         contextInfo: {
                             externalAdReply: {
                                 title: "BOT-WAN Official Onboarding",
-                                body: "Connection Successful",
+                                body: "The future of WhatsApp automation is now.",
                                 mediaType: 1,
                                 sourceUrl: channelUrl,
                                 thumbnailUrl: "https://i.ibb.co/pB20mTc5/download.jpg"
@@ -129,48 +146,57 @@ const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
                         }
                     });
                 } catch (dmErr) {
-                    console.error("Welcome DM failed:", dmErr.message);
+                    console.error("Failed to send welcome DM:", dmErr.message);
                 }
 
+                // Register bot session to Supabase database
                 try {
                     await registerBot(sessionId, botName, cleanPhone);
                 } catch (dbErr) {
-                    console.error("DB registration failed:", dbErr.message);
+                    console.error("Failed to register bot in DB:", dbErr.message);
                 }
             }
         });
 
-// ✅ Trigger AFTER socket handshake is confirmed — this is what WhatsApp needs
-sock.ev.on('connection.update', async (update) => {
-    if (!activeSessions[sessionId]) return;
-    const { connection } = update;
+        // Request pairing code from Baileys after socket initialises
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(cleanPhone);
+                console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
+                if (activeSessions[sessionId]) {
+                    activeSessions[sessionId].pairingCode = code;
+                }
+            } catch (err) {
+                console.error("Error requesting pairing code:", err.message);
+                if (activeSessions[sessionId]) {
+                    activeSessions[sessionId].pairingCodeError = err.message.includes('429')
+                        ? "Rate limited (Error 429). Please wait 5 minutes before retrying."
+                        : err.message;
+                }
+            }
+        }, 3000);
 
-    if (connection === 'connecting' && !sock.authState.creds.registered) {
-        try {
-            const code = await sock.requestPairingCode(cleanPhone);
-            console.log(`🔑 Valid code for ${sessionId}: ${code}`);
-            activeSessions[sessionId].pairingCode = code;
-        } catch (err) {
-            activeSessions[sessionId].pairingCodeError = err.message.includes('429')
-                ? 'Rate limited (429). Wait 5 minutes and retry.'
-                : err.message;
-        }
-    } else if (connection === 'open') {
-        activeSessions[sessionId].status = 'connected';
-        // ... your existing welcome DM + registerBot code stays here
-    } else if (connection === 'close') {
-        const reason = update.lastDisconnect?.error?.output?.statusCode;
-        if (reason === DisconnectReason.loggedOut) delete activeSessions[sessionId];
+        // Return initial info to client immediately
+        return res.json({
+            success: true,
+            sessionId,
+            expiryIn: 60 // ⏱️ 60 seconds frontend countdown
+        });
+
+    } catch (err) {
+        console.error("Connect API Error:", err);
+        return res.status(500).json({ success: false, error: err.message });
     }
 });
-
 
 // 🌐 API 2: Poll Session Pairing Status
 app.get('/api/status/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const session = activeSessions[sessionId];
 
-    if (!session) return res.json({ status: 'expired' });
+    if (!session) {
+        return res.json({ status: 'expired' });
+    }
 
     if (session.status === 'connected') {
         return res.json({ status: 'connected', sessionId });
@@ -193,7 +219,10 @@ app.get('/api/status/:sessionId', async (req, res) => {
 app.post('/api/setup', async (req, res) => {
     try {
         const { sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome } = req.body;
-        if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
+
+        if (!sessionId) {
+            return res.status(400).json({ success: false, error: "Session ID is required!" });
+        }
 
         const updatedSettings = {
             botName: botName || "Empire MD",
@@ -205,29 +234,34 @@ app.post('/api/setup', async (req, res) => {
         };
 
         await updateSettings(sessionId, updatedSettings);
-        return res.json({ success: true, message: "Settings saved successfully!" });
+
+        console.log(`⚙️ Dynamic settings saved for session ${sessionId}:`, updatedSettings);
+        return res.json({ success: true, message: "Configuration successfully registered to your cloud bot row!" });
     } catch (err) {
+        console.error("Setup API Error:", err);
         return res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// 🌐 API 4: Public Directory
+// 🌐 API 4: Get Live Registered Bots List
 app.get('/api/public-directory', async (req, res) => {
     try {
         const bots = await getPublicBots();
         return res.json({ success: true, bots });
     } catch (err) {
+        console.error("Public directory error:", err);
         return res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// 🌐 API 5: Health check
+// 🌐 API 5: Health check endpoint
 app.get('/api/health', (req, res) => {
     return res.json({ status: 'online', timestamp: Date.now() });
 });
 
+// Start Onboarding Express Server
 server.listen(PORT, () => {
-    console.log(`🌐 Empire MD Server running on port ${PORT}`);
+    console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
 });
 
 module.exports = { app, server };
