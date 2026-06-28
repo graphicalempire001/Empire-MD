@@ -1,3 +1,4 @@
-// Empire MD - Main Entry Point
-console.log("🚀 Starting Empire MD WhatsApp Bot Onboarding Portal...");
-require('./server');
+// index.js - Empire MD entry point
+require('dotenv').config();
+require('./server'); // starts the Express onboarding portal + pairing engine
+console.log("🚀 Empire MD entry point loaded.");
