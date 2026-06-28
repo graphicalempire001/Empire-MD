@@ -1,4 +1,6 @@
 // Empire MD - Connection Server, Pairing Engine, & Onboarding Portal
+const fs = require('fs');
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -62,15 +64,24 @@ app.post('/api/connect', async (req, res) => {
         console.log(`📡 Triggering real WhatsApp notification for: ${botName} (${cleanPhone})`);
 
         // Setup individual multi-file auth credentials path for this user
-        const sessionFolder = path.join(__dirname, `sessions/${sessionId}`);
-        const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
+     const sessionFolder = path.join(__dirname, `sessions/${sessionId}`);
+
+// ✅ Wipe any dirty/old credentials so WhatsApp accepts the code
+if (fs.existsSync(sessionFolder)) {
+    fs.rmSync(sessionFolder, { recursive: true, force: true });
+}
+fs.mkdirSync(sessionFolder, { recursive: true });
+
+const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
+
 
         const sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
             // ✅ CRITICAL: Browser must be in this format to trigger phone notifications
-           browser: ["Mac OS", "Chrome", "121.0.6167.159"]
+          browser: ["Chrome (Linux)", "", ""]
+
         });
 
         // Store session status in memory
@@ -129,38 +140,30 @@ app.post('/api/connect', async (req, res) => {
             }
         });
 
-        // ✅ THE "UNDERGROUND" TRIGGER
-        // We wait 3 seconds to ensure the socket is authenticated with WA servers
-        // before requesting the code that buzzes the user's phone.
-        setTimeout(async () => {
-    try {
-        const code = await sock.requestPairingCode(cleanPhone);
-        console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
-        if (activeSessions[sessionId]) {
+// ✅ Trigger AFTER socket handshake is confirmed — this is what WhatsApp needs
+sock.ev.on('connection.update', async (update) => {
+    if (!activeSessions[sessionId]) return;
+    const { connection } = update;
+
+    if (connection === 'connecting' && !sock.authState.creds.registered) {
+        try {
+            const code = await sock.requestPairingCode(cleanPhone);
+            console.log(`🔑 Valid code for ${sessionId}: ${code}`);
             activeSessions[sessionId].pairingCode = code;
-        }
-    } catch (err) {
-        console.error("Error requesting pairing code:", err.message);
-        if (activeSessions[sessionId]) {
+        } catch (err) {
             activeSessions[sessionId].pairingCodeError = err.message.includes('429')
-                ? "Rate limited (Error 429). Please wait 5 minutes before retrying."
+                ? 'Rate limited (429). Wait 5 minutes and retry.'
                 : err.message;
         }
-    }
-}, 3000);
-
-
-        return res.json({
-            success: true,
-            sessionId,
-            expiryIn: 60 // ✅ Updated to 60 seconds for frontend
-        });
-
-    } catch (err) {
-        console.error("Connect API Error:", err);
-        return res.status(500).json({ success: false, error: err.message });
+    } else if (connection === 'open') {
+        activeSessions[sessionId].status = 'connected';
+        // ... your existing welcome DM + registerBot code stays here
+    } else if (connection === 'close') {
+        const reason = update.lastDisconnect?.error?.output?.statusCode;
+        if (reason === DisconnectReason.loggedOut) delete activeSessions[sessionId];
     }
 });
+
 
 // 🌐 API 2: Poll Session Pairing Status
 app.get('/api/status/:sessionId', async (req, res) => {
