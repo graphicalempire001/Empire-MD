@@ -49,16 +49,22 @@ async function startSession(sessionId, botName, cleanPhone) {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // FIX #3: request pairing code immediately, guarded by registration state
+  // FIX #3: request pairing code with a 3-second delay, guarded by registration state
   if (!sock.authState.creds.registered) {
-    try {
-      const code = await sock.requestPairingCode(cleanPhone);
-      activeSessions[sessionId].pairingCode = code;
-      console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
-    } catch (err) {
-      console.error("Error requesting pairing code:", err);
-      activeSessions[sessionId].error = "Failed to generate pairing code. Try a different number.";
-    }
+    setTimeout(async () => {
+      try {
+        const code = await sock.requestPairingCode(cleanPhone);
+        if (activeSessions[sessionId]) {
+          activeSessions[sessionId].pairingCode = code;
+          console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
+        }
+      } catch (err) {
+        console.error("Error requesting pairing code:", err);
+        if (activeSessions[sessionId]) {
+          activeSessions[sessionId].error = "Failed to generate pairing code. Try a different number.";
+        }
+      }
+    }, 3000);
   }
 
   sock.ev.on('connection.update', async (update) => {
@@ -171,6 +177,11 @@ app.get('/api/public-directory', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// Health check endpoint (for front-end /api/health queries)
+app.get('/api/health', (req, res) => {
+  return res.json({ success: true, status: 'online' });
 });
 
 server.listen(PORT, () => {
