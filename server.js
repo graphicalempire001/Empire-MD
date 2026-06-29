@@ -235,13 +235,21 @@ app.post('/api/setup', async (req, res) => {
 });
 
 // API 4: Public directory
+// API 4: Public directory - Hide session IDs
 app.get('/api/public-directory', async (req, res) => {
-  try {
-    const bots = await getPublicBots();
-    return res.json({ success: true, bots });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
+    try {
+        const bots = await getPublicBots();
+        // Remove sensitive session_id from public view
+        const safeBots = bots.map(bot => ({
+            bot_name: bot.bot_name || "Empire Bot",
+            phone_number: bot.phone_number ? bot.phone_number.slice(0, 5) + "****" + bot.phone_number.slice(-2) : "Unknown",
+            status: bot.status || "offline",
+            created_at: bot.created_at
+        }));
+        return res.json({ success: true, bots: safeBots });
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 server.listen(PORT, () => {
