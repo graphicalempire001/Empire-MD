@@ -484,20 +484,7 @@
 // ═══════════════════════════════════════════════════════════════
     // Same-origin: frontend and backend are served by the same server
 const API_BASE = '';
-    // 1. YOUR RAILWAY LINK GOES HERE
-    // Replace 'https://your-app-name.up.railway.app' with your actual Railway URL
-    const RAILWAY_URL = 'https://empire-md-production.up.railway.app';
-
-    // 2. Logic to determine which URL to use
-    const h = window.location.hostname;
-    
-    // If we are already running ON Railway, use relative paths (empty string)
-    if (h.includes('.railway.app') || h === 'localhost' || h === '127.0.0.1') {
-        return '';
-    }
-
-    // If we are on Vercel/Netlify, use the hardcoded Railway link
-    return RAILWAY_URL.replace(/\/$/, '');
+ 
 })();
 
 const CHANNEL_URL = 'https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15';
