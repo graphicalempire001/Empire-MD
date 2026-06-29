@@ -2,8 +2,13 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const cors = require('cors');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason,
+  Browsers,
+  fetchLatestBaileysVersion
+} = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const config = require('./config');
 const { handleMessage } = require('./lib/msgHandler');
@@ -13,7 +18,6 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -26,16 +30,18 @@ function generateSessionId(botName) {
   return `BOTWAN_${formattedName}_${randomSuffix}`;
 }
 
-// Core connection routine — reusable so we can reconnect
+// Reusable connection routine so we can actually reconnect
 async function startSession(sessionId, botName, cleanPhone) {
   const sessionFolder = path.join(__dirname, `sessions/${sessionId}`);
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
+  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
+    version,
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: ["BOT-WAN", "Chrome", "1.0.0"]
+    browser: Browsers.ubuntu('Chrome') // FIX #3: correct browser for pairing-code flow
   });
 
   if (!activeSessions[sessionId]) {
@@ -49,22 +55,23 @@ async function startSession(sessionId, botName, cleanPhone) {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // FIX #3: request pairing code with a 3-second delay, guarded by registration state
+  // FIX #1: only request a code when NOT registered, and wait until socket is ready
   if (!sock.authState.creds.registered) {
     setTimeout(async () => {
       try {
         const code = await sock.requestPairingCode(cleanPhone);
         if (activeSessions[sessionId]) {
-          activeSessions[sessionId].pairingCode = code;
-          console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
+          // format nicely: XXXX-XXXX
+          activeSessions[sessionId].pairingCode = code?.match(/.{1,4}/g)?.join('-') || code;
         }
+        console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
       } catch (err) {
         console.error("Error requesting pairing code:", err);
         if (activeSessions[sessionId]) {
-          activeSessions[sessionId].error = "Failed to generate pairing code. Try a different number.";
+          activeSessions[sessionId].error = "Failed to generate code. Try again.";
         }
       }
-    }, 3000);
+    }, 4000);
   }
 
   sock.ev.on('connection.update', async (update) => {
@@ -72,22 +79,27 @@ async function startSession(sessionId, botName, cleanPhone) {
 
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
-      console.log(`🔌 Connection closed for ${sessionId}. Reason: ${reason}`);
+      console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
 
       if (reason === DisconnectReason.loggedOut) {
         delete activeSessions[sessionId];
       } else {
-        // FIX #4: actually reconnect (handles 515 restartRequired after pairing)
-        console.log(`🔄 Reconnecting session ${sessionId}...`);
+        // FIX #2: actually reconnect (handles 515 restartRequired right after pairing)
+        console.log(`🔄 Reconnecting ${sessionId}...`);
         setTimeout(() => startSession(sessionId, botName, cleanPhone), 2000);
       }
     } else if (connection === 'open') {
       console.log(`✅ Session ${sessionId} connected!`);
-      activeSessions[sessionId].status = 'connected';
+      if (activeSessions[sessionId]) activeSessions[sessionId].status = 'connected';
 
       const ownerJid = cleanPhone + '@s.whatsapp.net';
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-      const welcomeDm = `✨ *Welcome to ${botName}!* ✨\n\nYour Empire WhatsApp bot is connected under Session ID:\n👉 *${sessionId}*\n\n_Type .help to view your commands!_`;
+      const welcomeDm = `✨ *Welcome to ${botName}!* ✨
+
+Your Empire WhatsApp bot is connected under Session ID:
+👉 *${sessionId}*
+
+_Type .help to view your commands!_`;
 
       try {
         await sock.sendMessage(ownerJid, {
@@ -121,10 +133,9 @@ app.post('/api/connect', async (req, res) => {
     }
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
-    console.log(`📡 Starting pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
+    console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
 
     await startSession(sessionId, botName, cleanPhone);
-
     return res.json({ success: true, sessionId, expiryIn: 120 });
   } catch (err) {
     console.error("Connect API Error:", err);
@@ -149,7 +160,7 @@ app.get('/api/status/:sessionId', (req, res) => {
   });
 });
 
-// API 3: Setup form
+// API 3: Setup
 app.post('/api/setup', async (req, res) => {
   try {
     const { sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome } = req.body;
@@ -177,11 +188,6 @@ app.get('/api/public-directory', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
-});
-
-// Health check endpoint (for front-end /api/health queries)
-app.get('/api/health', (req, res) => {
-  return res.json({ success: true, status: 'online' });
 });
 
 server.listen(PORT, () => {
