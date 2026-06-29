@@ -1,4 +1,4 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (FIXED + MESSAGE HANDLER)
+// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (FULL FIXED)
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -72,7 +72,7 @@ async function startSession(sessionId, botName, cleanPhone) {
     }
   });
 
-  // Only request a code when NOT registered, and wait until socket is ready
+  // Only request a pairing code when NOT registered AND we have a phone number (fresh pairing)
   if (!sock.authState.creds.registered && cleanPhone) {
     setTimeout(async () => {
       try {
@@ -98,10 +98,12 @@ async function startSession(sessionId, botName, cleanPhone) {
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
 
       if (reason === DisconnectReason.loggedOut) {
+        // Real logout: remove session so a stale dead device doesn't linger
         delete activeSessions[sessionId];
-        try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
+        try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
+        console.log(`🚪 Session ${sessionId} logged out and cleared.`);
       } else {
-        // Reconnect (handles 515 restartRequired right after pairing, and network drops)
+        // Reconnect (handles 515 restartRequired after pairing, and network drops)
         console.log(`🔄 Reconnecting ${sessionId}...`);
         setTimeout(() => startSession(sessionId, botName, cleanPhone), 2000);
       }
@@ -118,7 +120,7 @@ Your Empire WhatsApp bot is connected under Session ID:
 
 _Type .help to view your commands!_`;
 
-      // Only send the welcome DM on a fresh pairing (when we have the phone number)
+      // Only send the welcome DM + register on a FRESH pairing (when we have the phone number)
       if (cleanPhone) {
         try {
           await sock.sendMessage(ownerJid, {
@@ -135,7 +137,11 @@ _Type .help to view your commands!_`;
         } catch (dmErr) {
           console.error("Failed to send welcome DM:", dmErr.message);
         }
-        await registerBot(sessionId, botName, cleanPhone);
+        try {
+          await registerBot(sessionId, botName, cleanPhone);
+        } catch (dbErr) {
+          console.error("registerBot error:", dbErr.message);
+        }
       }
     }
   });
@@ -143,13 +149,23 @@ _Type .help to view your commands!_`;
   return sock;
 }
 
-// 🔁 On boot, resume any sessions already saved on the volume (so bots survive redeploys)
+// 🔁 On boot, resume any REAL sessions saved on the volume (so bots survive redeploys)
 async function resumeSavedSessions() {
   try {
-    if (!fs.existsSync(SESSIONS_ROOT)) return;
+    if (!fs.existsSync(SESSIONS_ROOT)) {
+      console.log('ℹ️ No sessions folder yet — nothing to resume.');
+      return;
+    }
     const folders = fs.readdirSync(SESSIONS_ROOT, { withFileTypes: true })
       .filter(d => d.isDirectory())
-      .map(d => d.name);
+      .map(d => d.name)
+      .filter(name => name.startsWith('BOTWAN_')); // FIX: ignore lost+found and stray dirs
+
+    if (folders.length === 0) {
+      console.log('ℹ️ No saved bot sessions to resume yet.');
+      return;
+    }
+
     for (const sessionId of folders) {
       console.log(`♻️ Resuming saved session: ${sessionId}`);
       // no phone number -> won't request a new code, just reconnects with saved creds
