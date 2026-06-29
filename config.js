@@ -3,7 +3,7 @@
 module.exports = {
     botName: "Empire MD",
     ownerName: "Empire Owner",
-    ownerNumber: ["2348100000000"], // Customizable during onboarding
+    ownerNumber: ["2348142656848"], // Customizable during onboarding
     prefix: ".", // Default prefix
     mode: "private", // Starts in private mode for user security
     pairingCode: true, // Pairing code enabled by default
