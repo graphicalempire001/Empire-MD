@@ -505,7 +505,9 @@ async function checkBackendHealth() {
     const lbl  = document.getElementById('backendLabel');
     el.classList.remove('hidden');
     try {
-        const r = await fetch(`${API_BASE}/api/public-directory` { signal: AbortSignal.timeout(5000) });
+       const r = await fetch(`${API_BASE}/api/public-directory`, { 
+    signal: AbortSignal.timeout(5000) 
+});
         if (r.ok) {
             dot.className = 'w-1.5 h-1.5 rounded-full dot-online inline-block';
             lbl.textContent = 'Backend Online';
