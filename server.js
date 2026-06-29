@@ -44,8 +44,10 @@ async function startSession(sessionId, botName, cleanPhone) {
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: Browsers.ubuntu('Chrome') // correct browser for pairing-code flow
+  
   });
-
+  sock.sessionId = sessionId;
+  
   if (!activeSessions[sessionId]) {
     activeSessions[sessionId] = {
       botName, phoneNumber: cleanPhone, status: 'pairing',
