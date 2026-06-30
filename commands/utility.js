@@ -1,7 +1,10 @@
 const config = require('../config');
 const meta = require('./_meta');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
-// Beautiful frame
+// Frame function
 function frame(title, lines) {
     const top = "╭━━━〔 " + title + " 〕━━━╮";
     const body = lines.map(l => "┃ " + l).join("\n");
@@ -10,79 +13,88 @@ function frame(title, lines) {
 }
 
 module.exports = {
-    ping: async ({ sock, chatJid, mek }) => {
-        const start = Date.now();
-        await sock.sendMessage(chatJid, { text: "⚡ *Pong!*" }, { quoted: mek });
-        const latency = Date.now() - start;
-        await sock.sendMessage(chatJid, {
-            text: `🚀 Latency: *${latency}ms*`
-        }, { quoted: mek });
-    },
-    p: async (args) => module.exports.ping(args),
+    // ... (keep your existing ping, info, help, list commands)
 
-    info: async ({ sock, chatJid, mek }) => {
-        await sock.sendMessage(chatJid, {
-            text: `🤖 *EMPIRE MD*\nPrefix: ${config.prefix || "."}\nMode: ${(config.mode || "private").toUpperCase()}`
-        }, { quoted: mek });
-    },
+    ping: async ({ sock, chatJid, mek }) => { /* your ping code */ },
+    p: async (args) => module.exports.ping(args),
+    info: async ({ sock, chatJid, mek }) => { /* your info code */ },
     system: async (args) => module.exports.info(args),
 
-    // ────── CLEAN FRAMED HELP / MENU ──────
-    help: async ({ sock, chatJid, mek, senderName, prefix }) => {
-        const p = prefix || config.prefix || ".";
-        
-        let out = `*${config.botName || "Empire MD"}* — Command Menu\n`;
-        out += `👋 Hello *${senderName || "User"}*!\n\n`;
-
-        try {
-            if (meta && Object.keys(meta).length > 0) {
-                for (const [category, cmds] of Object.entries(meta)) {
-                    if (!cmds || cmds.length === 0) continue;
-                    
-                    const lines = cmds.map(c => {
-                        const alias = c.alias && c.alias.length 
-                            ? ` (${c.alias.map(a => p+a).join(", ")})` 
-                            : "";
-                        return `${p}${c.cmd}${alias} — ${c.desc}`;
-                    });
-
-                    out += frame(category.toUpperCase(), lines) + "\n\n";
-                }
-            }
-        } catch (e) {
-            out += "⚠️ Failed to load menu.\n";
-        }
-
-        await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
-    },
-
+    help: async ({ sock, chatJid, mek, senderName, prefix }) => { /* your help code */ },
     h: async (args) => module.exports.help(args),
     menu: async (args) => module.exports.help(args),
 
-    // ────── UNIQUE .list COMMAND (WhatsApp Style) ──────
-    list: async ({ sock, chatJid, mek, prefix }) => {
-        const p = prefix || config.prefix || ".";
-        let out = `📋 *${config.botName || "Empire MD"} Command List*\n\n`;
+    list: async ({ sock, chatJid, mek, prefix }) => { /* your list code */ },
+
+    // ────── NEW: PLAY MUSIC (Search + Send as Document) ──────
+    play: async ({ sock, chatJid, mek, text }) => {
+        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name!\nExample: .play faded" }, { quoted: mek });
+
+        await sock.sendMessage(chatJid, { text: `🔍 Searching for *${text}*...` }, { quoted: mek });
 
         try {
-            if (meta && Object.keys(meta).length > 0) {
-                for (const [category, cmds] of Object.entries(meta)) {
-                    out += `🔸 *${category}*\n`;
-                    cmds.forEach(c => {
-                        const alias = c.alias && c.alias.length 
-                            ? ` (${c.alias.join(", ")})` 
-                            : "";
-                        out += `   ${p}${c.cmd}${alias} — ${c.desc}\n`;
-                    });
-                    out += "\n";
+            // Free public API (YTMate / Cobalt style fallback)
+            const searchRes = await axios.get(`https://api.popcat.xyz/song?query=${encodeURIComponent(text)}`);
+            const song = searchRes.data;
+
+            if (!song || !song.url) throw new Error("Song not found");
+
+            await sock.sendMessage(chatJid, { text: `⬇️ Downloading *${song.title}* by ${song.artist}...` }, { quoted: mek });
+
+            const audioRes = await axios.get(song.url, { responseType: 'arraybuffer' });
+            const filename = `${song.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`;
+
+            await sock.sendMessage(chatJid, {
+                document: Buffer.from(audioRes.data),
+                mimetype: 'audio/mpeg',
+                fileName: filename,
+                caption: `🎵 *${song.title}*\n👤 ${song.artist}\n\nDownloaded via Empire MD`
+            }, { quoted: mek });
+
+        } catch (err) {
+            console.error(err);
+            await sock.sendMessage(chatJid, { 
+                text: "❌ Could not find or download the song. Try a more specific name." 
+            }, { quoted: mek });
+        }
+    },
+
+    // ────── .pp → Get Profile Picture ──────
+    pp: async ({ sock, chatJid, mek }) => {
+        try {
+            let target = mek.message?.extendedTextMessage?.contextInfo?.participant || mek.key.participant || chatJid;
+            if (!target) target = chatJid;
+
+            const ppUrl = await sock.profilePictureUrl(target, 'image');
+            await sock.sendMessage(chatJid, { image: { url: ppUrl }, caption: "📸 Profile Picture" }, { quoted: mek });
+        } catch (e) {
+            await sock.sendMessage(chatJid, { text: "❌ Could not fetch profile picture." }, { quoted: mek });
+        }
+    },
+
+    // ────── .vv → View Once (Collect View-Once Media) ──────
+    vv: async ({ sock, chatJid, mek }) => {
+        const quoted = mek.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+        if (!quoted) return sock.sendMessage(chatJid, { text: "❌ Reply to a view-once message!" }, { quoted: mek });
+
+        try {
+            const type = Object.keys(quoted)[0];
+            if (type === 'imageMessage' || type === 'videoMessage') {
+                const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+                const stream = await downloadContentFromMessage(quoted[type], type === 'imageMessage' ? 'image' : 'video');
+                let buffer = Buffer.from([]);
+                for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+
+                if (type === 'imageMessage') {
+                    await sock.sendMessage(chatJid, { image: buffer, caption: "✅ View Once Image Saved" }, { quoted: mek });
+                } else {
+                    await sock.sendMessage(chatJid, { video: buffer, caption: "✅ View Once Video Saved" }, { quoted: mek });
                 }
             } else {
-                out += "No commands loaded.\n";
+                await sock.sendMessage(chatJid, { text: "❌ Only images and videos supported." }, { quoted: mek });
             }
-        } catch (e) {
-            out += "Error loading list.\n";
+        } catch (err) {
+            await sock.sendMessage(chatJid, { text: "❌ Failed to collect view once." }, { quoted: mek });
         }
-
-        await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     }
 };
