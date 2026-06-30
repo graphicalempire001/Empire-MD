@@ -1,4 +1,4 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + PER-BOT AUTO SETTINGS)
+// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + PER-BOT AUTO SETTINGS + ADMIN)
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -13,7 +13,19 @@ const {
 const pino = require('pino');
 const config = require('./config');
 const { handleMessage } = require('./lib/msgHandler');
-const { registerBot, getPublicBots, updateSettings, getSettings } = require('./lib/database');
+const {
+  registerBot,
+  getPublicBots,
+  updateSettings,
+  getSettings,
+  isBotNameTaken,
+  incrementUsage,
+  getTopUsageBots,
+  getInactiveBots,
+  flagAbusive,
+  deleteBot,
+  markBotOffline
+} = require('./lib/database');
 
 const app = express();
 const server = http.createServer(app);
@@ -30,6 +42,27 @@ function generateSessionId(botName) {
   const formattedName = botName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
   return `BOTWAN_${formattedName}_${randomSuffix}`;
+}
+
+// 🔐 Owner-only gate — only the repo owner who holds ADMIN_KEY can pass.
+function requireAdmin(req, res, next) {
+  const key = req.headers['x-admin-key'] || req.query.adminKey;
+  if (!process.env.ADMIN_KEY || key !== process.env.ADMIN_KEY) {
+    return res.status(403).json({ success: false, error: "Forbidden: admin access only." });
+  }
+  next();
+}
+
+// 🧹 Fully terminate a live session (logout + end socket) before removing it.
+async function killSession(sessionId) {
+  const s = activeSessions[sessionId];
+  if (s?.sock) {
+    try { await s.sock.logout(); } catch (_) {}
+    try { s.sock.end(); } catch (_) {}
+  }
+  delete activeSessions[sessionId];
+  // best-effort wipe of the auth folder on disk
+  try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
 
 // Reusable connection routine so we can actually reconnect
@@ -109,6 +142,11 @@ async function startSession(sessionId, botName, cleanPhone) {
         continue; // done with status; never pass it to the command handler
       }
 
+      // 📊 USAGE TRACKING — count every real (non-status) message for this bot.
+      if (sock.sessionId) {
+        incrementUsage(sock.sessionId).catch(() => {});
+      }
+
       try {
         await handleMessage(sock, mek);
       } catch (err) {
@@ -145,6 +183,7 @@ async function startSession(sessionId, botName, cleanPhone) {
       if (reason === DisconnectReason.loggedOut) {
         delete activeSessions[sessionId];
         try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
+        try { await markBotOffline(sessionId); } catch (_) {}
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
       } else {
         console.log(`🔄 Reconnecting ${sessionId}...`);
@@ -201,7 +240,19 @@ _Type .help to view your commands!_`;
           console.error("Failed to send welcome DM:", dmErr.message);
         }
         try {
-          await registerBot(sessionId, botName, cleanPhone, ownerForBot);
+          const result = await registerBot(sessionId, botName, cleanPhone, ownerForBot);
+          // Defensive: if a race slipped a duplicate name past the /api/connect guard,
+          // the DB unique index rejects it (23505) — tear this session down cleanly.
+          if (result && result.ok === false && result.code === '23505') {
+            console.warn(`⚠️ Duplicate bot name on register for ${sessionId}; killing session.`);
+            try {
+              await sock.sendMessage(ownerJid, {
+                text: `⚠️ The bot name *${botName}* is already taken. Please reconnect with a different name.`
+              });
+            } catch (_) {}
+            await killSession(sessionId);
+            return;
+          }
           // refresh cache after registration writes defaults
           try { sock.botSettings = await getSettings(sessionId); } catch (_) {}
         } catch (dbErr) {
@@ -247,6 +298,15 @@ app.post('/api/connect', async (req, res) => {
     if (!phoneNumber || !botName) {
       return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
     }
+
+    // 🚫 DUPLICATE-NAME GUARD — block before we ever build a socket.
+    if (await isBotNameTaken(botName)) {
+      return res.status(409).json({
+        success: false,
+        error: `The bot name "${botName}" is already taken. Please choose another.`
+      });
+    }
+
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
     console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
@@ -339,6 +399,53 @@ app.get('/api/public-directory', async (req, res) => {
       created_at: bot.created_at
     }));
     return res.json({ success: true, bots: safeBots });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────
+// 🔐 ADMIN API — owner-only (requires x-admin-key header / ?adminKey=)
+// ──────────────────────────────────────────────────────────────
+
+// 📊 High-volume usage leaderboard
+app.get('/api/admin/usage', requireAdmin, async (req, res) => {
+  try {
+    const bots = await getTopUsageBots(Number(req.query.limit) || 20);
+    return res.json({ success: true, bots });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 💤 List inactive bots (no activity in N days, default 7)
+app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
+  try {
+    const bots = await getInactiveBots(Number(req.query.days) || 7);
+    return res.json({ success: true, bots });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 🚩 Flag (or unflag) a bot as abusive
+app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
+  try {
+    const value = req.body && req.body.value === false ? false : true;
+    await flagAbusive(req.params.sessionId, value);
+    return res.json({ success: true, message: `Bot ${value ? 'flagged as abusive' : 'unflagged'}.` });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 🗑️ Delete an inactive / abusive bot (kills live socket, then removes the row)
+app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    await killSession(sessionId);   // stop the live socket + wipe auth folder first
+    await deleteBot(sessionId);     // then remove the DB row
+    return res.json({ success: true, message: `Bot ${sessionId} deleted.` });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
