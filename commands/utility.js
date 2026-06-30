@@ -69,46 +69,7 @@ module.exports = {
         await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
 
-          // ────── BEST .play (Cobalt API - Most Reliable 2026) ──────
-    play: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ *Usage:*\n.play song name\nExample: .play faded" }, { quoted: mek });
-
-        await sock.sendMessage(chatJid, { text: `🔍 Searching for *${text}*...` }, { quoted: mek });
-
-        try {
-            // First search on YouTube
-            const search = await axios.get(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(text)}&type=video&maxResults=1&key=AIzaSyD3z7pZ5ZfZfZfZfZfZfZfZfZfZfZfZfZ`); // This is dummy, we'll use fallback
-
-            // Better: Use direct Cobalt with search
-            const cobaltRes = await axios.post('https://cobalt.tools/api/json', {
-                url: `https://youtube.com/results?search_query=${encodeURIComponent(text)}`,
-                isAudioOnly: true,
-                filenameStyle: "pretty"
-            }, {
-                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-            });
-
-            if (!cobaltRes.data || !cobaltRes.data.url) throw new Error("No download link");
-
-            await sock.sendMessage(chatJid, { text: `⬇️ Downloading audio...` }, { quoted: mek });
-
-            const audio = await axios.get(cobaltRes.data.url, { responseType: 'arraybuffer' });
-            const title = cobaltRes.data.filename || text;
-
-            await sock.sendMessage(chatJid, {
-                document: Buffer.from(audio.data),
-                mimetype: 'audio/mpeg',
-                fileName: `${title}.mp3`,
-                caption: `🎵 ${title}\n\nDownloaded via Empire MD`
-            }, { quoted: mek });
-
-        } catch (err) {
-            console.error(err);
-            await sock.sendMessage(chatJid, { 
-                text: "❌ Sorry, music download is currently unstable.\n\nTry again later or use a YouTube link with .ytmp3" 
-            }, { quoted: mek });
-        }
-    },
+    
     pp: async ({ sock, chatJid, mek }) => {
         try {
             const target = mek.message?.extendedTextMessage?.contextInfo?.participant || chatJid;
