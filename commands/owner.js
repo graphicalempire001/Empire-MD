@@ -29,7 +29,7 @@ module.exports = {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide text to broadcast!" }, { quoted: mek });
 
         const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-        const message = `📢 *[EMPIRE MD OWNER BROADCAST]* 📢
+        const message = `📢 *[EMPIRE-BOTWAN BROADCAST]* 📢
 
 ${text}
 
