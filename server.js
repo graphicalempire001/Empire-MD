@@ -227,9 +227,7 @@ async function startSession(sessionId, botName, cleanPhone) {
       const ownerForBot = cleanPhone || connectedNumber;
       const ownerJid = ownerForBot + '@s.whatsapp.net';
 
-      // ───────────────────────────────────────────────
-      // ✏️ CUSTOMIZE YOUR WELCOME MESSAGE HERE
-      // ───────────────────────────────────────────────
+      
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const cardTitle   = "BOT-WAN MD V 1.0---The Future is NOW";
       const cardBody    = "The future of is NOW.";
