@@ -1,4 +1,4 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (FULL FIXED)
+// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (FULL FIXED + PER-BOT OWNER)
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -44,10 +44,13 @@ async function startSession(sessionId, botName, cleanPhone) {
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: Browsers.ubuntu('Chrome') // correct browser for pairing-code flow
-  
   });
   sock.sessionId = sessionId;
-  
+
+  // 🔑 OWNER TAG: on a fresh pairing, the typed phone IS the owner of this bot.
+  // On a resumed session (no cleanPhone yet) it gets filled from sock.user.id on 'open'.
+  if (cleanPhone) sock.ownerNumber = [cleanPhone];
+
   if (!activeSessions[sessionId]) {
     activeSessions[sessionId] = {
       botName, phoneNumber: cleanPhone, status: 'pairing',
@@ -60,7 +63,6 @@ async function startSession(sessionId, botName, cleanPhone) {
   sock.ev.on('creds.update', saveCreds);
 
   // 📩 MESSAGE LISTENER — routes incoming messages to the command handler
-  // (THIS is what makes .ping, .help, .sticker, etc. actually work)
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const mek of messages) {
@@ -100,12 +102,10 @@ async function startSession(sessionId, botName, cleanPhone) {
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
 
       if (reason === DisconnectReason.loggedOut) {
-        // Real logout: remove session so a stale dead device doesn't linger
         delete activeSessions[sessionId];
         try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
       } else {
-        // Reconnect (handles 515 restartRequired after pairing, and network drops)
         console.log(`🔄 Reconnecting ${sessionId}...`);
         setTimeout(() => startSession(sessionId, botName, cleanPhone), 2000);
       }
@@ -113,7 +113,17 @@ async function startSession(sessionId, botName, cleanPhone) {
       console.log(`✅ Session ${sessionId} connected!`);
       if (activeSessions[sessionId]) activeSessions[sessionId].status = 'connected';
 
-      const ownerJid = (cleanPhone || sock.user.id.split(':')[0]) + '@s.whatsapp.net';
+      // The number actually paired/connected on this socket
+      const connectedNumber = sock.user.id.split(':')[0];
+
+      // 🔑 Guarantee this bot always has an owner = the pairing/connected number.
+      // (covers resumed sessions where cleanPhone was null on boot)
+      if (!sock.ownerNumber || !sock.ownerNumber.length) {
+        sock.ownerNumber = [connectedNumber];
+      }
+
+      const ownerForBot = cleanPhone || connectedNumber;
+      const ownerJid = ownerForBot + '@s.whatsapp.net';
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const welcomeDm = `✨ *Welcome to ${botName}!* ✨
 
@@ -140,7 +150,8 @@ _Type .help to view your commands!_`;
           console.error("Failed to send welcome DM:", dmErr.message);
         }
         try {
-          await registerBot(sessionId, botName, cleanPhone);
+          // 🔑 4th arg = owner number for THIS bot (defaults to the pairing number)
+          await registerBot(sessionId, botName, cleanPhone, ownerForBot);
         } catch (dbErr) {
           console.error("registerBot error:", dbErr.message);
         }
@@ -161,7 +172,7 @@ async function resumeSavedSessions() {
     const folders = fs.readdirSync(SESSIONS_ROOT, { withFileTypes: true })
       .filter(d => d.isDirectory())
       .map(d => d.name)
-      .filter(name => name.startsWith('BOTWAN_')); // FIX: ignore lost+found and stray dirs
+      .filter(name => name.startsWith('BOTWAN_'));
 
     if (folders.length === 0) {
       console.log('ℹ️ No saved bot sessions to resume yet.');
@@ -170,7 +181,7 @@ async function resumeSavedSessions() {
 
     for (const sessionId of folders) {
       console.log(`♻️ Resuming saved session: ${sessionId}`);
-      // no phone number -> won't request a new code, just reconnects with saved creds
+      // no phone number -> won't request a new code; owner is restored from DB / sock.user on 'open'
       await startSession(sessionId, config.botName || "Empire MD", null);
     }
   } catch (err) {
@@ -219,42 +230,58 @@ app.post('/api/setup', async (req, res) => {
   try {
     const { sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome } = req.body;
     if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
+
+    // 🔑 If the owner field is left blank, DON'T wipe ownership —
+    // keep the number that paired this bot as the default owner.
+    const fallbackOwner = activeSessions[sessionId]?.phoneNumber
+      ? [activeSessions[sessionId].phoneNumber]
+      : [];
+
+    const ownerList = ownerNumber
+      ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean)
+      : [];
+
     const updatedSettings = {
       botName: botName || "Empire MD",
       prefix: prefix || ".",
       mode: mode || "private",
       alwaysOnline: alwaysOnline === 'true' || alwaysOnline === true,
       welcome: welcome === 'true' || welcome === true,
-      ownerNumber: ownerNumber ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')) : []
+      ownerNumber: ownerList.length ? ownerList : fallbackOwner
     };
+
     await updateSettings(sessionId, updatedSettings);
+
+    // keep the live socket's owner in sync if the user explicitly set one
+    if (activeSessions[sessionId]?.sock && updatedSettings.ownerNumber.length) {
+      activeSessions[sessionId].sock.ownerNumber = updatedSettings.ownerNumber;
+    }
+
     return res.json({ success: true, message: "Configuration saved!" });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// API 4: Public directory
 // API 4: Public directory - Hide session IDs
 app.get('/api/public-directory', async (req, res) => {
-    try {
-        const bots = await getPublicBots();
-        // Remove sensitive session_id from public view
-        const safeBots = bots.map(bot => ({
-            bot_name: bot.bot_name || "Empire Bot",
-            phone_number: bot.phone_number ? bot.phone_number.slice(0, 5) + "****" + bot.phone_number.slice(-2) : "Unknown",
-            status: bot.status || "offline",
-            created_at: bot.created_at
-        }));
-        return res.json({ success: true, bots: safeBots });
-    } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
-    }
+  try {
+    const bots = await getPublicBots();
+    const safeBots = bots.map(bot => ({
+      bot_name: bot.bot_name || "Empire Bot",
+      phone_number: bot.phone_number ? bot.phone_number.slice(0, 5) + "****" + bot.phone_number.slice(-2) : "Unknown",
+      status: bot.status || "offline",
+      created_at: bot.created_at
+    }));
+    return res.json({ success: true, bots: safeBots });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 server.listen(PORT, () => {
   console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
-  resumeSavedSessions(); // bring saved bots back online after a restart/redeploy
+  resumeSavedSessions();
 });
 
 module.exports = { app, server };
