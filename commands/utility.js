@@ -69,6 +69,65 @@ module.exports = {
         await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
 
+    // ────── MULTI-API FALLBACK .play (Best Chance) ──────
+    play: async ({ sock, chatJid, mek, text }) => {
+        if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>" }, { quoted: mek });
+
+        await sock.sendMessage(chatJid, { text: `🔍 Searching for "${text}"...` }, { quoted: mek });
+
+        const apis = [
+            // 1. LolHuman
+            async () => {
+                const r = await axios.get(`https://api.lolhuman.xyz/api/ytplay?apikey=FREE&query=${encodeURIComponent(text)}`);
+                if (r.data?.result?.audio) {
+                    const buf = await axios.get(r.data.result.audio, { responseType: 'arraybuffer' });
+                    return { buffer: buf.data, title: r.data.result.title };
+                }
+                throw new Error();
+            },
+            // 2. Cobalt Tools
+            async () => {
+                const r = await axios.post('https://cobalt.tools/api/json', {
+                    url: `https://youtube.com/results?search_query=${encodeURIComponent(text)}`,
+                    isAudioOnly: true
+                });
+                if (r.data?.url) {
+                    const buf = await axios.get(r.data.url, { responseType: 'arraybuffer' });
+                    return { buffer: buf.data, title: text };
+                }
+                throw new Error();
+            },
+            // 3. Alternative endpoint
+            async () => {
+                const r = await axios.get(`https://api.popcat.xyz/song?query=${encodeURIComponent(text)}`);
+                if (r.data?.url) {
+                    const buf = await axios.get(r.data.url, { responseType: 'arraybuffer' });
+                    return { buffer: buf.data, title: r.data.title || text };
+                }
+                throw new Error();
+            }
+        ];
+
+        for (const api of apis) {
+            try {
+                const result = await api();
+                await sock.sendMessage(chatJid, {
+                    document: Buffer.from(result.buffer),
+                    mimetype: 'audio/mpeg',
+                    fileName: `${result.title}.mp3`,
+                    caption: `🎵 ${result.title}\n\nDownloaded with Empire MD`
+                }, { quoted: mek });
+                return; // Success → stop
+            } catch (_) {
+                continue; // Try next API
+            }
+        }
+
+        // All APIs failed
+        await sock.sendMessage(chatJid, { 
+            text: "❌ All download sources failed.\n\nTry again later or send a YouTube link." 
+        }, { quoted: mek });
+    },
     
     pp: async ({ sock, chatJid, mek }) => {
         try {
