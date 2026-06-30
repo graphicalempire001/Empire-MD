@@ -69,36 +69,44 @@ module.exports = {
         await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
 
-    // ────── IMPROVED .play (Better Free API) ──────
+       // ────── RELIABLE .play (Best Free Public API 2026) ──────
     play: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ *Usage:* .play song name" }, { quoted: mek });
+        if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>\nExample: .play faded alan walker" }, { quoted: mek });
 
-        await sock.sendMessage(chatJid, { text: `🔍 Searching *${text}*...` }, { quoted: mek });
+        await sock.sendMessage(chatJid, { text: `🔍 Searching for *${text}*...` }, { quoted: mek });
 
         try {
-            // Better free music API
-            const res = await axios.get(`https://api.youtubedlapi.com/v1/search?query=${encodeURIComponent(text)}&type=video`);
-            const video = res.data[0];
+            // Using LolHuman API (currently one of the most stable free ones)
+            const search = await axios.get(`https://api.lolhuman.xyz/api/ytsearch?apikey=FREE&query=${encodeURIComponent(text)}`);
+            
+            if (!search.data.result || search.data.result.length === 0) {
+                throw new Error("No results");
+            }
 
-            if (!video) throw new Error("Not found");
+            const video = search.data.result[0];
 
-            await sock.sendMessage(chatJid, { text: `⬇️ Downloading *${video.title}*...` }, { quoted: mek });
+            await sock.sendMessage(chatJid, { 
+                text: `⬇️ Found: *${video.title}*\nDownloading audio...` 
+            }, { quoted: mek });
 
-            // Use a public audio download endpoint
-            const audioUrl = `https://api.youtubedlapi.com/v1/audio?url=https://youtube.com/watch?v=${video.id}`;
-            const audioRes = await axios.get(audioUrl, { responseType: 'arraybuffer' });
+            // Get direct audio link
+            const audioRes = await axios.get(`https://api.lolhuman.xyz/api/ytaudio?apikey=FREE&url=https://youtube.com/watch?v=${video.videoId}`, {
+                responseType: 'arraybuffer'
+            });
+
+            const filename = `${video.title.replace(/[^a-zA-Z0-9 ]/g, '')}.mp3`.substring(0, 50) + ".mp3";
 
             await sock.sendMessage(chatJid, {
                 document: Buffer.from(audioRes.data),
                 mimetype: 'audio/mpeg',
-                fileName: `${video.title}.mp3`,
-                caption: `🎵 ${video.title}\n\nDownloaded with Empire MD`
+                fileName: filename,
+                caption: `🎵 *${video.title}*\n👤 ${video.author}\n\nDownloaded with Empire MD`
             }, { quoted: mek });
 
         } catch (err) {
             console.error("Play error:", err.message);
             await sock.sendMessage(chatJid, { 
-                text: "❌ Could not download. Try another song name or try again later." 
+                text: "❌ Could not download song.\n\nTry these tips:\n• Use more specific name (artist + title)\n• Try again in a minute" 
             }, { quoted: mek });
         }
     },
