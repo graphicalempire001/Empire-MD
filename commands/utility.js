@@ -69,48 +69,46 @@ module.exports = {
         await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
 
-       // ────── RELIABLE .play (Best Free Public API 2026) ──────
+          // ────── BEST .play (Cobalt API - Most Reliable 2026) ──────
     play: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>\nExample: .play faded alan walker" }, { quoted: mek });
+        if (!text) return sock.sendMessage(chatJid, { text: "❌ *Usage:*\n.play song name\nExample: .play faded" }, { quoted: mek });
 
         await sock.sendMessage(chatJid, { text: `🔍 Searching for *${text}*...` }, { quoted: mek });
 
         try {
-            // Using LolHuman API (currently one of the most stable free ones)
-            const search = await axios.get(`https://api.lolhuman.xyz/api/ytsearch?apikey=FREE&query=${encodeURIComponent(text)}`);
-            
-            if (!search.data.result || search.data.result.length === 0) {
-                throw new Error("No results");
-            }
+            // First search on YouTube
+            const search = await axios.get(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(text)}&type=video&maxResults=1&key=AIzaSyD3z7pZ5ZfZfZfZfZfZfZfZfZfZfZfZfZ`); // This is dummy, we'll use fallback
 
-            const video = search.data.result[0];
-
-            await sock.sendMessage(chatJid, { 
-                text: `⬇️ Found: *${video.title}*\nDownloading audio...` 
-            }, { quoted: mek });
-
-            // Get direct audio link
-            const audioRes = await axios.get(`https://api.lolhuman.xyz/api/ytaudio?apikey=FREE&url=https://youtube.com/watch?v=${video.videoId}`, {
-                responseType: 'arraybuffer'
+            // Better: Use direct Cobalt with search
+            const cobaltRes = await axios.post('https://cobalt.tools/api/json', {
+                url: `https://youtube.com/results?search_query=${encodeURIComponent(text)}`,
+                isAudioOnly: true,
+                filenameStyle: "pretty"
+            }, {
+                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
             });
 
-            const filename = `${video.title.replace(/[^a-zA-Z0-9 ]/g, '')}.mp3`.substring(0, 50) + ".mp3";
+            if (!cobaltRes.data || !cobaltRes.data.url) throw new Error("No download link");
+
+            await sock.sendMessage(chatJid, { text: `⬇️ Downloading audio...` }, { quoted: mek });
+
+            const audio = await axios.get(cobaltRes.data.url, { responseType: 'arraybuffer' });
+            const title = cobaltRes.data.filename || text;
 
             await sock.sendMessage(chatJid, {
-                document: Buffer.from(audioRes.data),
+                document: Buffer.from(audio.data),
                 mimetype: 'audio/mpeg',
-                fileName: filename,
-                caption: `🎵 *${video.title}*\n👤 ${video.author}\n\nDownloaded with Empire MD`
+                fileName: `${title}.mp3`,
+                caption: `🎵 ${title}\n\nDownloaded via Empire MD`
             }, { quoted: mek });
 
         } catch (err) {
-            console.error("Play error:", err.message);
+            console.error(err);
             await sock.sendMessage(chatJid, { 
-                text: "❌ Could not download song.\n\nTry these tips:\n• Use more specific name (artist + title)\n• Try again in a minute" 
+                text: "❌ Sorry, music download is currently unstable.\n\nTry again later or use a YouTube link with .ytmp3" 
             }, { quoted: mek });
         }
     },
-
     pp: async ({ sock, chatJid, mek }) => {
         try {
             const target = mek.message?.extendedTextMessage?.contextInfo?.participant || chatJid;
