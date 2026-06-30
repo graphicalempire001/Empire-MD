@@ -198,11 +198,19 @@
                         <div class="w-11 h-6 bg-slate-700 peer-checked:bg-indigo-600 rounded-full transition-colors duration-200"></div>
                         <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 peer-checked:translate-x-5"></div>
                     </label>
-                    <label><input type="checkbox" name="autostatusview" value="true"> Auto-view statuses</label>
-<label><input type="checkbox" name="autostatusreact" value="true"> Auto-react to statuses</label>
-<label><input type="checkbox" name="auttyping" value="true"> Auto typing indicator</label>
-<label><input type="checkbox" name="autorecord" value="true"> Auto recording indicator</label>
-<input type="text" name="defaultStatusEmoji" placeholder="Reaction emoji (e.g. 🔥)" />
+                    <div class="flex items-center justify-between gap-4">
+                        <div> 
+                            <p class="text-sm font-semibold text-slate-200">More Settings</p>
+                            </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="autostatusview" value="true"> Auto-view statuses</label>
+<label class="relative inline-flex items-center cursor-pointer">
+    <input type="checkbox" name="autostatusreact" value="true"> Auto-react to statuses</label>
+<label class="relative inline-flex items-center cursor-pointer">
+    <input type="checkbox" name="auttyping" value="true"> Auto typing indicator</label>
+<label class="relative inline-flex items-center cursor-pointer">
+    <input type="checkbox" name="autorecord" value="true"> Auto recording indicator</label>
+<input type="text" name="defaultStatusEmoji" placeholder="e.g. 🔥" />
 
                 </div>
             </div>
