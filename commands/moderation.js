@@ -37,7 +37,7 @@ module.exports = {
             const participants = groupMetadata.participants;
             const jids = participants.map(p => p.id);
             
-            let message = `📣 *[EMPIRE TAG ALL]* 📣
+            let message = `📣 *HELLO* 📣
 📝 *Notice:* ${text || "Attention everyone!"}
 
 `;
