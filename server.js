@@ -1,4 +1,4 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (FULL FIXED + PER-BOT OWNER)
+// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (FULL FIXED + PER-BOT OWNER + AUTO STATUS)
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -67,7 +67,36 @@ async function startSession(sessionId, botName, cleanPhone) {
     if (type !== 'notify') return;
     for (const mek of messages) {
       if (!mek.message) continue;
-      if (mek.key && mek.key.remoteJid === 'status@broadcast') continue; // skip status updates
+
+      // 🟢 STATUS HANDLING — must run BEFORE the status skip
+      if (mek.key && mek.key.remoteJid === 'status@broadcast') {
+        try {
+          // Don't auto-handle our own posted status
+          if (!mek.key.fromMe) {
+            // 👁️ Auto-view statuses
+            if (config.settings.autostatusview) {
+              await sock.readMessages([mek.key]);
+            }
+            // 💖 Auto-react to statuses
+            if (config.settings.autostatusreact && mek.key.participant) {
+              const emoji = config.settings.defaultStatusEmoji || "💖";
+              try {
+                await sock.sendMessage(
+                  'status@broadcast',
+                  { react: { text: emoji, key: mek.key } },
+                  { statusJidList: [mek.key.participant] }
+                );
+              } catch (reactErr) {
+                console.error("Status react failed:", reactErr.message);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Status auto-handler error:", e.message);
+        }
+        continue; // done with status; never pass it to the command handler
+      }
+
       try {
         await handleMessage(sock, mek);
       } catch (err) {
