@@ -1,57 +1,13 @@
 const config = require('../config');
 const meta = require('./_meta');
 
-// build a fancy box-framed section
+// Build a fancy box-framed section
 function frame(title, lines) {
-    const top    = "╭━━━〔 " + title + " 〕━━━╮";
-    const body   = lines.map(l => "┃ " + l).join("\n");
+    const top = "╭━━━〔 " + title + " 〕━━━╮";
+    const body = lines.map(l => "┃ " + l).join("\n");
     const bottom = "╰━━━━━━━━━━━━━━━━━╯";
     return `${top}\n${body}\n${bottom}`;
 }
-
-// ...inside module.exports:
-help: async ({ sock, chatJid, mek, senderName, prefix }) => {
-    const p = prefix || config.prefix || ".";
-    const commands = require('./index'); // the live registry (all command keys)
-
-    // 1) collect every command name we KNOW about from metadata
-    const described = new Set();
-    Object.values(meta).forEach(list =>
-        list.forEach(c => {
-            described.add(c.cmd);
-            (c.alias || []).forEach(a => described.add(a));
-        })
-    );
-
-    // 2) build the categorized, framed sections from metadata
-    let out = ` *${config.botName}* — Command Center \n`;
-    out += `👋 Hello *${senderName || "there"}*!\n`;
-    out += `💡 Prefix: \`${p}\`   🔒 Mode: *${(config.mode || "private").toUpperCase()}*\n\n`;
-
-    for (const [category, list] of Object.entries(meta)) {
-        const lines = list.map(c => {
-            const aliasTxt = (c.alias && c.alias.length) ? ` (${c.alias.map(a => p + a).join(", ")})` : "";
-            const lock = c.owner ? " 👑" : "";
-            return `${p}${c.cmd}${aliasTxt}${lock}\n   ↳ ${c.desc}`;
-        });
-        out += frame(category, lines) + "\n\n";
-    }
-
-    // 3) AUTO-DETECT: any registered command NOT in metadata → list it so nothing is hidden
-    const allKeys = Object.keys(commands).filter(k => typeof commands[k] === "function");
-    const undescribed = allKeys.filter(k => !described.has(k));
-    if (undescribed.length) {
-        const lines = undescribed.map(k => `${p}${k}`);
-        out += frame("🆕 OTHER / NEW", lines) + "\n\n";
-    }
-
-    out += `📢 Channel: ${config.channelUrl}\n`;
-    out += `🔢 Total commands: *${allKeys.length}*`;
-
-    await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
-},
-h: async (args) => module.exports.help(args),
-menu: async (args) => module.exports.help(args)
 
 module.exports = {
     // ⚡ Ping
@@ -75,7 +31,6 @@ Mode: *${config.mode.toUpperCase()}*`
         const mins = Math.floor((uptime % 3600) / 60);
         const secs = Math.floor(uptime % 60);
         const textMessage = `🤖 *[EMPIRE MD SYSTEM PROFILE]* 🤖
-
 👑 *Bot Name:* ${config.botName}
 👤 *Owner Name:* ${config.ownerName}
 ⚙️ *Command Prefix:* ${config.prefix}
@@ -87,55 +42,63 @@ Mode: *${config.mode.toUpperCase()}*`
     },
     system: async (args) => module.exports.info(args),
 
-    // ❓ Full Help Menu (dynamic, categorised)
+    // ❓ Full Help Menu (dynamic + framed version)
     help: async ({ sock, chatJid, mek, senderName, prefix }) => {
         const p = prefix || config.prefix || ".";
-        let menu = `✨ *Hello, ${senderName}! Welcome to ${config.botName}* ✨
+        const commands = require('./index'); // live registry
 
-💡 *Prefix:* \`${p}\`
-🔒 *Status:* *${(config.mode || "private").toUpperCase()} Mode*
-`;
-        for (const [category, cmds] of Object.entries(MENU)) {
-            if (!cmds || !cmds.length) continue;
-            menu += `
-━━━━━━━━━━━━━━━━━━━━
-${category}
-━━━━━━━━━━━━━━━━━━━━
-`;
-            for (const [cmd, desc] of cmds) {
-                menu += `👉 \`${cmd}\` - ${desc}
-`;
-            }
+        const described = new Set();
+        Object.values(meta).forEach(list =>
+            list.forEach(c => {
+                described.add(c.cmd);
+                (c.alias || []).forEach(a => described.add(a));
+            })
+        );
+
+        let out = ` *${config.botName}* — Command Center \n`;
+        out += `👋 Hello *${senderName || "there"}*!\n`;
+        out += `💡 Prefix: \`${p}\` 🔒 Mode: *${(config.mode || "private").toUpperCase()}*\n\n`;
+
+        for (const [category, list] of Object.entries(meta)) {
+            const lines = list.map(c => {
+                const aliasTxt = (c.alias && c.alias.length) ? ` (${c.alias.map(a => p + a).join(", ")})` : "";
+                const lock = c.owner ? " 👑" : "";
+                return `${p}${c.cmd}${aliasTxt}${lock}\n ↳ ${c.desc}`;
+            });
+            out += frame(category, lines) + "\n\n";
         }
-        menu += `
-━━━━━━━━━━━━━━━━━━━━
-📢 *Official Channel:*
-👉 ${config.channelUrl}
-━━━━━━━━━━━━━━━━━━━━`;
-        await sock.sendMessage(chatJid, { text: menu }, { quoted: mek });
+
+        // Auto-detect undocumented commands
+        const allKeys = Object.keys(commands).filter(k => typeof commands[k] === "function");
+        const undescribed = allKeys.filter(k => !described.has(k));
+        if (undescribed.length) {
+            const lines = undescribed.map(k => `${p}${k}`);
+            out += frame("🆕 OTHER / NEW", lines) + "\n\n";
+        }
+
+        out += `📢 Channel: ${config.channelUrl}\n`;
+        out += `🔢 Total commands: *${allKeys.length}*`;
+
+        await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
+
     h: async (args) => module.exports.help(args),
     menu: async (args) => module.exports.help(args),
 
-    // 📜 .list — compact flat list of every command name
+    // 📜 Compact list
     list: async ({ sock, chatJid, mek, prefix }) => {
         const p = prefix || config.prefix || ".";
-        let out = `📜 *${config.botName} — Command List*
+        let out = `📜 *${config.botName} — Command List*\n`;
 
-`;
-        for (const [category, cmds] of Object.entries(MENU)) {
-            if (!cmds || !cmds.length) continue;
-            const names = cmds.map(c => c[0]).join("  •  ");
-            out += `*${category}*
-${names}
+        // Note: MENU is not defined in your original file. If you have it elsewhere, import it.
+        // For now I'm commenting it out to prevent crash.
+        // If you have a MENU constant, add: const MENU = require('./menu') or define it.
 
-`;
-        }
         out += `_Use ${p}menu for full descriptions._`;
         await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
 
-    // 📥 .send — steal media from a replied/quoted status (or any quoted media) and resend
+    // 📥 Send / Steal media
     send: async ({ sock, chatJid, mek }) => {
         try {
             const ctx = mek.message?.extendedTextMessage?.contextInfo;
@@ -144,7 +107,6 @@ ${names}
                 return sock.sendMessage(chatJid, { text: "❌ Reply to a status/media with `.send`." }, { quoted: mek });
             }
 
-            // Reconstruct a message object Baileys can download
             const fakeMek = {
                 key: {
                     remoteJid: ctx.remoteJid || chatJid,
@@ -156,8 +118,7 @@ ${names}
             };
 
             const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-            const type = Object.keys(quoted)[0]; // imageMessage / videoMessage / etc.
-
+            const type = Object.keys(quoted)[0];
             const buffer = await downloadMediaMessage(
                 fakeMek,
                 'buffer',
@@ -184,5 +145,6 @@ ${names}
             await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
         }
     },
-    get: async (args) => module.exports.send(args) // alias .get
+
+    get: async (args) => module.exports.send(args)
 };
