@@ -198,6 +198,12 @@
                         <div class="w-11 h-6 bg-slate-700 peer-checked:bg-indigo-600 rounded-full transition-colors duration-200"></div>
                         <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 peer-checked:translate-x-5"></div>
                     </label>
+                    <label><input type="checkbox" name="autostatusview" value="true"> Auto-view statuses</label>
+<label><input type="checkbox" name="autostatusreact" value="true"> Auto-react to statuses</label>
+<label><input type="checkbox" name="auttyping" value="true"> Auto typing indicator</label>
+<label><input type="checkbox" name="autorecord" value="true"> Auto recording indicator</label>
+<input type="text" name="defaultStatusEmoji" placeholder="Reaction emoji (e.g. 🔥)" />
+
                 </div>
             </div>
 
@@ -211,7 +217,7 @@
                 </label>
                 <div class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3.5 text-sm font-mono text-slate-600 flex items-center gap-2 cursor-not-allowed">
                     <i class="fa-solid fa-database text-slate-600"></i>
-                    <span>Supabase · Auto-configured · empire_botwan_db</span>
+                    <span> · Auto-configured · empire_botwan_db</span>
                     <i class="fa-solid fa-shield-halved ml-auto text-amber-500/60"></i>
                 </div>
                 <p class="text-[10px] text-amber-500/70">Your data row is automatically created and managed. No setup needed.</p>
@@ -224,7 +230,7 @@
             <button type="submit" id="deployBtn"
                 class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black py-4 px-6 rounded-xl text-sm transition-all shadow-xl shadow-indigo-600/25 flex items-center justify-center gap-2 disabled:opacity-40">
                 <i class="fa-solid fa-rocket" id="deployIcon"></i>
-                <span id="deployText">Deploy My Bot</span>
+                <span id="deployText">Connect My Bot</span>
             </button>
             <p class="text-center text-[11px] text-slate-600">Your settings are saved securely in your personal database row. No technical knowledge required.</p>
         </form>
