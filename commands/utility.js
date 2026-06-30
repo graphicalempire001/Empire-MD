@@ -1,46 +1,57 @@
 const config = require('../config');
+const meta = require('./_meta');
 
-// 🗂️ Single source of truth for the menu. Add a line here when you add a command.
-const MENU = {
-    "📥 MEDIA & DOWNLOADS": [
-        [".s / .sticker", "Sticker from replied image/video"],
-        [".play [song]", "Download MP3 song"],
-        [".ytmp3 [url]", "YouTube → MP3"],
-        [".ytmp4 / .video [url]", "YouTube → MP4"],
-        [".ig / .insta [url]", "Instagram Reels/Posts"],
-        [".tt / .tiktok [url]", "TikTok (no watermark)"],
-        [".fb / .fbdl [url]", "Facebook HD video"],
-        [".send", "Steal & resend media from a replied status"]
-    ],
-    "👑 OWNER & SYSTEM": [
-        [".sp / .setprefix", "Change prefix"],
-        [".mode / .setmode", "Toggle public/private"],
-        [".bc / .broadcast", "Broadcast to all groups"],
-        [".ping / .p", "Latency & status"],
-        [".info / .system", "System diagnostics"]
-    ],
-    "💤 AFK": [
-        [".afk [reason]", "Set away status"]
-    ],
-    "🤖 AI": [
-        [".ai [text]", "Chat with AI"]
-    ],
-    "⚙️ AUTO FEATURES": [
-        [".autostatusview", "Toggle auto-view statuses"],
-        [".autostatusreact", "Toggle auto-react to statuses"]
-    ],
-    "👥 GROUP & MODERATION": [
-        [".tagall", "Tag everyone"],
-        [".kick / .add", "Manage members"],
-        [".antilink", "Toggle anti-link"]
-    ],
-    "🎭 FUN": [
-        [".meme", "Fetch a meme"],
-        [".joke", "Random joke"],
-        [".fact", "Random fact"],
-        [".lyrics [song]", "Song lyrics"]
-    ]
-};
+// build a fancy box-framed section
+function frame(title, lines) {
+    const top    = "╭━━━〔 " + title + " 〕━━━╮";
+    const body   = lines.map(l => "┃ " + l).join("\n");
+    const bottom = "╰━━━━━━━━━━━━━━━━━╯";
+    return `${top}\n${body}\n${bottom}`;
+}
+
+// ...inside module.exports:
+help: async ({ sock, chatJid, mek, senderName, prefix }) => {
+    const p = prefix || config.prefix || ".";
+    const commands = require('./index'); // the live registry (all command keys)
+
+    // 1) collect every command name we KNOW about from metadata
+    const described = new Set();
+    Object.values(meta).forEach(list =>
+        list.forEach(c => {
+            described.add(c.cmd);
+            (c.alias || []).forEach(a => described.add(a));
+        })
+    );
+
+    // 2) build the categorized, framed sections from metadata
+    let out = ` *${config.botName}* — Command Center \n`;
+    out += `👋 Hello *${senderName || "there"}*!\n`;
+    out += `💡 Prefix: \`${p}\`   🔒 Mode: *${(config.mode || "private").toUpperCase()}*\n\n`;
+
+    for (const [category, list] of Object.entries(meta)) {
+        const lines = list.map(c => {
+            const aliasTxt = (c.alias && c.alias.length) ? ` (${c.alias.map(a => p + a).join(", ")})` : "";
+            const lock = c.owner ? " 👑" : "";
+            return `${p}${c.cmd}${aliasTxt}${lock}\n   ↳ ${c.desc}`;
+        });
+        out += frame(category, lines) + "\n\n";
+    }
+
+    // 3) AUTO-DETECT: any registered command NOT in metadata → list it so nothing is hidden
+    const allKeys = Object.keys(commands).filter(k => typeof commands[k] === "function");
+    const undescribed = allKeys.filter(k => !described.has(k));
+    if (undescribed.length) {
+        const lines = undescribed.map(k => `${p}${k}`);
+        out += frame("🆕 OTHER / NEW", lines) + "\n\n";
+    }
+
+    out += `📢 Channel: ${config.channelUrl}\n`;
+    out += `🔢 Total commands: *${allKeys.length}*`;
+
+    await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
+},
+h: async (args) => module.exports.help(args),
+menu: async (args) => module.exports.help(args)
 
 module.exports = {
     // ⚡ Ping
