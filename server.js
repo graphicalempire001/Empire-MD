@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -63,6 +64,17 @@ async function killSession(sessionId) {
   delete activeSessions[sessionId];
   // best-effort wipe of the auth folder on disk
   try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
+}
+
+// 🖼️ Fetch an image URL as a Buffer so externalAdReply thumbnails always render.
+async function fetchThumb(url) {
+  try {
+    const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
+    return Buffer.from(r.data, 'binary');
+  } catch (e) {
+    console.error("Thumbnail fetch failed:", e.message);
+    return undefined; // message still sends without the image
+  }
 }
 
 // Reusable connection routine so we can actually reconnect
@@ -214,25 +226,46 @@ async function startSession(sessionId, botName, cleanPhone) {
 
       const ownerForBot = cleanPhone || connectedNumber;
       const ownerJid = ownerForBot + '@s.whatsapp.net';
+
+      // ───────────────────────────────────────────────
+      // ✏️ CUSTOMIZE YOUR WELCOME MESSAGE HERE
+      // ───────────────────────────────────────────────
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-      const welcomeDm = `✨ *Welcome to ${botName}!* ✨
+      const cardTitle   = "BOT-WAN MD V 1.0---The Future is NOW";
+      const cardBody    = "The future of is NOW.";
+      const cardLink    = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15"; // normal https link → taps cleanly
+      const thumbUrl    = "https://i.ibb.co/8LMKhwqt/download.jpg";
 
-Your Empire WhatsApp bot is connected under Session ID:
-👉 *${sessionId}*
+      // Your DM text — edit freely. The channel link below is tappable plain text.
+      const welcomeDm =
+` *Welcome  ${botName}!* 
 
-_Type .help to view your commands!_`;
+BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and registered.
+🆔 *Session ID:* ${sessionId}
+
+🔮 Enjoy fast downloads, stickers, and smart moderation.
+
+📢 *Join our official channel:*
+👉 ${channelUrl}
+
+_Type .help in any chat to view your commands!_`;
+      // ───────────────────────────────────────────────
 
       // Only send the welcome DM + register on a FRESH pairing (when we have the phone number)
       if (cleanPhone) {
         try {
+          const thumb = await fetchThumb(thumbUrl);
           await sock.sendMessage(ownerJid, {
             text: welcomeDm,
             contextInfo: {
               externalAdReply: {
-                title: "BOT-WAN Official Onboarding",
-                body: "The future of WhatsApp automation is now.",
+                title: cardTitle,
+                body: cardBody,
                 mediaType: 1,
-                sourceUrl: channelUrl
+                renderLargerThumbnail: true,
+                thumbnail: thumb,        // buffer = image renders reliably
+                sourceUrl: cardLink,     // normal https URL = taps without "unsupported address"
+                showAdAttribution: false
               }
             }
           });
@@ -433,6 +466,9 @@ app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
   try {
     const value = req.body && req.body.value === false ? false : true;
     await flagAbusive(req.params.sessionId, value);
+    // keep the live socket in sync so the abuse gate takes effect instantly
+    const live = activeSessions[req.params.sessionId]?.sock;
+    if (live) live.isAbusive = value;
     return res.json({ success: true, message: `Bot ${value ? 'flagged as abusive' : 'unflagged'}.` });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
