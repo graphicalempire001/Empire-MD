@@ -31,6 +31,9 @@
             <a href="/setup.html" class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 hover:text-slate-200">
                 Setup Portal
             </a>
+            <button id="liveBtn" onclick="toggleLive()" class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-green-400 bg-green-500/10 border border-green-500/20">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1 animate-pulse"></span> Live
+            </button>
             <button id="lockBtn" onclick="lockOut()" class="hidden text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 hover:text-slate-200">
                 <i class="fa-solid fa-lock mr-1"></i> Lock
             </button>
@@ -68,7 +71,7 @@
     <div class="space-y-2">
         <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-400 tracking-wide uppercase">Admin Registry Control</span>
         <h1 class="text-3xl font-black">All Registered Bots</h1>
-        <p class="text-slate-400 text-sm">Monitor, audit, and moderate every WhatsApp bot instance on the BOT-WAN network.</p>
+        <p class="text-slate-400 text-sm">Monitor, audit, and moderate every WhatsApp bot instance on the BOT-WAN network in real time.</p>
     </div>
 
     <!-- Stats Panel -->
@@ -138,6 +141,10 @@
                 </tbody>
             </table>
         </div>
+        <div class="px-6 py-3 border-t border-slate-900 text-[10px] text-slate-500 flex items-center justify-between">
+            <span><i class="fa-solid fa-database mr-1"></i> Live from Supabase registry</span>
+            <span id="lastUpdated">—</span>
+        </div>
     </div>
 </div>
 
@@ -156,6 +163,7 @@
     function showGate() {
         document.getElementById('keyGate').classList.remove('hidden');
         document.getElementById('lockBtn').classList.add('hidden');
+        stopLive();
     }
     function hideGate() {
         document.getElementById('keyGate').classList.add('hidden');
@@ -164,6 +172,7 @@
     function lockOut() {
         sessionStorage.removeItem('adminKey');
         localStorage.removeItem('adminKey');
+        stopLive();
         showGate();
     }
     async function submitKey() {
@@ -172,7 +181,9 @@
         const store = document.getElementById('rememberKey').checked ? localStorage : sessionStorage;
         store.setItem('adminKey', key);
         const ok = await loadAdminBots();
-        if (!ok) {
+        if (ok) {
+            startLive();
+        } else {
             sessionStorage.removeItem('adminKey');
             localStorage.removeItem('adminKey');
             document.getElementById('keyError').classList.remove('hidden');
@@ -200,6 +211,8 @@
             document.getElementById('keyError').classList.add('hidden');
             updateStats();
             filterBots();
+            document.getElementById('lastUpdated').textContent =
+                'Updated ' + new Date().toLocaleTimeString();
             return true;
         } catch (e) {
             document.getElementById('adminBotTableBody').innerHTML = `
@@ -229,9 +242,7 @@
             btn.className = 'text-[11px] font-bold px-3 py-2 rounded-lg transition ' +
                 (active ? 'bg-rose-500/10 text-rose-400' : 'text-slate-400 hover:text-slate-200');
         });
-        // Inactive pulls from its own endpoint; All/Abusive reuse the usage list.
-        if (view === 'inactive') { loadAdminBots(); }
-        else { loadAdminBots(); }
+        loadAdminBots();
     }
 
     // ---- Rendering ----------------------------------------------
@@ -274,8 +285,8 @@
                 </td>
                 <td class="px-6 py-4">
                     <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${bot.status === 'online' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'}">
-                        <span class="w-1.5 h-1.5 rounded-full ${bot.status === 'online' ? 'bg-green-400' : 'bg-slate-500'}"></span>
-                        ${bot.status === 'online' ? 'Online' : 'Offline'}
+                        <span class="w-1.5 h-1.5 rounded-full ${bot.status === 'online' ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}"></span>
+                        ${bot.status === 'online' ? 'Online' : 'Inactive'}
                     </span>
                 </td>
                 <td class="px-6 py-4 text-right whitespace-nowrap">
@@ -342,10 +353,46 @@
         } catch (e) { alert('⚠️ ' + (e.message || 'Delete failed')); }
     }
 
+    // ---- Real-time auto-refresh ---------------------------------
+    let liveOn = true;
+    let liveTimer = null;
+    const LIVE_INTERVAL = 10000; // 10s
+
+    function startLive() {
+        stopLive();
+        if (!liveOn) return;
+        liveTimer = setInterval(() => {
+            if (!getKey()) return;                 // not unlocked
+            if (document.hidden) return;           // tab in background
+            if (document.activeElement === document.getElementById('adminSearch')) return; // mid-search
+            loadAdminBots();
+        }, LIVE_INTERVAL);
+    }
+    function stopLive() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
+
+    function toggleLive() {
+        liveOn = !liveOn;
+        const btn = document.getElementById('liveBtn');
+        if (liveOn) {
+            startLive();
+            btn.className = 'text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-green-400 bg-green-500/10 border border-green-500/20';
+            btn.innerHTML = '<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1 animate-pulse"></span> Live';
+        } else {
+            stopLive();
+            btn.className = 'text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 bg-slate-500/10 border border-slate-500/20';
+            btn.innerHTML = '<span class="inline-block w-1.5 h-1.5 rounded-full bg-slate-500 mr-1"></span> Paused';
+        }
+    }
+
+    // pause/resume when tab visibility changes
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && liveOn && getKey()) loadAdminBots();
+    });
+
     // ---- Boot ----------------------------------------------------
     window.addEventListener('load', () => {
         document.getElementById('keyInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
-        if (getKey()) loadAdminBots(); else showGate();
+        if (getKey()) { loadAdminBots(); startLive(); } else { showGate(); }
     });
 </script>
 </body>
