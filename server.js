@@ -1,4 +1,4 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (FULL FIXED + PER-BOT OWNER + AUTO STATUS)
+// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + PER-BOT AUTO SETTINGS)
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -48,8 +48,14 @@ async function startSession(sessionId, botName, cleanPhone) {
   sock.sessionId = sessionId;
 
   // 🔑 OWNER TAG: on a fresh pairing, the typed phone IS the owner of this bot.
-  // On a resumed session (no cleanPhone yet) it gets filled from sock.user.id on 'open'.
   if (cleanPhone) sock.ownerNumber = [cleanPhone];
+
+  // 🗂️ Warm the per-bot settings cache so the status handler reads THIS bot's prefs.
+  try {
+    sock.botSettings = (await getSettings(sessionId)) || null;
+  } catch (_) {
+    sock.botSettings = null;
+  }
 
   if (!activeSessions[sessionId]) {
     activeSessions[sessionId] = {
@@ -71,15 +77,21 @@ async function startSession(sessionId, botName, cleanPhone) {
       // 🟢 STATUS HANDLING — must run BEFORE the status skip
       if (mek.key && mek.key.remoteJid === 'status@broadcast') {
         try {
-          // Don't auto-handle our own posted status
           if (!mek.key.fromMe) {
+            // Per-bot settings: live cache → DB → global defaults
+            let s = sock.botSettings;
+            if (!s && sock.sessionId) {
+              try { s = await getSettings(sock.sessionId); sock.botSettings = s; } catch (_) {}
+            }
+            s = s || config.settings;
+
             // 👁️ Auto-view statuses
-            if (config.settings.autostatusview) {
+            if (s.autostatusview) {
               await sock.readMessages([mek.key]);
             }
             // 💖 Auto-react to statuses
-            if (config.settings.autostatusreact && mek.key.participant) {
-              const emoji = config.settings.defaultStatusEmoji || "💖";
+            if (s.autostatusreact && mek.key.participant) {
+              const emoji = s.defaultStatusEmoji || "💖";
               try {
                 await sock.sendMessage(
                   'status@broadcast',
@@ -142,14 +154,24 @@ async function startSession(sessionId, botName, cleanPhone) {
       console.log(`✅ Session ${sessionId} connected!`);
       if (activeSessions[sessionId]) activeSessions[sessionId].status = 'connected';
 
-      // The number actually paired/connected on this socket
       const connectedNumber = sock.user.id.split(':')[0];
 
       // 🔑 Guarantee this bot always has an owner = the pairing/connected number.
-      // (covers resumed sessions where cleanPhone was null on boot)
       if (!sock.ownerNumber || !sock.ownerNumber.length) {
         sock.ownerNumber = [connectedNumber];
       }
+
+      // 🗂️ Refresh the per-bot settings cache now that we're connected.
+      try {
+        const latest = await getSettings(sessionId);
+        if (latest) sock.botSettings = latest;
+      } catch (_) {}
+
+      // ⚡ Apply always-online presence per-bot if enabled.
+      try {
+        const s = sock.botSettings || config.settings;
+        if (s.alwaysOnline) await sock.sendPresenceUpdate('available');
+      } catch (_) {}
 
       const ownerForBot = cleanPhone || connectedNumber;
       const ownerJid = ownerForBot + '@s.whatsapp.net';
@@ -179,8 +201,9 @@ _Type .help to view your commands!_`;
           console.error("Failed to send welcome DM:", dmErr.message);
         }
         try {
-          // 🔑 4th arg = owner number for THIS bot (defaults to the pairing number)
           await registerBot(sessionId, botName, cleanPhone, ownerForBot);
+          // refresh cache after registration writes defaults
+          try { sock.botSettings = await getSettings(sessionId); } catch (_) {}
         } catch (dbErr) {
           console.error("registerBot error:", dbErr.message);
         }
@@ -210,7 +233,6 @@ async function resumeSavedSessions() {
 
     for (const sessionId of folders) {
       console.log(`♻️ Resuming saved session: ${sessionId}`);
-      // no phone number -> won't request a new code; owner is restored from DB / sock.user on 'open'
       await startSession(sessionId, config.botName || "Empire MD", null);
     }
   } catch (err) {
@@ -257,7 +279,10 @@ app.get('/api/status/:sessionId', (req, res) => {
 // API 3: Setup
 app.post('/api/setup', async (req, res) => {
   try {
-    const { sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome } = req.body;
+    const {
+      sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome,
+      autostatusview, autostatusreact, auttyping, autorecord, defaultStatusEmoji
+    } = req.body;
     if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
 
     // 🔑 If the owner field is left blank, DON'T wipe ownership —
@@ -270,20 +295,31 @@ app.post('/api/setup', async (req, res) => {
       ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean)
       : [];
 
+    const truthy = (v) => v === 'true' || v === true || v === 'on';
+
     const updatedSettings = {
       botName: botName || "Empire MD",
       prefix: prefix || ".",
       mode: mode || "private",
-      alwaysOnline: alwaysOnline === 'true' || alwaysOnline === true,
-      welcome: welcome === 'true' || welcome === true,
-      ownerNumber: ownerList.length ? ownerList : fallbackOwner
+      alwaysOnline: truthy(alwaysOnline),
+      welcome: truthy(welcome),
+      ownerNumber: ownerList.length ? ownerList : fallbackOwner,
+
+      // NEW per-bot auto preferences chosen during activation
+      autostatusview: truthy(autostatusview),
+      autostatusreact: truthy(autostatusreact),
+      auttyping: truthy(auttyping),
+      autorecord: truthy(autorecord),
+      defaultStatusEmoji: defaultStatusEmoji || "💖"
     };
 
     await updateSettings(sessionId, updatedSettings);
 
-    // keep the live socket's owner in sync if the user explicitly set one
-    if (activeSessions[sessionId]?.sock && updatedSettings.ownerNumber.length) {
-      activeSessions[sessionId].sock.ownerNumber = updatedSettings.ownerNumber;
+    // keep the live socket in sync immediately
+    const liveSock = activeSessions[sessionId]?.sock;
+    if (liveSock) {
+      if (updatedSettings.ownerNumber.length) liveSock.ownerNumber = updatedSettings.ownerNumber;
+      liveSock.botSettings = { ...(liveSock.botSettings || {}), ...updatedSettings };
     }
 
     return res.json({ success: true, message: "Configuration saved!" });
