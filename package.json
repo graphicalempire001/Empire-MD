@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
+    "@vreden/youtube_scraper": "^1.2.9",
     "@whiskeysockets/baileys": "^6.7.23",
     "axios": "^1.6.8",
     "cors": "^2.8.5",
