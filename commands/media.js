@@ -6,14 +6,24 @@ const { Sticker, StickerTypes } = require('wa-sticker-formatter');
 const config = require('../config');
 
 // Helper to download media message
-async function downloadMedia(mek, type) {
-    const message = mek.message[type];
-    if (!message) return null;
-    const stream = await downloadContentFromMessage(message, type.replace('Message', ''));
+  async function downloadMedia(mek, type) {
+    const message = mek.message?.[type];
+
+    if (!message) {
+        throw new Error(`Unsupported media type: ${type}`);
+    }
+
+    const stream = await downloadContentFromMessage(
+        message,
+        type.replace("Message", "")
+    );
+
     let buffer = Buffer.from([]);
+
     for await (const chunk of stream) {
         buffer = Buffer.concat([buffer, chunk]);
     }
+
     return buffer;
 }
 
@@ -90,25 +100,30 @@ module.exports = {
             await sock.sendMessage(chatJid, { text: "🎨 *Sticker Maker:* Downloading and processing your media..." }, { quoted: mek });
             
           // Use the universal parser from msgHandler
-if (!mek.quoted) {
-    return sock.sendMessage(chatJid, {
-        text: "❌ Please reply to an *Image* or *Video* to make a sticker!"
-    }, { quoted: mek });
+let mediaMek = mek;
+let type = Object.keys(mek.message)[0];
+
+if (type === "ephemeralMessage") {
+    type = Object.keys(mek.message.ephemeralMessage.message)[0];
+    mediaMek = {
+        message: mek.message.ephemeralMessage.message
+    };
 }
+// If replying, use the replied media.
+if (mek.quoted) {
+    mediaMek = {
+        message: mek.quoted.message
+    };
 
-let mediaMek = {
-    message: mek.quoted.message
-};
-
-let type = mek.quoted.type;
-            
+    type = mek.quoted.type;
+}
             const allowedTypes = [
     "imageMessage",
     "videoMessage"
 ];
 
 if (!allowedTypes.includes(type)) {
-                return sock.sendMessage(chatJid, { text: "❌ Please reply to an *Image* or *Video* to make a sticker!" }, { quoted: mek });
+                return sock.sendMessage(chatJid, { text: "❌ Please send or reply to an *Image* or *Video* to make a sticker!" }, { quoted: mek });
             }
 
             const buffer = await downloadMedia(mediaMek, type);
@@ -116,7 +131,7 @@ if (!allowedTypes.includes(type)) {
 
             const sticker = new Sticker(buffer, {
                 pack: config.botName || "Empire MD",
-                author: config.ownerName || "Empire Owner",
+                author: config.ownerName || "BOT-WAN",
                 type: StickerTypes.FULL,
                 categories: ['🤩', '🎉'],
                 id: '12345',
