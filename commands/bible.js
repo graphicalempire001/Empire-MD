@@ -1,6 +1,5 @@
 const axios = require('axios');
 
-// Popular verses for the random picker
 const RANDOM_REFS = [
     "John 3:16", "Psalm 23:1", "Philippians 4:13", "Jeremiah 29:11",
     "Romans 8:28", "Proverbs 3:5-6", "Isaiah 41:10", "Matthew 6:33",
@@ -25,17 +24,13 @@ module.exports = {
                 return sock.sendMessage(chatJid, { text: `❌ Couldn't find *${ref}*. Try e.g. *.bible John 3:16*` }, { quoted: mek });
             }
 
-            const reference = res.data.reference || ref;
-            const verseText = res.data.text.trim();
-            const translation = res.data.translation_name || "KJV";
-
             const message = `📖 *HOLY BIBLE*
 ━━━━━━━━━━━━━━━━━━━━
-✝️ *${reference}*
+✝️ *${res.data.reference || ref}*
 
-_"${verseText}"_
+_"${res.data.text.trim()}"_
 
-📚 *${translation}*
+📚 *${res.data.translation_name || "KJV"}*
 ━━━━━━━━━━━━━━━━━━━━
 🙏 _Be blessed._`;
 
@@ -43,7 +38,7 @@ _"${verseText}"_
         } catch (err) {
             console.error("Bible error:", err.message);
             await sock.sendMessage(chatJid, {
-                text: "❌ Bible service is busy right now. Try again, e.g. *.bible John 3:16* or just *.bible* for a random verse."
+                text: "❌ Bible service is busy. Try *.bible John 3:16* or just *.bible* for a random verse."
             }, { quoted: mek });
         }
     },
