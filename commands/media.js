@@ -6,7 +6,7 @@ const { Sticker, StickerTypes } = require('wa-sticker-formatter');
 const config = require('../config');
 
 // Helper to download media message
-  async function downloadMedia(mek, type) {
+async function downloadMedia(mek, type) {
     const message = mek.message?.[type];
 
     if (!message) {
@@ -31,9 +31,9 @@ const config = require('../config');
 async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null) {
     const isGroup = chatJid.endsWith('@g.us');
     const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-    
+
     // Format caption with interactive "button" leading to channel
-    const formattedCaption = isGroup 
+    const formattedCaption = isGroup
         ? `${caption}
 
 ━━━━━━━━━━━━━━━━━━━━
@@ -98,31 +98,42 @@ module.exports = {
     s: async ({ sock, chatJid, mek }) => {
         try {
             await sock.sendMessage(chatJid, { text: "🎨 *Sticker Maker:* Downloading and processing your media..." }, { quoted: mek });
-            
-          // Use the universal parser from msgHandler
-let mediaMek = mek;
-let type = Object.keys(mek.message)[0];
 
-if (type === "ephemeralMessage") {
-    type = Object.keys(mek.message.ephemeralMessage.message)[0];
-    mediaMek = {
-        message: mek.message.ephemeralMessage.message
-    };
-}
-// If replying, use the replied media.
-if (mek.quoted) {
-    mediaMek = {
-        message: mek.quoted.message
-    };
+            let mediaMek = mek;
+            let type = Object.keys(mek.message)[0];
 
-    type = mek.quoted.type;
-}
-            const allowedTypes = [
-    "imageMessage",
-    "videoMessage"
-];
+            // Unwrap a directly-sent ephemeral / view-once image or video
+            let inner = mek.message[type];
+            while (
+                inner?.ephemeralMessage ||
+                inner?.viewOnceMessage ||
+                inner?.viewOnceMessageV2 ||
+                inner?.viewOnceMessageV2Extension ||
+                type === "ephemeralMessage" ||
+                type === "viewOnceMessage" ||
+                type === "viewOnceMessageV2" ||
+                type === "viewOnceMessageV2Extension"
+            ) {
+                const unwrapped =
+                    mek.message[type]?.message ||
+                    inner?.ephemeralMessage?.message ||
+                    inner?.viewOnceMessage?.message ||
+                    inner?.viewOnceMessageV2?.message ||
+                    inner?.viewOnceMessageV2Extension?.message;
+                if (!unwrapped) break;
+                mediaMek = { message: unwrapped };
+                type = Object.keys(unwrapped)[0];
+                inner = unwrapped[type];
+            }
 
-if (!allowedTypes.includes(type)) {
+            // If this is a swipe-reply, use the replied media (handler already deep-unwrapped it)
+            if (mek.quoted) {
+                mediaMek = { message: mek.quoted.message };
+                type = mek.quoted.type;
+            }
+
+            const allowedTypes = ["imageMessage", "videoMessage"];
+            if (!allowedTypes.includes(type)) {
                 return sock.sendMessage(chatJid, { text: "❌ Please send or reply to an *Image* or *Video* to make a sticker!" }, { quoted: mek });
             }
 
@@ -152,12 +163,12 @@ if (!allowedTypes.includes(type)) {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name or YouTube URL!" }, { quoted: mek });
         try {
             await sock.sendMessage(chatJid, { text: `🎵 *Searching/Downloading:* Searching for "${text}" via keyless API...` }, { quoted: mek });
-            
+
             let url = text;
             if (!text.startsWith("http")) {
                 const searchRes = await axios.get(`https://html.duckduckgo.com/html/?q=site:youtube.com+${encodeURIComponent(text)}`);
                 const html = searchRes.data;
-             const match = html.match(/\/watch\?v=[a-zA-Z0-9_-]+/);
+                const match = html.match(/\/watch\?v=[a-zA-Z0-9_-]+/);
                 if (!match) {
                     return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
                 }
@@ -166,7 +177,7 @@ if (!allowedTypes.includes(type)) {
 
             const downloadData = await downloadWithCobalt(url, { downloadMode: "audio" });
             const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
-            
+
             await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
             await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
         } catch (err) {
