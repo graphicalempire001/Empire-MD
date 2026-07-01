@@ -1,6 +1,16 @@
 const config = require('../config');
 const { updateSettings } = require('../lib/database');
 
+// Resolve a target participant JID from: swipe-reply → mention → typed number.
+function resolveTarget({ quotedSender, contextInfo, mek, args }) {
+    const ctx = contextInfo || mek.message?.extendedTextMessage?.contextInfo || {};
+    const replied = quotedSender || ctx.participant || null;
+    const mentioned = ctx.mentionedJid?.[0] || null;
+    const typedNum = args[0] ? args[0].replace(/[^0-9]/g, '') : "";
+    const typed = typedNum ? typedNum + '@s.whatsapp.net' : null;
+    return replied || mentioned || typed;
+}
+
 module.exports = {
     // 👥 Fetch Group Link (Alias: link, g-link)
     link: async ({ sock, chatJid, mek, isGroup }) => {
@@ -14,19 +24,64 @@ https://chat.whatsapp.com/${code}` }, { quoted: mek });
         }
     },
 
-    // 🚫 Kick Group Participant (Alias: kick)
-    kick: async ({ sock, chatJid, mek, isGroup, isOwner, args }) => {
+    // 🚫 Kick Group Participant (Alias: kick) — reply, mention, or number
+    kick: async ({ sock, chatJid, mek, isGroup, isOwner, args, quotedSender, contextInfo }) => {
         if (!isGroup) return sock.sendMessage(chatJid, { text: "❌ Group-only command!" }, { quoted: mek });
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Admin/Owner privilege required!" }, { quoted: mek });
-        
-        const target = mek.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-        if (!target || target === '@s.whatsapp.net') {
-            return sock.sendMessage(chatJid, { text: "❌ Mention or reply to a participant to kick!" }, { quoted: mek });
+
+        const target = resolveTarget({ quotedSender, contextInfo, mek, args });
+        if (!target) {
+            return sock.sendMessage(chatJid, { text: "❌ Reply to, mention, or type a participant's number to kick!" }, { quoted: mek });
         }
 
         try {
             await sock.groupParticipantsUpdate(chatJid, [target], "remove");
-            await sock.sendMessage(chatJid, { text: `✅ Participant removed successfully.` }, { quoted: mek });
+            await sock.sendMessage(chatJid, {
+                text: `✅ @${target.split('@')[0]} removed successfully.`,
+                mentions: [target]
+            }, { quoted: mek });
+        } catch (err) {
+            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+        }
+    },
+
+    // ⬆️ Promote to Admin (Alias: promote) — reply, mention, or number
+    promote: async ({ sock, chatJid, mek, isGroup, isOwner, args, quotedSender, contextInfo }) => {
+        if (!isGroup) return sock.sendMessage(chatJid, { text: "❌ Group-only command!" }, { quoted: mek });
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Admin/Owner privilege required!" }, { quoted: mek });
+
+        const target = resolveTarget({ quotedSender, contextInfo, mek, args });
+        if (!target) {
+            return sock.sendMessage(chatJid, { text: "❌ Reply to, mention, or type a participant's number to promote!" }, { quoted: mek });
+        }
+
+        try {
+            await sock.groupParticipantsUpdate(chatJid, [target], "promote");
+            await sock.sendMessage(chatJid, {
+                text: `✅ @${target.split('@')[0]} is now an admin.`,
+                mentions: [target]
+            }, { quoted: mek });
+        } catch (err) {
+            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+        }
+    },
+
+    // ⬇️ Demote from Admin (Alias: demote) — reply, mention, or number
+    demote: async ({ sock, chatJid, mek, isGroup, isOwner, args, quotedSender, contextInfo }) => {
+        if (!isGroup) return sock.sendMessage(chatJid, { text: "❌ Group-only command!" }, { quoted: mek });
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Admin/Owner privilege required!" }, { quoted: mek });
+
+        const target = resolveTarget({ quotedSender, contextInfo, mek, args });
+        if (!target) {
+            return sock.sendMessage(chatJid, { text: "❌ Reply to, mention, or type a participant's number to demote!" }, { quoted: mek });
+        }
+
+        try {
+            await sock.groupParticipantsUpdate(chatJid, [target], "demote");
+            await sock.sendMessage(chatJid, {
+                text: `✅ @${target.split('@')[0]} is no longer an admin.`,
+                mentions: [target]
+            }, { quoted: mek });
         } catch (err) {
             await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
         }
@@ -36,7 +91,7 @@ https://chat.whatsapp.com/${code}` }, { quoted: mek });
     add: async ({ sock, chatJid, mek, isGroup, isOwner, args }) => {
         if (!isGroup) return sock.sendMessage(chatJid, { text: "❌ Group-only command!" }, { quoted: mek });
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Admin/Owner privilege required!" }, { quoted: mek });
-        
+
         const targetNumber = args[0]?.replace(/[^0-9]/g, '');
         if (!targetNumber) {
             return sock.sendMessage(chatJid, { text: "❌ Please specify a phone number with country code!" }, { quoted: mek });
