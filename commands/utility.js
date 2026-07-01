@@ -132,7 +132,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         const uptime = formatUptime(process.uptime());
         const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
         const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
-        const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
+        const dbStatus = dbConnected ? "🟢 Connected" : "🟡 Local Cache";
         const now = new Date().toLocaleString();
 
         // Coverage check vs live registry
