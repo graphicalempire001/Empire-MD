@@ -204,9 +204,9 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
     // 📋 Plain list
     list: async ({ sock, chatJid, mek, prefix }) => {
         const px = prefix || config.prefix || ".";
-        let out = "📋 *Command List*
+        let out = `📋 *Command List*
 
-";
+`;
         for (const [cat, cmds] of Object.entries(CATALOG)) {
             out += `*${cat}*
 `;
@@ -214,8 +214,8 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
                 out += `• ${px}${cmd} — ${meta.d}
 `;
             }
-            out += "
-";
+            out += `
+`;
         }
         await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
