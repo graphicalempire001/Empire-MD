@@ -130,19 +130,27 @@ async function startSession(sessionId, botName, cleanPhone) {
             }
             s = s || config.settings;
 
-            // 👁️ Auto-view statuses
-            if (s.autostatusview) {
-              await sock.readMessages([mek.key]);
+            // 👁️ Read/decrypt the status FIRST (required for a reliable react)
+            if (s.autostatusview || s.autostatusreact) {
+              try { await sock.readMessages([mek.key]); } catch (_) {}
             }
+
             // 💖 Auto-react to statuses
             if (s.autostatusreact && mek.key.participant) {
               const emoji = s.defaultStatusEmoji || "💖";
               try {
+                const statusKey = {
+                  remoteJid: 'status@broadcast',
+                  id: mek.key.id,
+                  participant: mek.key.participant,
+                  fromMe: false
+                };
                 await sock.sendMessage(
                   'status@broadcast',
-                  { react: { text: emoji, key: mek.key } },
+                  { react: { text: emoji, key: statusKey } },
                   { statusJidList: [mek.key.participant] }
                 );
+                console.log(`[STATUS REACT] ${emoji} → ${mek.key.participant}`);
               } catch (reactErr) {
                 console.error("Status react failed:", reactErr.message);
               }
