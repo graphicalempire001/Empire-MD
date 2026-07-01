@@ -74,7 +74,9 @@ const CATALOG = {
     "⚙️ Auto & Presence": {
         "auto": { d: "Toggle typing/recording/online", a: ["presence"] },
         "autostatusview": { d: "Toggle auto-view statuses", a: [] },
-        "autostatusreact": { d: "Toggle auto-react to statuses", a: [] }
+        "autostatusreact": { d: "Toggle auto-react to statuses", a: [] },
+        "autogreet": { d: "Greet new contacts (on/off or custom text)", a: ["greet", "welcome"] },
+        "away": { d: "Away auto-reply for DMs & mentions (on/off or custom)", a: ["awaymode"] }
     },
     "👑 Owner & Self": {
         "setprefix": { d: "Change command prefix", a: ["sp"] },
@@ -88,6 +90,7 @@ const CATALOG = {
         "fact": { d: "Random fact", a: [] },
         "bored": { d: "Suggest an activity", a: ["act"] },
         "excuse": { d: "Developer excuse", a: [] },
+        "bible": { d: "Random or specific Bible verse", a: ["verse"] },
         "bal": { d: "Wallet & bank balance", a: ["balance", "wallet"] },
         "slot": { d: "Slot machine", a: ["slots"] },
         "daily": { d: "Claim daily coins", a: [] }
@@ -201,13 +204,18 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
     // 📋 Plain list
     list: async ({ sock, chatJid, mek, prefix }) => {
         const px = prefix || config.prefix || ".";
-        let out = "📋 *Command List*\n\n";
+        let out = "📋 *Command List*
+
+";
         for (const [cat, cmds] of Object.entries(CATALOG)) {
-            out += `*${cat}*\n`;
+            out += `*${cat}*
+`;
             for (const [cmd, meta] of Object.entries(cmds)) {
-                out += `• ${px}${cmd} — ${meta.d}\n`;
+                out += `• ${px}${cmd} — ${meta.d}
+`;
             }
-            out += "\n";
+            out += "
+";
         }
         await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
     },
@@ -270,7 +278,9 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
                     document: Buffer.from(result.buffer),
                     mimetype: 'audio/mpeg',
                     fileName: `${result.title}.mp3`,
-                    caption: `🎵 ${result.title}\n\nEmpire MD`
+                    caption: `🎵 ${result.title}
+
+Empire MD`
                 }, { quoted: mek });
                 return;
             } catch (_) { continue; }
@@ -289,7 +299,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         }
     },
 
-    // 👁️ View-once revealer (now uses deep-unwrapped quoted)
+    // 👁️ View-once revealer (uses deep-unwrapped quoted)
     vv: async ({ sock, chatJid, mek }) => {
         const q = getQuoted(mek);
         if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a view once message!" }, { quoted: mek });
