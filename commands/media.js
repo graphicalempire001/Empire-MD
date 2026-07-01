@@ -89,45 +89,25 @@ module.exports = {
         try {
             await sock.sendMessage(chatJid, { text: "🎨 *Sticker Maker:* Downloading and processing your media..." }, { quoted: mek });
             
-          // Universal reply detection
-const msgType = Object.keys(mek.message)[0];
-let message = mek.message[msgType];
-
-// Unwrap ephemeral messages
-if (msgType === 'ephemeralMessage') {
-    message = message.message;
+          // Use the universal parser from msgHandler
+if (!mek.quoted) {
+    return sock.sendMessage(chatJid, {
+        text: "❌ Please reply to an *Image* or *Video* to make a sticker!"
+    }, { quoted: mek });
 }
 
-// Unwrap view once messages
-if (message?.viewOnceMessageV2) {
-    message = message.viewOnceMessageV2.message;
-}
+let mediaMek = {
+    message: mek.quoted.message
+};
 
-const contextInfo = message?.contextInfo || {};
+let type = mek.quoted.type;
+            
+            const allowedTypes = [
+    "imageMessage",
+    "videoMessage"
+];
 
-let quotedMsg = contextInfo.quotedMessage;
-
-// Unwrap quoted ephemeral message
-if (quotedMsg?.ephemeralMessage) {
-    quotedMsg = quotedMsg.ephemeralMessage.message;
-}
-
-// Unwrap quoted view once message
-if (quotedMsg?.viewOnceMessageV2) {
-    quotedMsg = quotedMsg.viewOnceMessageV2.message;
-}
-
-let mediaMek = mek;
-let type = Object.keys(message)[0];
-
-if (quotedMsg) {
-    type = Object.keys(quotedMsg)[0];
-    mediaMek = {
-        message: quotedMsg
-    };
-}
-
-            if (type !== 'imageMessage' && type !== 'videoMessage') {
+if (!allowedTypes.includes(type)) {
                 return sock.sendMessage(chatJid, { text: "❌ Please reply to an *Image* or *Video* to make a sticker!" }, { quoted: mek });
             }
 
