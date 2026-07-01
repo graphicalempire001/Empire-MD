@@ -41,7 +41,7 @@ async function downloadBuffer(node, type) {
 const CATALOG = {
     "📥 Media & Downloads": {
         "s": { d: "Sticker from replied/sent image or video", a: ["sticker"] },
-        "play": { d: "Search & download a song as MP3", a: [] },
+        "play": { d: "Search & download a song as MP3 document", a: [] },
         "ytmp3": { d: "YouTube link → MP3 audio", a: [] },
         "ytmp4": { d: "YouTube link → MP4 video", a: ["video"] },
         "insta": { d: "Download Instagram reel/post", a: ["ig"] },
@@ -132,7 +132,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         const uptime = formatUptime(process.uptime());
         const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
         const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
-        const dbStatus = dbConnected ? "🟢 Connected" : "🟡 Local Cache";
+        const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
         const now = new Date().toLocaleString();
 
         // Coverage check vs live registry
@@ -244,48 +244,59 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
     },
     get: async (args) => module.exports.send(args),
 
-    // 🎵 Multi-API play
+    // 🎵 Play — search a song by name and send as a downloadable MP3 document
     play: async ({ sock, chatJid, mek, text }) => {
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>" }, { quoted: mek });
-        await sock.sendMessage(chatJid, { text: `🔍 Searching "${text}"...` }, { quoted: mek });
 
-        const apis = [
-            async () => {
-                const r = await axios.get(`https://api.lolhuman.xyz/api/ytplay?apikey=FREE&query=${encodeURIComponent(text)}`);
-                if (r.data?.result?.audio) {
-                    const buf = await axios.get(r.data.result.audio, { responseType: 'arraybuffer' });
-                    return { buffer: buf.data, title: r.data.result.title };
-                }
-                throw new Error();
-            },
-            async () => {
-                const r = await axios.post('https://cobalt.tools/api/json', {
-                    url: `https://youtube.com/results?search_query=${encodeURIComponent(text)}`,
-                    isAudioOnly: true
-                });
-                if (r.data?.url) {
-                    const buf = await axios.get(r.data.url, { responseType: 'arraybuffer' });
-                    return { buffer: buf.data, title: text };
-                }
-                throw new Error();
+        const yt = require('@vreden/youtube_scraper');
+
+        try {
+            await sock.sendMessage(chatJid, { text: `🔍 Searching *"${text}"*...` }, { quoted: mek });
+
+            // 1) Search YouTube by name
+            const search = await yt.search(text);
+            const video = search?.results?.find(v => v.type === 'video') || search?.results?.[0];
+            if (!video || !video.url) {
+                return sock.sendMessage(chatJid, { text: `❌ No results found for *"${text}"*.` }, { quoted: mek });
             }
-        ];
 
-        for (const api of apis) {
-            try {
-                const result = await api();
-                await sock.sendMessage(chatJid, {
-                    document: Buffer.from(result.buffer),
-                    mimetype: 'audio/mpeg',
-                    fileName: `${result.title}.mp3`,
-                    caption: `🎵 ${result.title}
+            await sock.sendMessage(chatJid, {
+                text: `🎧 *Found:* ${video.title}
+⏱️ *Duration:* ${video.timestamp || video.duration?.timestamp || "N/A"}
+📥 _Downloading audio..._`
+            }, { quoted: mek });
 
-Empire MD`
-                }, { quoted: mek });
-                return;
-            } catch (_) { continue; }
+            // 2) Download as MP3 (128 kbps = fast & reliable; 256/320 also supported)
+            const dl = await yt.ytmp3(video.url, 128);
+            if (!dl?.status || !dl?.download?.url) {
+                return sock.sendMessage(chatJid, { text: "❌ Failed to fetch the audio. Try again in a moment." }, { quoted: mek });
+            }
+
+            const audioUrl = dl.download.url;
+            const meta = dl.metadata || {};
+            const title = meta.title || video.title || text;
+            const fileName = dl.download.filename || `${title}.mp3`;
+
+            // 3) Download the file into a buffer
+            const buf = await axios.get(audioUrl, { responseType: 'arraybuffer', timeout: 60000 });
+            const audioBuffer = Buffer.from(buf.data);
+
+            // 4) Send as a downloadable DOCUMENT (so receivers can save it)
+            await sock.sendMessage(chatJid, {
+                document: audioBuffer,
+                mimetype: 'audio/mpeg',
+                fileName: fileName,
+                caption: `🎵 *${title}*
+${meta.author?.name ? `👤 ${meta.author.name}
+` : ""}⏱️ ${meta.timestamp || "N/A"}  •  🎚️ ${dl.download.quality || "128kbps"}
+
+_Powered by ${config.botName}_`
+            }, { quoted: mek });
+
+        } catch (err) {
+            console.error("Play error:", err.message);
+            await sock.sendMessage(chatJid, { text: `❌ Failed to download song: ${err.message}` }, { quoted: mek });
         }
-        await sock.sendMessage(chatJid, { text: "❌ Failed to download song. Try again later." }, { quoted: mek });
     },
 
     // 📸 Profile picture
