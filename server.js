@@ -45,6 +45,11 @@ function generateSessionId(botName) {
   return `BOTWAN_${formattedName}_${randomSuffix}`;
 }
 
+// ✅ Validate an E.164-style MSISDN (digits only, country code, no leading zero).
+function isValidMsisdn(num) {
+  return /^[1-9][0-9]{7,14}$/.test(num);
+}
+
 // 🔐 Owner-only gate — only the repo owner who holds ADMIN_KEY can pass.
 function requireAdmin(req, res, next) {
   const key = req.headers['x-admin-key'] || req.query.adminKey;
@@ -80,6 +85,17 @@ async function fetchThumb(url) {
 // Reusable connection routine so we can actually reconnect
 async function startSession(sessionId, botName, cleanPhone) {
   const sessionFolder = path.join(SESSIONS_ROOT, sessionId);
+
+  // ✅ FRESH PAIRING HYGIENE: if this is a brand-new pairing (we have a phone)
+  // and no valid creds exist yet, wipe any half-written session so WhatsApp
+  // never rejects the code due to corrupt/partial auth state.
+  if (cleanPhone) {
+    const credsFile = path.join(sessionFolder, 'creds.json');
+    if (!fs.existsSync(credsFile)) {
+      try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
+    }
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -88,7 +104,11 @@ async function startSession(sessionId, botName, cleanPhone) {
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: Browsers.ubuntu('Chrome') // correct browser for pairing-code flow
+    browser: Browsers.ubuntu('Chrome'), // correct browser for pairing-code flow
+    // ✅ pairing-friendly options for current WhatsApp protocol
+    syncFullHistory: false,
+    markOnlineOnConnect: true,
+    generateHighQualityLinkPreview: true
   });
   sock.sessionId = sessionId;
 
@@ -175,22 +195,34 @@ async function startSession(sessionId, botName, cleanPhone) {
     }
   });
 
-  // Only request a pairing code when NOT registered AND we have a phone number (fresh pairing)
+  // ✅ ROBUST PAIRING-CODE REQUEST
+  // Request the code only for a fresh, unregistered session, exactly once,
+  // after a short delay to let the websocket open. Retries once on failure.
   if (!sock.authState.creds.registered && cleanPhone) {
-    setTimeout(async () => {
+    let pairingRequested = false;
+
+    const requestCode = async (attempt = 1) => {
+      if (pairingRequested || sock.authState.creds.registered) return;
       try {
         const code = await sock.requestPairingCode(cleanPhone);
+        pairingRequested = true;
         if (activeSessions[sessionId]) {
           activeSessions[sessionId].pairingCode = code?.match(/.{1,4}/g)?.join('-') || code;
+          activeSessions[sessionId].error = null;
         }
         console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
       } catch (err) {
-        console.error("Error requesting pairing code:", err);
-        if (activeSessions[sessionId]) {
-          activeSessions[sessionId].error = "Failed to generate code. Try again.";
+        console.error(`Error requesting pairing code (attempt ${attempt}):`, err?.message || err);
+        if (attempt < 2) {
+          setTimeout(() => requestCode(attempt + 1), 3000);
+        } else if (activeSessions[sessionId]) {
+          activeSessions[sessionId].error = "Failed to generate code. Please try again.";
         }
       }
-    }, 4000);
+    };
+
+    // Fire shortly after socket creation so the connection is initializing.
+    setTimeout(() => requestCode(1), 3000);
   }
 
   sock.ev.on('connection.update', async (update) => {
@@ -200,14 +232,24 @@ async function startSession(sessionId, botName, cleanPhone) {
       const reason = lastDisconnect?.error?.output?.statusCode;
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
 
+      // 🚫 Do NOT auto-reconnect a fresh pairing that failed before registering —
+      // that just spins up sockets and produces repeated "wrong code" attempts.
+      const registered = sock.authState?.creds?.registered;
+
       if (reason === DisconnectReason.loggedOut) {
         delete activeSessions[sessionId];
         try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
         try { await markBotOffline(sessionId); } catch (_) {}
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
+      } else if (!registered && cleanPhone) {
+        // Fresh pairing dropped before completion — surface an error, don't loop.
+        console.log(`⚠️ Fresh pairing for ${sessionId} closed before registering (reason ${reason}). Not auto-reconnecting.`);
+        if (activeSessions[sessionId]) {
+          activeSessions[sessionId].error = "Pairing failed or timed out. Please request a new code.";
+        }
       } else {
         console.log(`🔄 Reconnecting ${sessionId}...`);
-        setTimeout(() => startSession(sessionId, botName, cleanPhone), 2000);
+        setTimeout(() => startSession(sessionId, botName, null), 2000);
       }
     } else if (connection === 'open') {
       console.log(`✅ Session ${sessionId} connected!`);
@@ -235,7 +277,7 @@ async function startSession(sessionId, botName, cleanPhone) {
       const ownerForBot = cleanPhone || connectedNumber;
       const ownerJid = ownerForBot + '@s.whatsapp.net';
 
-      
+
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const cardTitle   = "BOT-WAN MD V 1.0---The Future is NOW";
       const cardBody    = "The future of is NOW.";
@@ -322,6 +364,12 @@ async function resumeSavedSessions() {
     }
 
     for (const sessionId of folders) {
+      // Only resume sessions that actually have creds (already paired).
+      const credsFile = path.join(SESSIONS_ROOT, sessionId, 'creds.json');
+      if (!fs.existsSync(credsFile)) {
+        console.log(`⏭️ Skipping ${sessionId} — no creds, not a completed pairing.`);
+        continue;
+      }
       console.log(`♻️ Resuming saved session: ${sessionId}`);
       await startSession(sessionId, config.botName || "Empire MD", null);
     }
@@ -338,6 +386,16 @@ app.post('/api/connect', async (req, res) => {
       return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
     }
 
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+
+    // ✅ Validate the number BEFORE building a socket — the #1 cause of "wrong code".
+    if (!isValidMsisdn(cleanPhone)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid number. Use full international format with country code and no leading zero (e.g. 2347012345678)."
+      });
+    }
+
     // 🚫 DUPLICATE-NAME GUARD — block before we ever build a socket.
     if (await isBotNameTaken(botName)) {
       return res.status(409).json({
@@ -346,7 +404,6 @@ app.post('/api/connect', async (req, res) => {
       });
     }
 
-    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
     console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
 
