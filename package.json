@@ -9,7 +9,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
     "@vreden/youtube_scraper": "^1.2.9",
-    "@whiskeysockets/baileys": "^6.7.23",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "axios": "^1.6.8",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
