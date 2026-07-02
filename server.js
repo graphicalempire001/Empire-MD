@@ -232,8 +232,6 @@ async function startSession(sessionId, botName, cleanPhone) {
       const reason = lastDisconnect?.error?.output?.statusCode;
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
 
-      // 🚫 Do NOT auto-reconnect a fresh pairing that failed before registering —
-      // that just spins up sockets and produces repeated "wrong code" attempts.
       const registered = sock.authState?.creds?.registered;
 
       if (reason === DisconnectReason.loggedOut) {
@@ -275,8 +273,6 @@ async function startSession(sessionId, botName, cleanPhone) {
       } catch (_) {}
 
       const ownerForBot = cleanPhone || connectedNumber;
-      const ownerJid = ownerForBot + '@s.whatsapp.net';
-
 
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const cardTitle   = "BOT-WAN MD V 1.0---The Future is NOW";
@@ -301,44 +297,57 @@ _Type .help in any chat to view your commands!_`;
 
       // Only send the welcome DM + register on a FRESH pairing (when we have the phone number)
       if (cleanPhone) {
-        try {
-          const thumb = await fetchThumb(thumbUrl);
-          await sock.sendMessage(ownerJid, {
-            text: welcomeDm,
-            contextInfo: {
-              externalAdReply: {
-                title: cardTitle,
-                body: cardBody,
-                mediaType: 1,
-                renderLargerThumbnail: true,
-                thumbnail: thumb,        // buffer = image renders reliably
-                sourceUrl: cardLink,     // normal https URL = taps without "unsupported address"
-                showAdAttribution: false
-              }
-            }
-          });
-        } catch (dmErr) {
-          console.error("Failed to send welcome DM:", dmErr.message);
-        }
+        // ✅ REGISTER FIRST (doesn't depend on socket readiness)
         try {
           const result = await registerBot(sessionId, botName, cleanPhone, ownerForBot);
-          // Defensive: if a race slipped a duplicate name past the /api/connect guard,
-          // the DB unique index rejects it (23505) — tear this session down cleanly.
           if (result && result.ok === false && result.code === '23505') {
             console.warn(`⚠️ Duplicate bot name on register for ${sessionId}; killing session.`);
             try {
-              await sock.sendMessage(ownerJid, {
+              const dupJid = connectedNumber + '@s.whatsapp.net';
+              await sock.sendMessage(dupJid, {
                 text: `⚠️ The bot name *${botName}* is already taken. Please reconnect with a different name.`
               });
             } catch (_) {}
             await killSession(sessionId);
             return;
           }
-          // refresh cache after registration writes defaults
           try { sock.botSettings = await getSettings(sessionId); } catch (_) {}
         } catch (dbErr) {
           console.error("registerBot error:", dbErr.message);
         }
+
+        // ✅ WELCOME DM — delayed so the socket is fully ready, sent to the
+        // number the socket ACTUALLY connected as (most reliable target).
+        setTimeout(async () => {
+          const ownerJid = connectedNumber + '@s.whatsapp.net';
+          try {
+            const thumb = await fetchThumb(thumbUrl);
+            await sock.sendMessage(ownerJid, {
+              text: welcomeDm,
+              contextInfo: {
+                externalAdReply: {
+                  title: cardTitle,
+                  body: cardBody,
+                  mediaType: 1,
+                  renderLargerThumbnail: true,
+                  thumbnail: thumb,        // buffer = image renders reliably
+                  sourceUrl: cardLink,     // normal https URL = taps without "unsupported address"
+                  showAdAttribution: false
+                }
+              }
+            });
+            console.log(`📨 Welcome DM sent to ${ownerJid}`);
+          } catch (dmErr) {
+            console.error("Failed to send welcome DM:", dmErr.message);
+            // Retry once without the ad card in case the thumbnail/card caused the failure.
+            try {
+              await sock.sendMessage(ownerJid, { text: welcomeDm });
+              console.log(`📨 Welcome DM (plain fallback) sent to ${ownerJid}`);
+            } catch (e2) {
+              console.error("Welcome DM plain fallback also failed:", e2.message);
+            }
+          }
+        }, 5000);
       }
     }
   });
