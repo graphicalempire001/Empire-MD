@@ -7,267 +7,276 @@ const config = require('../config');
 
 // Helper to download media message
 async function downloadMedia(mek, type) {
-    const message = mek.message?.[type];
-
-    if (!message) {
-        throw new Error(`Unsupported media type: ${type}`);
-    }
-
-    const stream = await downloadContentFromMessage(
-        message,
-        type.replace("Message", "")
-    );
-
-    let buffer = Buffer.from([]);
-
-    for await (const chunk of stream) {
-        buffer = Buffer.concat([buffer, chunk]);
-    }
-
-    return buffer;
+  const message = mek.message?.[type];
+  if (!message) {
+    throw new Error(`Unsupported media type: ${type}`);
+  }
+  const stream = await downloadContentFromMessage(
+    message,
+    type.replace("Message", "")
+  );
+  let buffer = Buffer.from([]);
+  for await (const chunk of stream) {
+    buffer = Buffer.concat([buffer, chunk]);
+  }
+  return buffer;
 }
 
 // Helper to send media with "leads to channel" button/link
 async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null) {
-    const isGroup = chatJid.endsWith('@g.us');
-    const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-
-    // Format caption with interactive "button" leading to channel
-    const formattedCaption = isGroup
-        ? `${caption}
-
+  const isGroup = chatJid.endsWith('@g.us');
+  const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
+  const formattedCaption = isGroup
+    ? `${caption}
 ━━━━━━━━━━━━━━━━━━━━
 📢 *Join Our Official BOT-WAN Channel:*
 👉 ${channelUrl}
 ━━━━━━━━━━━━━━━━━━━━`
-        : caption;
+    : caption;
 
-    if (mediaObj.video) {
-        return sock.sendMessage(chatJid, {
-            video: mediaObj.video,
-            caption: formattedCaption,
-            mimetype: 'video/mp4'
-        }, { quoted: mek });
-    } else if (mediaObj.audio) {
-        return sock.sendMessage(chatJid, {
-            audio: mediaObj.audio,
-            mimetype: 'audio/mp4',
-            ptt: mediaObj.ptt || false
-        }, { quoted: mek });
-    } else if (mediaObj.image) {
-        return sock.sendMessage(chatJid, {
-            image: mediaObj.image,
-            caption: formattedCaption
-        }, { quoted: mek });
-    }
+  if (mediaObj.video) {
+    return sock.sendMessage(chatJid, {
+      video: mediaObj.video,
+      caption: formattedCaption,
+      mimetype: 'video/mp4'
+    }, { quoted: mek });
+  } else if (mediaObj.audio) {
+    return sock.sendMessage(chatJid, {
+      audio: mediaObj.audio,
+      mimetype: 'audio/mp4',
+      ptt: mediaObj.ptt || false
+    }, { quoted: mek });
+  } else if (mediaObj.image) {
+    return sock.sendMessage(chatJid, {
+      image: mediaObj.image,
+      caption: formattedCaption
+    }, { quoted: mek });
+  }
+}
+
+// Resolve free-text into a YouTube watch URL (shared by .play and .video)
+async function resolveYouTubeUrl(query) {
+  if (query.startsWith("http")) return query;
+  const searchRes = await axios.get(
+    `https://html.duckduckgo.com/html/?q=site:youtube.com+${encodeURIComponent(query)}`,
+    { headers: { "User-Agent": "Mozilla/5.0" }, timeout: 15000 }
+  );
+  const match = searchRes.data.match(/\/watch\?v=[a-zA-Z0-9_-]+/);
+  if (!match) return null;
+  return `https://www.youtube.com` + match[0];
 }
 
 // List of working Cobalt API endpoints (failover array)
 const COBALT_ENDPOINTS = [
-    "https://melon.clxxped.lol",
-    "https://api.cobalt.blackcat.sweeux.org",
-    "https://apicobalt.mgytr.top",
-    "https://cobaltapi.squair.xyz"
+  "https://melon.clxxped.lol",
+  "https://api.cobalt.blackcat.sweeux.org",
+  "https://apicobalt.mgytr.top",
+  "https://cobaltapi.squair.xyz"
 ];
 
 async function downloadWithCobalt(url, options = {}) {
-    for (const endpoint of COBALT_ENDPOINTS) {
-        try {
-            const res = await axios.post(endpoint, {
-                url: url,
-                ...options
-            }, {
-                headers: {
-                    "Accept": "application/json",
-                    "Content-Type": "application/json"
-                },
-                timeout: 15000
-            });
-            if (res.data && res.data.url) {
-                return res.data;
-            }
-        } catch (e) {
-            console.error(`Cobalt endpoint ${endpoint} failed:`, e.message);
-        }
+  for (const endpoint of COBALT_ENDPOINTS) {
+    try {
+      const res = await axios.post(endpoint, {
+        url: url,
+        ...options
+      }, {
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        timeout: 15000
+      });
+      if (res.data && res.data.url) {
+        return res.data;
+      }
+    } catch (e) {
+      console.error(`Cobalt endpoint ${endpoint} failed:`, e.message);
     }
-    throw new Error("All public media download API servers are currently busy or offline. Please try again later.");
+  }
+  throw new Error("All public media download API servers are currently busy or offline. Please try again later.");
 }
 
 module.exports = {
-    // 🎨 Sticker Maker Command (Alias: s, sticker)
-    s: async ({ sock, chatJid, mek }) => {
-        try {
-            await sock.sendMessage(chatJid, { text: "🎨 *Sticker Maker:* Downloading and processing your media..." }, { quoted: mek });
+  // 🎨 Sticker Maker Command (Alias: s, sticker)
+  s: async ({ sock, chatJid, mek }) => {
+    try {
+      await sock.sendMessage(chatJid, { text: "🎨 *Sticker Maker:* Downloading and processing your media..." }, { quoted: mek });
+      let mediaMek = mek;
+      let type = Object.keys(mek.message)[0];
+      let inner = mek.message[type];
+      while (
+        inner?.ephemeralMessage ||
+        inner?.viewOnceMessage ||
+        inner?.viewOnceMessageV2 ||
+        inner?.viewOnceMessageV2Extension ||
+        type === "ephemeralMessage" ||
+        type === "viewOnceMessage" ||
+        type === "viewOnceMessageV2" ||
+        type === "viewOnceMessageV2Extension"
+      ) {
+        const unwrapped =
+          mek.message[type]?.message ||
+          inner?.ephemeralMessage?.message ||
+          inner?.viewOnceMessage?.message ||
+          inner?.viewOnceMessageV2?.message ||
+          inner?.viewOnceMessageV2Extension?.message;
+        if (!unwrapped) break;
+        mediaMek = { message: unwrapped };
+        type = Object.keys(unwrapped)[0];
+        inner = unwrapped[type];
+      }
+      if (mek.quoted) {
+        mediaMek = { message: mek.quoted.message };
+        type = mek.quoted.type;
+      }
+      const allowedTypes = ["imageMessage", "videoMessage"];
+      if (!allowedTypes.includes(type)) {
+        return sock.sendMessage(chatJid, { text: "❌ Please send or reply to an *Image* or *Video* to make a sticker!" }, { quoted: mek });
+      }
+      const buffer = await downloadMedia(mediaMek, type);
+      if (!buffer) return sock.sendMessage(chatJid, { text: "❌ Failed to download media!" }, { quoted: mek });
+      const sticker = new Sticker(buffer, {
+        pack: config.botName || "Empire MD",
+        author: config.ownerName || "BOT-WAN",
+        type: StickerTypes.FULL,
+        categories: ['🤩', '🎉'],
+        id: '12345',
+        quality: 70
+      });
+      const stickerBuffer = await sticker.toBuffer();
+      await sock.sendMessage(chatJid, { sticker: stickerBuffer }, { quoted: mek });
+    } catch (err) {
+      console.error("Sticker error:", err);
+      await sock.sendMessage(chatJid, { text: `❌ Sticker generation failed: ${err.message}` }, { quoted: mek });
+    }
+  },
+  sticker: async (args) => module.exports.s(args),
 
-            let mediaMek = mek;
-            let type = Object.keys(mek.message)[0];
+  // 🎵 YouTube Song / MP3 Downloader (search by text OR url)
+  play: async ({ sock, chatJid, mek, text }) => {
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name or YouTube URL!" }, { quoted: mek });
+    try {
+      await sock.sendMessage(chatJid, { text: `🎵 *Searching/Downloading:* BOT-WAN is Searching for "${text}" ...` }, { quoted: mek });
+      const url = await resolveYouTubeUrl(text);
+      if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
+      const downloadData = await downloadWithCobalt(url, { downloadMode: "audio" });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
+      await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
+    } catch (err) {
+      console.error("Play error:", err);
+      await sock.sendMessage(chatJid, { text: `❌ Failed to play song: ${err.message}` }, { quoted: mek });
+    }
+  },
 
-            // Unwrap a directly-sent ephemeral / view-once image or video
-            let inner = mek.message[type];
-            while (
-                inner?.ephemeralMessage ||
-                inner?.viewOnceMessage ||
-                inner?.viewOnceMessageV2 ||
-                inner?.viewOnceMessageV2Extension ||
-                type === "ephemeralMessage" ||
-                type === "viewOnceMessage" ||
-                type === "viewOnceMessageV2" ||
-                type === "viewOnceMessageV2Extension"
-            ) {
-                const unwrapped =
-                    mek.message[type]?.message ||
-                    inner?.ephemeralMessage?.message ||
-                    inner?.viewOnceMessage?.message ||
-                    inner?.viewOnceMessageV2?.message ||
-                    inner?.viewOnceMessageV2Extension?.message;
-                if (!unwrapped) break;
-                mediaMek = { message: unwrapped };
-                type = Object.keys(unwrapped)[0];
-                inner = unwrapped[type];
-            }
+  // 🎬 Video Downloader (search by text OR url) — mirrors .play but delivers MP4
+  video: async ({ sock, chatJid, mek, text }) => {
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide a video/movie name or YouTube URL! e.g. *.video lion king trailer*" }, { quoted: mek });
+    try {
+      await sock.sendMessage(chatJid, { text: `🎬 *Searching/Downloading:* BOT-WAN is Looking for "${text}" ...` }, { quoted: mek });
+      const url = await resolveYouTubeUrl(text);
+      if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching videos." }, { quoted: mek });
 
-            // If this is a swipe-reply, use the replied media (handler already deep-unwrapped it)
-            if (mek.quoted) {
-                mediaMek = { message: mek.quoted.message };
-                type = mek.quoted.type;
-            }
+      let downloadData;
+      try {
+        downloadData = await downloadWithCobalt(url, { videoQuality: "720" });
+      } catch (_) {
+        // fallback to a lower quality if 720 fails
+        downloadData = await downloadWithCobalt(url, { videoQuality: "480" });
+      }
 
-            const allowedTypes = ["imageMessage", "videoMessage"];
-            if (!allowedTypes.includes(type)) {
-                return sock.sendMessage(chatJid, { text: "❌ Please send or reply to an *Image* or *Video* to make a sticker!" }, { quoted: mek });
-            }
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      await sock.sendMessage(chatJid, { text: "🎬 Sending video file... BOT-WAN links will be attached." }, { quoted: mek });
+      await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, downloadData.filename || `${text}.mp4`, mek);
+    } catch (err) {
+      console.error("Video error:", err);
+      await sock.sendMessage(chatJid, { text: `❌ Failed to download video: ${err.message}` }, { quoted: mek });
+    }
+  },
+  vid: async (args) => module.exports.video(args),
 
-            const buffer = await downloadMedia(mediaMek, type);
-            if (!buffer) return sock.sendMessage(chatJid, { text: "❌ Failed to download media!" }, { quoted: mek });
+  ytmp3: async ({ sock, chatJid, mek, text }) => {
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
+    try {
+      await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
+      const downloadData = await downloadWithCobalt(text, { downloadMode: "audio" });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
+    } catch (err) {
+      await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+    }
+  },
 
-            const sticker = new Sticker(buffer, {
-                pack: config.botName || "Empire MD",
-                author: config.ownerName || "BOT-WAN",
-                type: StickerTypes.FULL,
-                categories: ['🤩', '🎉'],
-                id: '12345',
-                quality: 70
-            });
+  // 📥 YouTube MP4 Downloader (direct URL)
+  ytmp4: async ({ sock, chatJid, mek, text }) => {
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
+    try {
+      await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP4..." }, { quoted: mek });
+      const downloadData = await downloadWithCobalt(text, { videoQuality: "720" });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "video.mp4", mek);
+    } catch (err) {
+      await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+    }
+  },
 
-            const stickerBuffer = await sticker.toBuffer();
-            await sock.sendMessage(chatJid, { sticker: stickerBuffer }, { quoted: mek });
-        } catch (err) {
-            console.error("Sticker error:", err);
-            await sock.sendMessage(chatJid, { text: `❌ Sticker generation failed: ${err.message}` }, { quoted: mek });
-        }
-    },
-    sticker: async (args) => module.exports.s(args),
+  // 📸 Instagram Video Downloader
+  insta: async ({ sock, chatJid, mek, text }) => {
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide Instagram link!" }, { quoted: mek });
+    try {
+      await sock.sendMessage(chatJid, { text: "📥 Downloading Instagram Reel..." }, { quoted: mek });
+      const downloadData = await downloadWithCobalt(text);
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "Instagram Reel Downloaded", mek);
+    } catch (err) {
+      await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+    }
+  },
+  ig: async (args) => module.exports.insta(args),
 
-    // 🎵 YouTube Song / MP3 Downloader
-    play: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name or YouTube URL!" }, { quoted: mek });
-        try {
-            await sock.sendMessage(chatJid, { text: `🎵 *Searching/Downloading:* Searching for "${text}" via keyless API...` }, { quoted: mek });
+  // 🎵 TikTok Downloader
+  tiktok: async ({ sock, chatJid, mek, text }) => {
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide TikTok link!" }, { quoted: mek });
+    try {
+      await sock.sendMessage(chatJid, { text: "📥 BOT-WAN is Downloading TikTok Video..." }, { quoted: mek });
+      const downloadData = await downloadWithCobalt(text);
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "TikTok Downloaded Successfully", mek);
+    } catch (err) {
+      await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+    }
+  },
+  tt: async (args) => module.exports.tiktok(args),
 
-            let url = text;
-            if (!text.startsWith("http")) {
-                const searchRes = await axios.get(`https://html.duckduckgo.com/html/?q=site:youtube.com+${encodeURIComponent(text)}`);
-                const html = searchRes.data;
-                const match = html.match(/\/watch\?v=[a-zA-Z0-9_-]+/);
-                if (!match) {
-                    return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
-                }
-                url = `https://www.youtube.com` + match[0];
-            }
+  // 📘 Facebook Downloader
+  fb: async ({ sock, chatJid, mek, text }) => {
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide Facebook video link!" }, { quoted: mek });
+    try {
+      await sock.sendMessage(chatJid, { text: "📥 Downloading Facebook Video..." }, { quoted: mek });
+      const downloadData = await downloadWithCobalt(text);
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "Facebook Video Downloaded", mek);
+    } catch (err) {
+      await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+    }
+  },
+  fbdl: async (args) => module.exports.fb(args),
 
-            const downloadData = await downloadWithCobalt(url, { downloadMode: "audio" });
-            const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
-
-            await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
-            await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
-        } catch (err) {
-            console.error("Play error:", err);
-            await sock.sendMessage(chatJid, { text: `❌ Failed to play song: ${err.message}` }, { quoted: mek });
-        }
-    },
-
-    ytmp3: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
-        try {
-            await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
-            const downloadData = await downloadWithCobalt(text, { downloadMode: "audio" });
-            const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
-            await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
-        }
-    },
-
-    // 📥 YouTube MP4 Downloader
-    ytmp4: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
-        try {
-            await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP4..." }, { quoted: mek });
-            const downloadData = await downloadWithCobalt(text, { videoQuality: "720" });
-            const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
-            await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "video.mp4", mek);
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
-        }
-    },
-    video: async (args) => module.exports.ytmp4(args),
-
-    // 📸 Instagram Video Downloader
-    insta: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide Instagram link!" }, { quoted: mek });
-        try {
-            await sock.sendMessage(chatJid, { text: "📥 Downloading Instagram Reel..." }, { quoted: mek });
-            const downloadData = await downloadWithCobalt(text);
-            const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
-            await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "Instagram Reel Downloaded", mek);
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
-        }
-    },
-    ig: async (args) => module.exports.insta(args),
-
-    // 🎵 TikTok Downloader
-    tiktok: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide TikTok link!" }, { quoted: mek });
-        try {
-            await sock.sendMessage(chatJid, { text: "📥 Downloading TikTok Video without Watermark..." }, { quoted: mek });
-            const downloadData = await downloadWithCobalt(text);
-            const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
-            await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "TikTok Downloaded Successfully", mek);
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
-        }
-    },
-    tt: async (args) => module.exports.tiktok(args),
-
-    // 📘 Facebook Downloader
-    fb: async ({ sock, chatJid, mek, text }) => {
-        if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide Facebook video link!" }, { quoted: mek });
-        try {
-            await sock.sendMessage(chatJid, { text: "📥 Downloading Facebook Video..." }, { quoted: mek });
-            const downloadData = await downloadWithCobalt(text);
-            const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
-            await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "Facebook Video Downloaded", mek);
-        } catch (err) {
-            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
-        }
-    },
-    fbdl: async (args) => module.exports.fb(args),
-
-    // 🎭 Random Meme Generator
-    meme: async ({ sock, chatJid, mek }) => {
-        try {
-            await sock.sendMessage(chatJid, { text: "⏳ Fetching a fresh meme..." }, { quoted: mek });
-            const res = await axios.get("https://meme-api.com/gimme");
-            const { title, url, postLink, subreddit } = res.data;
-            const caption = `🎭 *${title}*
+  // 🎭 Random Meme Generator
+  meme: async ({ sock, chatJid, mek }) => {
+    try {
+      await sock.sendMessage(chatJid, { text: "⏳ Fetching a fresh meme..." }, { quoted: mek });
+      const res = await axios.get("https://meme-api.com/gimme");
+      const { title, url, postLink, subreddit } = res.data;
+      const caption = `🎭 *${title}*
 Subreddit: r/${subreddit}
 Source: ${postLink}`;
-            const imgRes = await axios.get(url, { responseType: 'arraybuffer' });
-            await sendGroupMedia(sock, chatJid, { image: Buffer.from(imgRes.data) }, caption, mek);
-        } catch (err) {
-            console.error("Meme error:", err);
-            await sock.sendMessage(chatJid, { text: "❌ Failed to fetch meme. Here is a joke instead: Why did the keyboard go to court? It lost its case! 😂" }, { quoted: mek });
-        }
+      const imgRes = await axios.get(url, { responseType: 'arraybuffer' });
+      await sendGroupMedia(sock, chatJid, { image: Buffer.from(imgRes.data) }, caption, mek);
+    } catch (err) {
+      console.error("Meme error:", err);
+      await sock.sendMessage(chatJid, { text: "❌ Failed to fetch meme. Here is a joke instead: Why did the keyboard go to court? It lost its case! 😂" }, { quoted: mek });
     }
+  }
 };
