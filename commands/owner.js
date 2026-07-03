@@ -41,7 +41,7 @@ ${text}
         try {
             const groups = await sock.groupFetchAllParticipating();
             const groupJids = Object.keys(groups);
-            
+
             await sock.sendMessage(chatJid, { text: `🚀 Starting owner broadcast to *${groupJids.length}* groups...` }, { quoted: mek });
             for (const jid of groupJids) {
                 try {
@@ -55,5 +55,69 @@ ${text}
             await sock.sendMessage(chatJid, { text: `❌ Broadcast failed: ${err.message}` }, { quoted: mek });
         }
     },
-    bc: async (args) => module.exports.broadcast(args)
+    bc: async (args) => module.exports.broadcast(args),
+
+    // 📲 Pair a new bot for another number (reply / mention / typed number)
+    // Usage:
+    //   Reply to a user:   .pair BotName
+    //   Mention a user:    .pair @user BotName
+    //   Type a number:     .pair 2347012345678 BotName
+    pair: async ({ sock, chatJid, mek, text, isOwner, quotedSender, contextInfo }) => {
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
+
+        // Resolve target: reply → mention → typed number
+        let targetJid =
+            quotedSender ||
+            (contextInfo?.mentionedJid && contextInfo.mentionedJid[0]) ||
+            null;
+
+        let cleanPhone = targetJid ? targetJid.replace(/[^0-9]/g, '') : "";
+
+        // Parse typed args:  .pair 234701... BotName   OR   .pair BotName (with reply/mention)
+        const args = (text || "").trim().split(/ +/).filter(Boolean);
+        if (!cleanPhone && args.length) {
+            const maybeNum = args[0].replace(/[^0-9]/g, '');
+            if (maybeNum.length >= 8) { cleanPhone = maybeNum; args.shift(); }
+        }
+        let botName = args.join(" ").trim();
+
+        if (!cleanPhone) {
+            return sock.sendMessage(chatJid, {
+                text: `❌ *Usage:*
+• Reply to a user: *.pair BotName*
+• Mention: *.pair @user BotName*
+• Or type: *.pair 2347012345678 BotName*`
+            }, { quoted: mek });
+        }
+        if (!botName) botName = `Bot_${cleanPhone.slice(-4)}`;
+
+        if (typeof global.startPairingSession !== 'function') {
+            return sock.sendMessage(chatJid, { text: "❌ Pairing engine not available on this server build." }, { quoted: mek });
+        }
+
+        await sock.sendMessage(chatJid, { text: `📲 Generating pairing code for *+${cleanPhone}* (bot: *${botName}*)...` }, { quoted: mek });
+
+        const result = await global.startPairingSession(botName, cleanPhone);
+        if (!result.ok) {
+            return sock.sendMessage(chatJid, { text: `❌ ${result.error}` }, { quoted: mek });
+        }
+
+        const targetDm = cleanPhone + '@s.whatsapp.net';
+        const codeMsg =
+`🔐 *Empire MD Pairing Code*
+
+*Bot Name:* ${botName}
+*Code:* ${result.code}
+
+📱 *How to link:*
+1. Open WhatsApp on *+${cleanPhone}*
+2. Settings → *Linked Devices*
+3. *Link a Device* → *Link with phone number instead*
+4. Enter the code above (expires soon).`;
+
+        // DM the code to the target, and also show it to the owner here.
+        try { await sock.sendMessage(targetDm, { text: codeMsg }); } catch (_) {}
+        await sock.sendMessage(chatJid, { text: codeMsg }, { quoted: mek });
+    },
+    psession: async (args) => module.exports.pair(args)
 };
