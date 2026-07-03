@@ -356,6 +356,35 @@ _Type .help in any chat to view your commands!_`;
   return sock;
 }
 
+// 🔗 Global bridge so commands (e.g. .pair) can trigger a new pairing session.
+global.startPairingSession = async function (botName, cleanPhone) {
+  if (!isValidMsisdn(cleanPhone)) {
+    return { ok: false, error: "Invalid number. Use full international format, no + or leading zero (e.g. 2347012345678)." };
+  }
+  if (await isBotNameTaken(botName)) {
+    return { ok: false, error: `The bot name "${botName}" is already taken. Choose another.` };
+  }
+
+  const sessionId = generateSessionId(botName);
+  try {
+    await startSession(sessionId, botName, cleanPhone);
+  } catch (err) {
+    if (err.code === 'ENOSPC') return { ok: false, error: "Server storage is full. Try again shortly." };
+    return { ok: false, error: err.message };
+  }
+
+  // Wait briefly for requestPairingCode (fires ~3s after socket start).
+  const started = Date.now();
+  while (Date.now() - started < 12000) {
+    const s = activeSessions[sessionId];
+    if (s?.pairingCode) return { ok: true, sessionId, code: s.pairingCode };
+    if (s?.error) return { ok: false, error: s.error };
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return { ok: false, error: "Timed out generating the pairing code. Please try again." };
+};
+
+
 async function resumeSavedSessions() {
   try {
     if (!fs.existsSync(SESSIONS_ROOT)) {
