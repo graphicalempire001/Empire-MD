@@ -105,10 +105,13 @@ async function startSession(sessionId, botName, cleanPhone) {
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: Browsers.ubuntu('Chrome'), // correct browser for pairing-code flow
-    // ✅ pairing-friendly options for current WhatsApp protocol
+    // ✅ pairing-friendly + keepalive options for current WhatsApp protocol
     syncFullHistory: false,
     markOnlineOnConnect: true,
-    generateHighQualityLinkPreview: true
+    generateHighQualityLinkPreview: true,
+    keepAliveIntervalMs: 30000,   // ping every 30s to survive idle 408 drops
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000
   });
   sock.sessionId = sessionId;
 
@@ -195,60 +198,58 @@ async function startSession(sessionId, botName, cleanPhone) {
     }
   });
 
-  // ✅ ROBUST PAIRING-CODE REQUEST
-  // Request the code only for a fresh, unregistered session, exactly once,
-  // after a short delay to let the websocket open. Retries once on failure.
-  if (!sock.authState.creds.registered && cleanPhone) {
-    let pairingRequested = false;
-
-    const requestCode = async (attempt = 1) => {
-      if (pairingRequested || sock.authState.creds.registered) return;
-      try {
-        const code = await sock.requestPairingCode(cleanPhone);
-        pairingRequested = true;
-        if (activeSessions[sessionId]) {
-          activeSessions[sessionId].pairingCode = code?.match(/.{1,4}/g)?.join('-') || code;
-          activeSessions[sessionId].error = null;
-        }
-        console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
-      } catch (err) {
-        console.error(`Error requesting pairing code (attempt ${attempt}):`, err?.message || err);
-        if (attempt < 2) {
-          setTimeout(() => requestCode(attempt + 1), 3000);
-        } else if (activeSessions[sessionId]) {
-          activeSessions[sessionId].error = "Failed to generate code. Please try again.";
-        }
-      }
-    };
-
-    // Fire shortly after socket creation so the connection is initializing.
-    setTimeout(() => requestCode(1), 3000);
-  }
-
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update;
+
+    // ✅ REQUEST PAIRING CODE at the correct moment (once the socket is connecting),
+    // not on a blind timer — this produces stable, non-rejected codes.
+    if (
+      connection === 'connecting' &&
+      !sock.authState.creds.registered &&
+      cleanPhone &&
+      !sock._pairingRequested
+    ) {
+      sock._pairingRequested = true;
+      setTimeout(async () => {
+        try {
+          const code = await sock.requestPairingCode(cleanPhone);
+          if (activeSessions[sessionId]) {
+            activeSessions[sessionId].pairingCode = code?.match(/.{1,4}/g)?.join('-') || code;
+            activeSessions[sessionId].error = null;
+          }
+          console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
+        } catch (err) {
+          console.error("Error requesting pairing code:", err?.message || err);
+          if (activeSessions[sessionId]) {
+            activeSessions[sessionId].error = "Failed to generate code. Please try again.";
+          }
+        }
+      }, 2000);
+    }
 
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
 
-      const registered = sock.authState?.creds?.registered;
-
       if (reason === DisconnectReason.loggedOut) {
+        // Genuine logout / removed device — clear everything.
         delete activeSessions[sessionId];
         try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
         try { await markBotOffline(sessionId); } catch (_) {}
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
-      } else if (!registered && cleanPhone) {
-        // Fresh pairing dropped before completion — surface an error, don't loop.
-        console.log(`⚠️ Fresh pairing for ${sessionId} closed before registering (reason ${reason}). Not auto-reconnecting.`);
-        if (activeSessions[sessionId]) {
-          activeSessions[sessionId].error = "Pairing failed or timed out. Please request a new code.";
-        }
+
+      } else if (reason === DisconnectReason.restartRequired || reason === 515) {
+        // ✅ NORMAL right after a successful pairing — MUST reconnect to finish login.
+        console.log(`♻️ Restart required for ${sessionId} — reconnecting to complete login...`);
+        setTimeout(() => startSession(sessionId, botName, cleanPhone), 1500);
+
       } else {
-        console.log(`🔄 Reconnecting ${sessionId}...`);
-        setTimeout(() => startSession(sessionId, botName, null), 2000);
+        // 408 / 428 / connection lost / timeouts — reconnect and keep the creds.
+        console.log(`🔄 Reconnecting ${sessionId} (reason ${reason})...`);
+        const stillPairing = !sock.authState?.creds?.registered;
+        setTimeout(() => startSession(sessionId, botName, stillPairing ? cleanPhone : null), 2000);
       }
+
     } else if (connection === 'open') {
       console.log(`✅ Session ${sessionId} connected!`);
       if (activeSessions[sessionId]) activeSessions[sessionId].status = 'connected';
@@ -277,10 +278,9 @@ async function startSession(sessionId, botName, cleanPhone) {
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const cardTitle   = "BOT-WAN MD V 1.0---The Future is NOW";
       const cardBody    = "The future of is NOW.";
-      const cardLink    = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15"; // normal https link → taps cleanly
+      const cardLink    = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const thumbUrl    = "https://i.ibb.co/8LMKhwqt/download.jpg";
 
-      // Your DM text — edit freely. The channel link below is tappable plain text.
       const welcomeDm =
 ` *Welcome  ${botName}!* 
 
@@ -295,8 +295,11 @@ BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and r
 _Type .help in any chat to view your commands!_`;
       // ───────────────────────────────────────────────
 
-      // Only send the welcome DM + register on a FRESH pairing (when we have the phone number)
-      if (cleanPhone) {
+      // Only send the welcome DM + register on a FRESH pairing (when we have the phone number).
+      // Guard so a reconnect (515 → open) doesn't re-send the DM every time.
+      if (cleanPhone && !sock._welcomeSent) {
+        sock._welcomeSent = true;
+
         // ✅ REGISTER FIRST (doesn't depend on socket readiness)
         try {
           const result = await registerBot(sessionId, botName, cleanPhone, ownerForBot);
@@ -330,8 +333,8 @@ _Type .help in any chat to view your commands!_`;
                   body: cardBody,
                   mediaType: 1,
                   renderLargerThumbnail: true,
-                  thumbnail: thumb,        // buffer = image renders reliably
-                  sourceUrl: cardLink,     // normal https URL = taps without "unsupported address"
+                  thumbnail: thumb,
+                  sourceUrl: cardLink,
                   showAdAttribution: false
                 }
               }
