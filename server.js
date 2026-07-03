@@ -67,7 +67,6 @@ async function killSession(sessionId) {
     try { s.sock.end(); } catch (_) {}
   }
   delete activeSessions[sessionId];
-  // best-effort wipe of the auth folder on disk
   try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -78,7 +77,36 @@ async function fetchThumb(url) {
     return Buffer.from(r.data, 'binary');
   } catch (e) {
     console.error("Thumbnail fetch failed:", e.message);
-    return undefined; // message still sends without the image
+    return undefined;
+  }
+}
+
+// 🧽 Periodic cleanup: remove session folders that never completed pairing,
+// so the disk never fills up with dead pairing attempts (fixes ENOSPC).
+function cleanupOrphanSessions() {
+  try {
+    if (!fs.existsSync(SESSIONS_ROOT)) return;
+    const now = Date.now();
+    for (const name of fs.readdirSync(SESSIONS_ROOT)) {
+      const dir = path.join(SESSIONS_ROOT, name);
+      let stat;
+      try { stat = fs.statSync(dir); } catch { continue; }
+      if (!stat.isDirectory()) continue;
+
+      const credsFile = path.join(dir, 'creds.json');
+      const isActive = !!activeSessions[name]?.sock;
+      const ageMin = (now - stat.mtimeMs) / 60000;
+
+      // No creds + not currently active + older than 15 min = dead attempt → purge.
+      if (!fs.existsSync(credsFile) && !isActive && ageMin > 15) {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+          console.log(`🧹 Purged orphan session ${name}`);
+        } catch (_) {}
+      }
+    }
+  } catch (e) {
+    console.error("cleanupOrphanSessions error:", e.message);
   }
 }
 
@@ -86,9 +114,7 @@ async function fetchThumb(url) {
 async function startSession(sessionId, botName, cleanPhone) {
   const sessionFolder = path.join(SESSIONS_ROOT, sessionId);
 
-  // ✅ FRESH PAIRING HYGIENE: if this is a brand-new pairing (we have a phone)
-  // and no valid creds exist yet, wipe any half-written session so WhatsApp
-  // never rejects the code due to corrupt/partial auth state.
+  // ✅ FRESH PAIRING HYGIENE: wipe any half-written session (no creds) before a new pairing.
   if (cleanPhone) {
     const credsFile = path.join(sessionFolder, 'creds.json');
     if (!fs.existsSync(credsFile)) {
@@ -104,21 +130,18 @@ async function startSession(sessionId, botName, cleanPhone) {
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: Browsers.ubuntu('Chrome'), // correct browser for pairing-code flow
-    // ✅ pairing-friendly + keepalive options for current WhatsApp protocol
+    browser: Browsers.ubuntu('Chrome'),
     syncFullHistory: false,
     markOnlineOnConnect: true,
     generateHighQualityLinkPreview: true,
-    keepAliveIntervalMs: 30000,   // ping every 30s to survive idle 408 drops
+    keepAliveIntervalMs: 30000,
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 60000
   });
   sock.sessionId = sessionId;
 
-  // 🔑 OWNER TAG: on a fresh pairing, the typed phone IS the owner of this bot.
   if (cleanPhone) sock.ownerNumber = [cleanPhone];
 
-  // 🗂️ Warm the per-bot settings cache so the status handler reads THIS bot's prefs.
   try {
     sock.botSettings = (await getSettings(sessionId)) || null;
   } catch (_) {
@@ -136,6 +159,32 @@ async function startSession(sessionId, botName, cleanPhone) {
 
   sock.ev.on('creds.update', saveCreds);
 
+  // ─────────────────────────────────────────────────────────────
+  // ✅ STANDARD PAIRING-CODE REQUEST
+  // Only for a fresh, unregistered session. Fire once, after a short
+  // delay so the websocket has begun connecting. Guarded against repeats.
+  // ─────────────────────────────────────────────────────────────
+  if (!sock.authState.creds.registered && cleanPhone && !sock._pairingRequested) {
+    sock._pairingRequested = true;
+    setTimeout(async () => {
+      try {
+        if (sock.authState.creds.registered) return;
+        const code = await sock.requestPairingCode(cleanPhone);
+        const formatted = code?.match(/.{1,4}/g)?.join('-') || code;
+        if (activeSessions[sessionId]) {
+          activeSessions[sessionId].pairingCode = formatted;
+          activeSessions[sessionId].error = null;
+        }
+        console.log(`🔑 Pairing code for ${sessionId}: ${formatted}`);
+      } catch (err) {
+        console.error("Error requesting pairing code:", err?.message || err);
+        if (activeSessions[sessionId]) {
+          activeSessions[sessionId].error = "Failed to generate code. Please try again.";
+        }
+      }
+    }, 3000);
+  }
+
   // 📩 MESSAGE LISTENER — routes incoming messages to the command handler
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
@@ -146,19 +195,16 @@ async function startSession(sessionId, botName, cleanPhone) {
       if (mek.key && mek.key.remoteJid === 'status@broadcast') {
         try {
           if (!mek.key.fromMe) {
-            // Per-bot settings: live cache → DB → global defaults
             let s = sock.botSettings;
             if (!s && sock.sessionId) {
               try { s = await getSettings(sock.sessionId); sock.botSettings = s; } catch (_) {}
             }
             s = s || config.settings;
 
-            // 👁️ Read/decrypt the status FIRST (required for a reliable react)
             if (s.autostatusview || s.autostatusreact) {
               try { await sock.readMessages([mek.key]); } catch (_) {}
             }
 
-            // 💖 Auto-react to statuses
             if (s.autostatusreact && mek.key.participant) {
               const emoji = s.defaultStatusEmoji || "💖";
               try {
@@ -182,10 +228,9 @@ async function startSession(sessionId, botName, cleanPhone) {
         } catch (e) {
           console.error("Status auto-handler error:", e.message);
         }
-        continue; // done with status; never pass it to the command handler
+        continue;
       }
 
-      // 📊 USAGE TRACKING — count every real (non-status) message for this bot.
       if (sock.sessionId) {
         incrementUsage(sock.sessionId).catch(() => {});
       }
@@ -201,50 +246,23 @@ async function startSession(sessionId, botName, cleanPhone) {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update;
 
-    // ✅ REQUEST PAIRING CODE at the correct moment (once the socket is connecting),
-    // not on a blind timer — this produces stable, non-rejected codes.
-    if (
-      connection === 'connecting' &&
-      !sock.authState.creds.registered &&
-      cleanPhone &&
-      !sock._pairingRequested
-    ) {
-      sock._pairingRequested = true;
-      setTimeout(async () => {
-        try {
-          const code = await sock.requestPairingCode(cleanPhone);
-          if (activeSessions[sessionId]) {
-            activeSessions[sessionId].pairingCode = code?.match(/.{1,4}/g)?.join('-') || code;
-            activeSessions[sessionId].error = null;
-          }
-          console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
-        } catch (err) {
-          console.error("Error requesting pairing code:", err?.message || err);
-          if (activeSessions[sessionId]) {
-            activeSessions[sessionId].error = "Failed to generate code. Please try again.";
-          }
-        }
-      }, 2000);
-    }
-
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
 
       if (reason === DisconnectReason.loggedOut) {
-        // Genuine logout / removed device — clear everything.
         delete activeSessions[sessionId];
         try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
         try { await markBotOffline(sessionId); } catch (_) {}
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
 
       } else if (reason === DisconnectReason.restartRequired || reason === 515) {
-        // ✅ NORMAL right after a successful pairing — MUST reconnect to finish login.
+        // ✅ NORMAL right after a successful pairing — reconnect to complete login.
         console.log(`♻️ Restart required for ${sessionId} — reconnecting to complete login...`);
         setTimeout(() => startSession(sessionId, botName, cleanPhone), 1500);
 
       } else {
-        // 408 / 428 / connection lost / timeouts — reconnect and keep the creds.
+        // 408 / 428 / connection lost — reconnect and keep creds.
         console.log(`🔄 Reconnecting ${sessionId} (reason ${reason})...`);
         const stillPairing = !sock.authState?.creds?.registered;
         setTimeout(() => startSession(sessionId, botName, stillPairing ? cleanPhone : null), 2000);
@@ -256,18 +274,15 @@ async function startSession(sessionId, botName, cleanPhone) {
 
       const connectedNumber = sock.user.id.split(':')[0];
 
-      // 🔑 Guarantee this bot always has an owner = the pairing/connected number.
       if (!sock.ownerNumber || !sock.ownerNumber.length) {
         sock.ownerNumber = [connectedNumber];
       }
 
-      // 🗂️ Refresh the per-bot settings cache now that we're connected.
       try {
         const latest = await getSettings(sessionId);
         if (latest) sock.botSettings = latest;
       } catch (_) {}
 
-      // ⚡ Apply always-online presence per-bot if enabled.
       try {
         const s = sock.botSettings || config.settings;
         if (s.alwaysOnline) await sock.sendPresenceUpdate('available');
@@ -293,14 +308,10 @@ BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and r
 👉 ${channelUrl}
 
 _Type .help in any chat to view your commands!_`;
-      // ───────────────────────────────────────────────
 
-      // Only send the welcome DM + register on a FRESH pairing (when we have the phone number).
-      // Guard so a reconnect (515 → open) doesn't re-send the DM every time.
       if (cleanPhone && !sock._welcomeSent) {
         sock._welcomeSent = true;
 
-        // ✅ REGISTER FIRST (doesn't depend on socket readiness)
         try {
           const result = await registerBot(sessionId, botName, cleanPhone, ownerForBot);
           if (result && result.ok === false && result.code === '23505') {
@@ -319,8 +330,6 @@ _Type .help in any chat to view your commands!_`;
           console.error("registerBot error:", dbErr.message);
         }
 
-        // ✅ WELCOME DM — delayed so the socket is fully ready, sent to the
-        // number the socket ACTUALLY connected as (most reliable target).
         setTimeout(async () => {
           const ownerJid = connectedNumber + '@s.whatsapp.net';
           try {
@@ -342,7 +351,6 @@ _Type .help in any chat to view your commands!_`;
             console.log(`📨 Welcome DM sent to ${ownerJid}`);
           } catch (dmErr) {
             console.error("Failed to send welcome DM:", dmErr.message);
-            // Retry once without the ad card in case the thumbnail/card caused the failure.
             try {
               await sock.sendMessage(ownerJid, { text: welcomeDm });
               console.log(`📨 Welcome DM (plain fallback) sent to ${ownerJid}`);
@@ -376,7 +384,6 @@ async function resumeSavedSessions() {
     }
 
     for (const sessionId of folders) {
-      // Only resume sessions that actually have creds (already paired).
       const credsFile = path.join(SESSIONS_ROOT, sessionId, 'creds.json');
       if (!fs.existsSync(credsFile)) {
         console.log(`⏭️ Skipping ${sessionId} — no creds, not a completed pairing.`);
@@ -400,7 +407,6 @@ app.post('/api/connect', async (req, res) => {
 
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
 
-    // ✅ Validate the number BEFORE building a socket — the #1 cause of "wrong code".
     if (!isValidMsisdn(cleanPhone)) {
       return res.status(400).json({
         success: false,
@@ -408,7 +414,6 @@ app.post('/api/connect', async (req, res) => {
       });
     }
 
-    // 🚫 DUPLICATE-NAME GUARD — block before we ever build a socket.
     if (await isBotNameTaken(botName)) {
       return res.status(409).json({
         success: false,
@@ -419,7 +424,15 @@ app.post('/api/connect', async (req, res) => {
     const sessionId = generateSessionId(botName);
     console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
 
-    await startSession(sessionId, botName, cleanPhone);
+    try {
+      await startSession(sessionId, botName, cleanPhone);
+    } catch (err) {
+      if (err.code === 'ENOSPC') {
+        return res.status(507).json({ success: false, error: "Server storage is full. Please try again shortly." });
+      }
+      throw err;
+    }
+
     return res.json({ success: true, sessionId, expiryIn: 120 });
   } catch (err) {
     console.error("Connect API Error:", err);
@@ -453,8 +466,6 @@ app.post('/api/setup', async (req, res) => {
     } = req.body;
     if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
 
-    // 🔑 If the owner field is left blank, DON'T wipe ownership —
-    // keep the number that paired this bot as the default owner.
     const fallbackOwner = activeSessions[sessionId]?.phoneNumber
       ? [activeSessions[sessionId].phoneNumber]
       : [];
@@ -472,8 +483,6 @@ app.post('/api/setup', async (req, res) => {
       alwaysOnline: truthy(alwaysOnline),
       welcome: truthy(welcome),
       ownerNumber: ownerList.length ? ownerList : fallbackOwner,
-
-      // NEW per-bot auto preferences chosen during activation
       autostatusview: truthy(autostatusview),
       autostatusreact: truthy(autostatusreact),
       auttyping: truthy(auttyping),
@@ -483,7 +492,6 @@ app.post('/api/setup', async (req, res) => {
 
     await updateSettings(sessionId, updatedSettings);
 
-    // keep the live socket in sync immediately
     const liveSock = activeSessions[sessionId]?.sock;
     if (liveSock) {
       if (updatedSettings.ownerNumber.length) liveSock.ownerNumber = updatedSettings.ownerNumber;
@@ -516,7 +524,6 @@ app.get('/api/public-directory', async (req, res) => {
 // 🔐 ADMIN API — owner-only (requires x-admin-key header / ?adminKey=)
 // ──────────────────────────────────────────────────────────────
 
-// 📊 High-volume usage leaderboard
 app.get('/api/admin/usage', requireAdmin, async (req, res) => {
   try {
     const bots = await getTopUsageBots(Number(req.query.limit) || 20);
@@ -526,7 +533,6 @@ app.get('/api/admin/usage', requireAdmin, async (req, res) => {
   }
 });
 
-// 💤 List inactive bots (no activity in N days, default 7)
 app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
   try {
     const bots = await getInactiveBots(Number(req.query.days) || 7);
@@ -536,12 +542,10 @@ app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
   }
 });
 
-// 🚩 Flag (or unflag) a bot as abusive
 app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
   try {
     const value = req.body && req.body.value === false ? false : true;
     await flagAbusive(req.params.sessionId, value);
-    // keep the live socket in sync so the abuse gate takes effect instantly
     const live = activeSessions[req.params.sessionId]?.sock;
     if (live) live.isAbusive = value;
     return res.json({ success: true, message: `Bot ${value ? 'flagged as abusive' : 'unflagged'}.` });
@@ -550,20 +554,27 @@ app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
   }
 });
 
-// 🗑️ Delete an inactive / abusive bot (kills live socket, then removes the row)
 app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    await killSession(sessionId);   // stop the live socket + wipe auth folder first
-    await deleteBot(sessionId);     // then remove the DB row
+    await killSession(sessionId);
+    await deleteBot(sessionId);
     return res.json({ success: true, message: `Bot ${sessionId} deleted.` });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// 🧹 Manual cleanup trigger (admin) — free disk on demand
+app.post('/api/admin/cleanup', requireAdmin, (req, res) => {
+  cleanupOrphanSessions();
+  return res.json({ success: true, message: "Orphan session cleanup executed." });
+});
+
 server.listen(PORT, () => {
   console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
+  cleanupOrphanSessions();                        // run once on boot
+  setInterval(cleanupOrphanSessions, 60 * 60 * 1000); // then hourly
   resumeSavedSessions();
 });
 
