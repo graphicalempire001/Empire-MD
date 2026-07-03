@@ -54,47 +54,84 @@ async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null)
   }
 }
 
-// Resolve free-text into a YouTube watch URL (shared by .play and .video)
-async function resolveYouTubeUrl(query) {
-  if (query.startsWith("http")) return query;
-  const searchRes = await axios.get(
-    `https://html.duckduckgo.com/html/?q=site:youtube.com+${encodeURIComponent(query)}`,
-    { headers: { "User-Agent": "Mozilla/5.0" }, timeout: 15000 }
-  );
-  const match = searchRes.data.match(/\/watch\?v=[a-zA-Z0-9_-]+/);
-  if (!match) return null;
-  return `https://www.youtube.com` + match[0];
-}
-
-// List of working Cobalt API endpoints (failover array)
-const COBALT_ENDPOINTS = [
-  "https://melon.clxxped.lol",
-  "https://api.cobalt.blackcat.sweeux.org",
-  "https://apicobalt.mgytr.top",
-  "https://cobaltapi.squair.xyz"
+// ─────────────────────────────────────────────────────────────
+// 🔎 STABLE SEARCH — Piped/Invidious JSON APIs (no HTML scraping)
+// Rotates through instances so a single outage doesn't break search.
+// ─────────────────────────────────────────────────────────────
+const SEARCH_INSTANCES = [
+  "https://pipedapi.kavin.rocks",
+  "https://api.piped.private.coffee",
+  "https://pipedapi.adminforge.de",
+  "https://pipedapi.leptons.xyz"
 ];
 
+async function resolveYouTubeUrl(query) {
+  // Already a direct URL — use as-is.
+  if (/^https?:\/\//i.test(query)) return query;
+
+  for (const base of SEARCH_INSTANCES) {
+    try {
+      const res = await axios.get(
+        `${base}/search?q=${encodeURIComponent(query)}&filter=videos`,
+        { timeout: 12000, headers: { "User-Agent": "Mozilla/5.0" } }
+      );
+      const items = res.data?.items || res.data;
+      if (!Array.isArray(items)) continue;
+
+      const first = items.find(i => i.url || i.videoId || i.id);
+      if (!first) continue;
+
+      let id = first.videoId || first.id || null;
+      if (!id && first.url) {
+        // Piped returns url like "/watch?v=XXXX"
+        const m = first.url.match(/[?&]v=([a-zA-Z0-9_-]+)/) || first.url.match(/\/([a-zA-Z0-9_-]{11})$/);
+        id = m ? m[1] : null;
+      }
+      if (id) return `https://www.youtube.com/watch?v=${id}`;
+    } catch (e) {
+      console.error(`Search instance ${base} failed:`, e.message);
+    }
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// ⬇️ DOWNLOAD — Cobalt failover.
+// Set COBALT_API in your environment to your OWN self-hosted
+// instance for maximum reliability; public ones are best-effort.
+// ─────────────────────────────────────────────────────────────
+const COBALT_ENDPOINTS = [
+  process.env.COBALT_API,                    // ✅ your own instance (most reliable)
+  "https://cobalt-api.kwiatekmiki.com",
+  "https://co.eepy.today",
+  "https://cobaltapi.squair.xyz"
+].filter(Boolean);
+
 async function downloadWithCobalt(url, options = {}) {
+  let lastErr = null;
   for (const endpoint of COBALT_ENDPOINTS) {
     try {
-      const res = await axios.post(endpoint, {
-        url: url,
-        ...options
-      }, {
+      const res = await axios.post(endpoint, { url, ...options }, {
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json"
         },
-        timeout: 15000
+        timeout: 20000
       });
-      if (res.data && res.data.url) {
-        return res.data;
-      }
+      const data = res.data;
+      // Support Cobalt v7 ({ url }) and v10 ({ url | tunnel | picker[] }) shapes.
+      const link =
+        data?.url ||
+        data?.tunnel ||
+        (Array.isArray(data?.picker) && data.picker[0]?.url) ||
+        null;
+      if (link) return { url: link, filename: data.filename };
     } catch (e) {
-      console.error(`Cobalt endpoint ${endpoint} failed:`, e.message);
+      lastErr = e.response?.status || e.message;
+      console.error(`Cobalt endpoint ${endpoint} failed:`, lastErr);
     }
   }
-  throw new Error("All public media download API servers are currently busy or offline. Please try again later.");
+  throw new Error("All public media download servers are currently busy or offline. Please try again shortly.");
 }
 
 module.exports = {
@@ -161,7 +198,7 @@ module.exports = {
       const url = await resolveYouTubeUrl(text);
       if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(url, { downloadMode: "audio" });
-      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
       await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
     } catch (err) {
@@ -186,7 +223,7 @@ module.exports = {
         downloadData = await downloadWithCobalt(url, { videoQuality: "480" });
       }
 
-      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 120000 });
       await sock.sendMessage(chatJid, { text: "🎬 Sending video file... BOT-WAN links will be attached." }, { quoted: mek });
       await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, downloadData.filename || `${text}.mp4`, mek);
     } catch (err) {
@@ -201,7 +238,7 @@ module.exports = {
     try {
       await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(text, { downloadMode: "audio" });
-      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
     } catch (err) {
       await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
@@ -214,7 +251,7 @@ module.exports = {
     try {
       await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP4..." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(text, { videoQuality: "720" });
-      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 120000 });
       await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "video.mp4", mek);
     } catch (err) {
       await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
@@ -227,7 +264,7 @@ module.exports = {
     try {
       await sock.sendMessage(chatJid, { text: "📥 Downloading Instagram Reel..." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(text);
-      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "Instagram Reel Downloaded", mek);
     } catch (err) {
       await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
@@ -241,7 +278,7 @@ module.exports = {
     try {
       await sock.sendMessage(chatJid, { text: "📥 BOT-WAN is Downloading TikTok Video..." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(text);
-      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "TikTok Downloaded Successfully", mek);
     } catch (err) {
       await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
@@ -255,7 +292,7 @@ module.exports = {
     try {
       await sock.sendMessage(chatJid, { text: "📥 Downloading Facebook Video..." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(text);
-      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer' });
+      const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, "Facebook Video Downloaded", mek);
     } catch (err) {
       await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
