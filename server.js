@@ -1,4 +1,4 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + PER-BOT AUTO SETTINGS + ADMIN)
+// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + AUTO FEATURES + ADMIN)
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -17,7 +17,6 @@ const { handleMessage } = require('./lib/msgHandler');
 const {
   registerBot,
   getPublicBots,
-  updateSettings,
   getSettings,
   isBotNameTaken,
   incrementUsage,
@@ -39,18 +38,19 @@ app.use(express.static(path.join(__dirname, 'public')));
 const activeSessions = {};
 const SESSIONS_ROOT = path.join(__dirname, 'sessions');
 
+// Random emoji pool for status reactions (matches auto.js)
+const RANDOM_STATUS_EMOJIS = ["💖","🔥","😂","😍","👏","🎉","💯","👍","🙌","✨","😎","🥰","⚡","🌟","💪","👀","🤩","❤️","😮","🚀"];
+
 function generateSessionId(botName) {
   const formattedName = botName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
   return `BOTWAN_${formattedName}_${randomSuffix}`;
 }
 
-// ✅ Validate an E.164-style MSISDN (digits only, country code, no leading zero).
 function isValidMsisdn(num) {
   return /^[1-9][0-9]{7,14}$/.test(num);
 }
 
-// 🔐 Owner-only gate — only the repo owner who holds ADMIN_KEY can pass.
 function requireAdmin(req, res, next) {
   const key = req.headers['x-admin-key'] || req.query.adminKey;
   if (!process.env.ADMIN_KEY || key !== process.env.ADMIN_KEY) {
@@ -59,7 +59,6 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// 🧹 Fully terminate a live session (logout + end socket) before removing it.
 async function killSession(sessionId) {
   const s = activeSessions[sessionId];
   if (s?.sock) {
@@ -70,7 +69,6 @@ async function killSession(sessionId) {
   try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
 
-// 🖼️ Fetch an image URL as a Buffer so externalAdReply thumbnails always render.
 async function fetchThumb(url) {
   try {
     const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
@@ -81,8 +79,7 @@ async function fetchThumb(url) {
   }
 }
 
-// 🧽 Periodic cleanup: remove session folders that never completed pairing,
-// so the disk never fills up with dead pairing attempts (fixes ENOSPC).
+// 🧽 Periodic cleanup: purge session folders that never completed pairing (fixes ENOSPC).
 function cleanupOrphanSessions() {
   try {
     if (!fs.existsSync(SESSIONS_ROOT)) return;
@@ -97,7 +94,6 @@ function cleanupOrphanSessions() {
       const isActive = !!activeSessions[name]?.sock;
       const ageMin = (now - stat.mtimeMs) / 60000;
 
-      // No creds + not currently active + older than 15 min = dead attempt → purge.
       if (!fs.existsSync(credsFile) && !isActive && ageMin > 15) {
         try {
           fs.rmSync(dir, { recursive: true, force: true });
@@ -110,11 +106,9 @@ function cleanupOrphanSessions() {
   }
 }
 
-// Reusable connection routine so we can actually reconnect
 async function startSession(sessionId, botName, cleanPhone) {
   const sessionFolder = path.join(SESSIONS_ROOT, sessionId);
 
-  // ✅ FRESH PAIRING HYGIENE: wipe any half-written session (no creds) before a new pairing.
   if (cleanPhone) {
     const credsFile = path.join(sessionFolder, 'creds.json');
     if (!fs.existsSync(credsFile)) {
@@ -159,11 +153,7 @@ async function startSession(sessionId, botName, cleanPhone) {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // ─────────────────────────────────────────────────────────────
-  // ✅ STANDARD PAIRING-CODE REQUEST
-  // Only for a fresh, unregistered session. Fire once, after a short
-  // delay so the websocket has begun connecting. Guarded against repeats.
-  // ─────────────────────────────────────────────────────────────
+  // ✅ STANDARD PAIRING-CODE REQUEST — fresh, unregistered sessions only, once.
   if (!sock.authState.creds.registered && cleanPhone && !sock._pairingRequested) {
     sock._pairingRequested = true;
     setTimeout(async () => {
@@ -185,13 +175,13 @@ async function startSession(sessionId, botName, cleanPhone) {
     }, 3000);
   }
 
-  // 📩 MESSAGE LISTENER — routes incoming messages to the command handler
+  // 📩 MESSAGE LISTENER
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const mek of messages) {
       if (!mek.message) continue;
 
-      // 🟢 STATUS HANDLING — must run BEFORE the status skip
+      // 🟢 STATUS HANDLING — before the status skip
       if (mek.key && mek.key.remoteJid === 'status@broadcast') {
         try {
           if (!mek.key.fromMe) {
@@ -206,7 +196,9 @@ async function startSession(sessionId, botName, cleanPhone) {
             }
 
             if (s.autostatusreact && mek.key.participant) {
-              const emoji = s.defaultStatusEmoji || "💖";
+              // random emoji unless a fixed one is set
+              const emoji = s.defaultStatusEmoji ||
+                RANDOM_STATUS_EMOJIS[Math.floor(Math.random() * RANDOM_STATUS_EMOJIS.length)];
               try {
                 const statusKey = {
                   remoteJid: 'status@broadcast',
@@ -257,12 +249,10 @@ async function startSession(sessionId, botName, cleanPhone) {
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
 
       } else if (reason === DisconnectReason.restartRequired || reason === 515) {
-        // ✅ NORMAL right after a successful pairing — reconnect to complete login.
         console.log(`♻️ Restart required for ${sessionId} — reconnecting to complete login...`);
         setTimeout(() => startSession(sessionId, botName, cleanPhone), 1500);
 
       } else {
-        // 408 / 428 / connection lost — reconnect and keep creds.
         console.log(`🔄 Reconnecting ${sessionId} (reason ${reason})...`);
         const stillPairing = !sock.authState?.creds?.registered;
         setTimeout(() => startSession(sessionId, botName, stillPairing ? cleanPhone : null), 2000);
@@ -366,7 +356,6 @@ _Type .help in any chat to view your commands!_`;
   return sock;
 }
 
-// 🔁 On boot, resume any REAL sessions saved on the volume (so bots survive redeploys)
 async function resumeSavedSessions() {
   try {
     if (!fs.existsSync(SESSIONS_ROOT)) {
@@ -457,54 +446,7 @@ app.get('/api/status/:sessionId', (req, res) => {
   });
 });
 
-// API 3: Setup
-app.post('/api/setup', async (req, res) => {
-  try {
-    const {
-      sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome,
-      autostatusview, autostatusreact, auttyping, autorecord, defaultStatusEmoji
-    } = req.body;
-    if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
-
-    const fallbackOwner = activeSessions[sessionId]?.phoneNumber
-      ? [activeSessions[sessionId].phoneNumber]
-      : [];
-
-    const ownerList = ownerNumber
-      ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean)
-      : [];
-
-    const truthy = (v) => v === 'true' || v === true || v === 'on';
-
-    const updatedSettings = {
-      botName: botName || "Empire MD",
-      prefix: prefix || ".",
-      mode: mode || "private",
-      alwaysOnline: truthy(alwaysOnline),
-      welcome: truthy(welcome),
-      ownerNumber: ownerList.length ? ownerList : fallbackOwner,
-      autostatusview: truthy(autostatusview),
-      autostatusreact: truthy(autostatusreact),
-      auttyping: truthy(auttyping),
-      autorecord: truthy(autorecord),
-      defaultStatusEmoji: defaultStatusEmoji || "💖"
-    };
-
-    await updateSettings(sessionId, updatedSettings);
-
-    const liveSock = activeSessions[sessionId]?.sock;
-    if (liveSock) {
-      if (updatedSettings.ownerNumber.length) liveSock.ownerNumber = updatedSettings.ownerNumber;
-      liveSock.botSettings = { ...(liveSock.botSettings || {}), ...updatedSettings };
-    }
-
-    return res.json({ success: true, message: "Configuration saved!" });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// API 4: Public directory - Hide session IDs
+// API 3: Public directory - Hide session IDs
 app.get('/api/public-directory', async (req, res) => {
   try {
     const bots = await getPublicBots();
@@ -565,7 +507,6 @@ app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   }
 });
 
-// 🧹 Manual cleanup trigger (admin) — free disk on demand
 app.post('/api/admin/cleanup', requireAdmin, (req, res) => {
   cleanupOrphanSessions();
   return res.json({ success: true, message: "Orphan session cleanup executed." });
@@ -573,8 +514,8 @@ app.post('/api/admin/cleanup', requireAdmin, (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
-  cleanupOrphanSessions();                        // run once on boot
-  setInterval(cleanupOrphanSessions, 60 * 60 * 1000); // then hourly
+  cleanupOrphanSessions();
+  setInterval(cleanupOrphanSessions, 60 * 60 * 1000);
   resumeSavedSessions();
 });
 
