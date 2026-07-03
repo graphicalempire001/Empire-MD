@@ -2,7 +2,7 @@ const config = require('../config');
 const { updateSettings } = require('../lib/database');
 
 // Shared random-emoji pool
-const RANDOM_STATUS_EMOJIS = ["💖","🔥","😂","😍","👏","🎉","💯","👍","🙌","✨","😎","🥰","⚡","🌟","💪","👀","🤩","❤️","😮","🚀"];
+const RANDOM_STATUS_EMOJIS = ["💖","🔥","💯","👍","🙌","✨","⚡","🌟","💪","👀","❤️","🚀"];
 function pickRandomEmoji() {
   return RANDOM_STATUS_EMOJIS[Math.floor(Math.random() * RANDOM_STATUS_EMOJIS.length)];
 }
