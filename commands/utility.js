@@ -191,12 +191,24 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         menu += `
 ╭━━━━━━━━━━━━━━━┈⊷
 ┃ 📢 *Channel:*
-┃ ${config.channelUrl}
+┃ 🔗 _Tap the card below to join!_
 ┃
 ┃ _Powered by ${config.botName} • Made with ❤️_
 ╰━━━━━━━━━━━━━━━┈⊷`;
 
-        await sock.sendMessage(chatJid, { text: menu }, { quoted: mek });
+        await sock.sendMessage(chatJid, {
+            text: menu,
+            contextInfo: {
+                externalAdReply: {
+                    title: `Join ${config.botName} Official Channel`,
+                    body: "Click here to follow our official channel!",
+                    thumbnailUrl: "https://avatars.githubusercontent.com/u/292783227?v=4",
+                    mediaType: 1,
+                    renderLargerThumbnail: true,
+                    sourceUrl: config.channelUrl
+                }
+            }
+        }, { quoted: mek });
     },
     h: async (args) => module.exports.help(args),
     menu: async (args) => module.exports.help(args),
