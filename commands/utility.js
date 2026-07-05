@@ -197,7 +197,9 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
 ╰━━━━━━━━━━━━━━━┈⊷`;
 
         await sock.sendMessage(chatJid, {
-            text: menu,
+            text: menu + "
+
+*Join here:* " + config.channelUrl,
             contextInfo: {
                 externalAdReply: {
                     title: `Join ${config.botName} Official Channel`,
@@ -205,6 +207,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
                     thumbnailUrl: "https://avatars.githubusercontent.com/u/292783227?v=4",
                     mediaType: 1,
                     renderLargerThumbnail: true,
+                    showAdAttribution: true, // Forces official link attribution card
                     sourceUrl: config.channelUrl
                 }
             }
