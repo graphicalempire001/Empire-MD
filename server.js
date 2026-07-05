@@ -407,8 +407,25 @@ async function resumeSavedSessions() {
         console.log(`⏭️ Skipping ${sessionId} — no creds, not a completed pairing.`);
         continue;
       }
-      console.log(`♻️ Resuming saved session: ${sessionId}`);
-      await startSession(sessionId, config.botName || "Empire MD", null);
+
+      // 🔑 Verify session status against Supabase before resuming
+      try {
+        const settings = await getSettings(sessionId);
+        // If settings read fails, or return value doesn't have required parameters, we check if it is active.
+        // We will only resume if a row exists in Supabase.
+        if (!settings || Object.keys(settings).length === 0) {
+          console.log(`🧹 Purging orphan session ${sessionId} — not found or deleted in Supabase.`);
+          try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
+          continue;
+        }
+        
+        console.log(`♻️ Resuming saved session: ${sessionId}`);
+        await startSession(sessionId, settings.botName || config.botName || "Empire MD", null);
+      } catch (dbErr) {
+        console.error(`Error verifying session ${sessionId} on resume:`, dbErr.message);
+        // Fail-safe: if DB lookup fails, still try to resume, but log error
+        await startSession(sessionId, config.botName || "Empire MD", null);
+      }
     }
   } catch (err) {
     console.error("resumeSavedSessions error:", err);
@@ -528,9 +545,11 @@ app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
 app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   try {
     const { sessionId } = req.params;
+    // 1. Fully kill/disconnect the live WhatsApp socket and delete its session folder from disk
     await killSession(sessionId);
+    // 2. Remove the bot record completely from Supabase to prevent resurrection on restart
     await deleteBot(sessionId);
-    return res.json({ success: true, message: `Bot ${sessionId} deleted.` });
+    return res.json({ success: true, message: `Bot ${sessionId} has been permanently deleted and credentials wiped.` });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
