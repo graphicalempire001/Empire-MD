@@ -92,18 +92,12 @@ async function resolveYouTubeUrl(query) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ⬇️ DOWNLOAD — Cobalt failover.
-// Your OWN self-hosted instance is hardcoded + tried FIRST.
-// process.env.COBALT_API still overrides if you ever set it.
-// Public ones are best-effort fallbacks (YouTube blocks them).
+// ⬇️ DOWNLOAD — YOUR self-hosted Cobalt instance ONLY.
+// No public fallbacks. If this fails, the issue is your instance.
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
-  process.env.COBALT_API,                              // optional override
-  "https://cobalt-production-04bf.up.railway.app",     // ✅ your own instance (primary)
-  "https://cobalt-api.kwiatekmiki.com",
-  "https://co.eepy.today",
-  "https://cobaltapi.squair.xyz"
-].filter(Boolean);
+  "https://cobalt-production-04bf.up.railway.app"     // ✅ your own instance (ONLY)
+];
 
 async function downloadWithCobalt(url, options = {}) {
   let lastErr = null;
@@ -124,12 +118,16 @@ async function downloadWithCobalt(url, options = {}) {
         (Array.isArray(data?.picker) && data.picker[0]?.url) ||
         null;
       if (link) return { url: link, filename: data.filename };
+      // Instance answered but returned no link — surface the reason.
+      lastErr = data?.error?.code || data?.status || "no download link returned";
     } catch (e) {
-      lastErr = e.response?.status || e.message;
+      lastErr = e.response?.status
+        ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data || "")}`
+        : e.message;
       console.error(`Cobalt endpoint ${endpoint} failed:`, lastErr);
     }
   }
-  throw new Error("All media download servers are currently busy or offline. Please try again shortly.");
+  throw new Error(`Cobalt instance error: ${lastErr}`);
 }
 
 module.exports = {
