@@ -203,12 +203,12 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
             contextInfo: {
                 externalAdReply: {
                     title: `Join ${config.botName} Official Channel`,
-                    body: "Click here to follow our official channel!",
+                    body: "Tap here to follow and get latest updates!",
+                    mediaType: 1, // Standard text/link card standard
                     thumbnailUrl: "https://avatars.githubusercontent.com/u/292783227?v=4",
-                    mediaType: 1,
+                    sourceUrl: config.channelUrl,
                     renderLargerThumbnail: true,
-                    showAdAttribution: true, // Forces official link attribution card
-                    sourceUrl: config.channelUrl
+                    showAdAttribution: true // Forces button-like ad/official channel card rendering
                 }
             }
         }, { quoted: mek });
