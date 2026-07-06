@@ -33,7 +33,6 @@ async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null)
 👉 ${channelUrl}
 ━━━━━━━━━━━━━━━━━━━━`
     : caption;
-
   if (mediaObj.video) {
     return sock.sendMessage(chatJid, {
       video: mediaObj.video,
@@ -68,7 +67,6 @@ const SEARCH_INSTANCES = [
 async function resolveYouTubeUrl(query) {
   // Already a direct URL — use as-is.
   if (/^https?:\/\//i.test(query)) return query;
-
   for (const base of SEARCH_INSTANCES) {
     try {
       const res = await axios.get(
@@ -77,10 +75,8 @@ async function resolveYouTubeUrl(query) {
       );
       const items = res.data?.items || res.data;
       if (!Array.isArray(items)) continue;
-
       const first = items.find(i => i.url || i.videoId || i.id);
       if (!first) continue;
-
       let id = first.videoId || first.id || null;
       if (!id && first.url) {
         // Piped returns url like "/watch?v=XXXX"
@@ -101,7 +97,7 @@ async function resolveYouTubeUrl(query) {
 // instance for maximum reliability; public ones are best-effort.
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
-  process.env.COBALT_API,                    // ✅ your own instance (most reliable)
+  process.env.COBALT_API, // ✅ your own instance (most reliable)
   "https://cobalt-api.kwiatekmiki.com",
   "https://co.eepy.today",
   "https://cobaltapi.squair.xyz"
@@ -214,7 +210,6 @@ module.exports = {
       await sock.sendMessage(chatJid, { text: `🎬 *Searching/Downloading:* BOT-WAN is Looking for "${text}" ...` }, { quoted: mek });
       const url = await resolveYouTubeUrl(text);
       if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching videos." }, { quoted: mek });
-
       let downloadData;
       try {
         downloadData = await downloadWithCobalt(url, { videoQuality: "720" });
@@ -222,7 +217,6 @@ module.exports = {
         // fallback to a lower quality if 720 fails
         downloadData = await downloadWithCobalt(url, { videoQuality: "480" });
       }
-
       const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 120000 });
       await sock.sendMessage(chatJid, { text: "🎬 Sending video file... BOT-WAN links will be attached." }, { quoted: mek });
       await sendGroupMedia(sock, chatJid, { video: Buffer.from(mediaBufferRes.data) }, downloadData.filename || `${text}.mp4`, mek);
