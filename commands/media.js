@@ -1,209 +1,192 @@
 const axios = require('axios');
-const fs = require('fs');
-const path = require('fs');
+const { tryEndpoints } = require('../lib/apiFallback');
 
-// Public search instances for YouTube/Piped
-const SEARCH_INSTANCES = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.colbyland.xyz",
-  "https://pipedapi.us.to",
-  "https://api.piped.yt",
-  "https://piped-api.garudalinux.org"
+// ─── Provider endpoint chains per platform ───────────────────────────────────
+function ytAudioEndpoints(url) {
+  return [
+    { url: `https://api.vevioz.com/api/button/mp3?url=${encodeURIComponent(url)}` },
+    { url: `https://api.mp3juice.cc/api/v1/download?url=${encodeURIComponent(url)}&format=mp3` }
+  ];
+}
+
+function ytVideoEndpoints(url) {
+  return [
+    { url: `https://api.vevioz.com/api/button/mp4?url=${encodeURIComponent(url)}` },
+    { url: `https://api.mp3juice.cc/api/v1/download?url=${encodeURIComponent(url)}&format=mp4` }
+  ];
+}
+
+function tiktokEndpoints(url) {
+  return [
+    { url: `https://tikwm.com/api/?url=${encodeURIComponent(url)}` },
+    { url: `https://api.tik-ring.com/api/v1/download?url=${encodeURIComponent(url)}` }
+  ];
+}
+
+function igEndpoints(url) {
+  return [
+    { url: `https://api.vov-api.my.id/api/igdl?url=${encodeURIComponent(url)}` },
+    { url: `https://api.reels-downloader.com/v1/fetch?url=${encodeURIComponent(url)}` }
+  ];
+}
+
+function fbEndpoints(url) {
+  return [
+    { url: `https://api.fdownloader.net/v1/fbdl?url=${encodeURIComponent(url)}` }
+  ];
+}
+
+// ─── YouTube search via Piped public instances (no regex, no crash) ──────────
+const PIPED_INSTANCES = [
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.colbyland.xyz',
+  'https://api.piped.yt'
 ];
 
 async function searchYouTube(query) {
-  if (query.startsWith("http://") || query.startsWith("https://")) return query;
+  if (query.startsWith('http://') || query.startsWith('https://')) return query;
 
-  for (const base of SEARCH_INSTANCES) {
+  for (const base of PIPED_INSTANCES) {
     try {
       const res = await axios.get(
         `${base}/search?q=${encodeURIComponent(query)}&filter=videos`,
-        { timeout: 12000, headers: { "User-Agent": "Mozilla/5.0" } }
+        { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0' } }
       );
-      const items = res.data?.items || res.data;
-      if (!Array.isArray(items)) continue;
+      const items = Array.isArray(res.data?.items) ? res.data.items
+                  : Array.isArray(res.data) ? res.data : [];
+      if (!items.length) continue;
 
       const first = items.find(i => i.url || i.videoId || i.id);
       if (!first) continue;
 
       let id = first.videoId || first.id || null;
       if (!id && first.url) {
-        if (first.url.includes("watch?v=")) {
-          id = first.url.split("watch?v=")[1].split("&")[0];
-        } else if (first.url.includes("embed/")) {
-          id = first.url.split("embed/")[1].split("?")[0];
-        } else if (first.url.includes("youtu.be/")) {
-          id = first.url.split("youtu.be/")[1].split("?")[0];
-        } else {
-          const match = first.url.match(/([a-zA-Z0-9_-]{11})/);
-          id = match ? match[1] : null;
-        }
+        const parts = first.url.split('v=');
+        if (parts.length > 1) id = parts[1].split('&')[0];
       }
       if (id) return `https://www.youtube.com/watch?v=${id}`;
-    } catch (e) {
-      console.error(`Search instance ${base} failed:`, e.message);
-    }
+    } catch (_) {}
   }
   return null;
 }
 
-const COBALT_ENDPOINTS = [
-  process.env.COBALT_API,
-  "https://cobalt-api.kwiatekmiki.com",
-  "https://co.eepy.today",
-  "https://cobaltapi.squair.xyz"
-].filter(Boolean);
-
-async function downloadWithCobalt(url, options = {}) {
-  let lastErr = null;
-  for (const endpoint of COBALT_ENDPOINTS) {
-    try {
-      const res = await axios.post(endpoint, { url, ...options }, {
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json"
-        },
-        timeout: 20000
-      });
-      if (res.data && (res.data.url || res.data.picker)) {
-        return res.data;
-      }
-    } catch (e) {
-      lastErr = e.message;
-    }
-  }
-  throw new Error(lastErr || "All Cobalt endpoints failed.");
+// ─── Shared extractor for mp3/mp4 download links ─────────────────────────────
+function extractDownloadUrl(data) {
+  if (data?.url)             return data.url;
+  if (data?.data?.url)       return data.data.url;
+  if (data?.data?.play)      return data.data.play;
+  if (data?.data?.nowatermark) return data.data.nowatermark;
+  if (data?.data?.hd)        return data.data.hd;
+  if (data?.data?.sd)        return data.data.sd;
+  if (data?.download_url)    return data.download_url;
+  return null;
 }
 
+// ─── Safe filename from user query ───────────────────────────────────────────
+function safeName(text) {
+  return (text || 'media')
+    .replace(/[^a-zA-Z0-9 _\-]/g, '')
+    .trim()
+    .slice(0, 55) || 'media';
+}
+
+// ─── Commands ─────────────────────────────────────────────────────────────────
+
 module.exports = {
-  play: async ({ sock, chatJid, mek, text, isOwner }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide a song name or YouTube link!" }, { quoted: mek });
+
+  play: async ({ sock, chatJid, mek, text }) => {
+    if (!text)
+      return sock.sendMessage(chatJid, { text: '❌ Send a song name or YouTube link!\n*Usage:* `.play Burna Boy Ye`' }, { quoted: mek });
+
     const videoUrl = await searchYouTube(text);
-    if (!videoUrl) return sock.sendMessage(chatJid, { text: "❌ No results found on YouTube." }, { quoted: mek });
+    if (!videoUrl)
+      return sock.sendMessage(chatJid, { text: '❌ No YouTube results found for that query.' }, { quoted: mek });
 
-    await sock.sendMessage(chatJid, { text: "📥 Fetching audio... Please wait." }, { quoted: mek });
+    await sock.sendMessage(chatJid, { text: `🎵 Found result — downloading *${text}* as audio...` }, { quoted: mek });
 
     try {
-      const data = await downloadWithCobalt(videoUrl, { downloadMode: "audio", audioFormat: "mp3" });
-      if (data.url) {
-        await sock.sendMessage(chatJid, {
-          audio: { url: data.url },
-          mimetype: "audio/mpeg",
-          ptt: false,
-          fileName: `${text}.mp3`
-        }, { quoted: mek });
-      } else {
-        throw new Error("Invalid response structure from Cobalt");
-      }
+      const audioUrl = await tryEndpoints(ytAudioEndpoints(videoUrl), { extract: extractDownloadUrl });
+      await sock.sendMessage(chatJid, {
+        audio: { url: audioUrl },
+        mimetype: 'audio/mpeg',
+        ptt: false,
+        fileName: `${safeName(text)}.mp3`
+      }, { quoted: mek });
     } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ Failed to download: ${e.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: `❌ Audio download failed: ${e.message}` }, { quoted: mek });
     }
   },
 
-  ytmp3: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide a YouTube link!" }, { quoted: mek });
-    await sock.sendMessage(chatJid, { text: "📥 Fetching MP3... Please wait." }, { quoted: mek });
-    try {
-      const data = await downloadWithCobalt(text, { downloadMode: "audio", audioFormat: "mp3" });
-      if (data.url) {
-        await sock.sendMessage(chatJid, {
-          audio: { url: data.url },
-          mimetype: "audio/mpeg",
-          ptt: false
-        }, { quoted: mek });
-      } else {
-        throw new Error("No download URL returned.");
-      }
-    } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ Failed: ${e.message}` }, { quoted: mek });
-    }
-  },
+  ytmp3: async (args) => module.exports.play(args),
 
   ytmp4: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide a YouTube link!" }, { quoted: mek });
-    await sock.sendMessage(chatJid, { text: "📥 Fetching MP4... Please wait." }, { quoted: mek });
+    if (!text)
+      return sock.sendMessage(chatJid, { text: '❌ Please provide a YouTube link!\n*Usage:* `.ytmp4 https://youtube.com/...`' }, { quoted: mek });
+
+    await sock.sendMessage(chatJid, { text: '📥 Fetching YouTube MP4 video...' }, { quoted: mek });
+
     try {
-      const data = await downloadWithCobalt(text, { videoQuality: "720" });
-      if (data.url) {
-        await sock.sendMessage(chatJid, {
-          video: { url: data.url },
-          mimetype: "video/mp4"
-        }, { quoted: mek });
-      } else {
-        throw new Error("No download URL returned.");
-      }
+      const videoUrl = await searchYouTube(text);
+      if (!videoUrl) throw new Error('Could not resolve YouTube URL.');
+
+      const dlUrl = await tryEndpoints(ytVideoEndpoints(videoUrl), { extract: extractDownloadUrl });
+      await sock.sendMessage(chatJid, {
+        video: { url: dlUrl },
+        mimetype: 'video/mp4',
+        fileName: `${safeName(text)}.mp4`
+      }, { quoted: mek });
     } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ Failed: ${e.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: `❌ Video download failed: ${e.message}` }, { quoted: mek });
     }
   },
 
-  video: async (args) => {
-    return module.exports.ytmp4(args);
-  },
+  video: async (args) => module.exports.ytmp4(args),
 
   ig: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide an Instagram link!" }, { quoted: mek });
-    await sock.sendMessage(chatJid, { text: "📥 Fetching Instagram post/reel... Please wait." }, { quoted: mek });
+    if (!text)
+      return sock.sendMessage(chatJid, { text: '❌ Please provide an Instagram post/reel link!' }, { quoted: mek });
+
+    await sock.sendMessage(chatJid, { text: '📥 Downloading Instagram media...' }, { quoted: mek });
+
     try {
-      const data = await downloadWithCobalt(text);
-      if (data.url) {
-        await sock.sendMessage(chatJid, {
-          video: { url: data.url },
-          mimetype: "video/mp4"
-        }, { quoted: mek });
-      } else {
-        throw new Error("No download URL returned.");
-      }
+      const dlUrl = await tryEndpoints(igEndpoints(text), { extract: extractDownloadUrl });
+      await sock.sendMessage(chatJid, { video: { url: dlUrl }, mimetype: 'video/mp4' }, { quoted: mek });
     } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ Failed: ${e.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: `❌ Instagram download failed: ${e.message}` }, { quoted: mek });
     }
   },
 
-  insta: async (args) => {
-    return module.exports.ig(args);
-  },
+  insta: async (args) => module.exports.ig(args),
 
   tt: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide a TikTok link!" }, { quoted: mek });
-    await sock.sendMessage(chatJid, { text: "📥 Fetching TikTok... Please wait." }, { quoted: mek });
+    if (!text)
+      return sock.sendMessage(chatJid, { text: '❌ Please provide a TikTok link!' }, { quoted: mek });
+
+    await sock.sendMessage(chatJid, { text: '📥 Downloading TikTok (no watermark)...' }, { quoted: mek });
+
     try {
-      const data = await downloadWithCobalt(text);
-      if (data.url) {
-        await sock.sendMessage(chatJid, {
-          video: { url: data.url },
-          mimetype: "video/mp4"
-        }, { quoted: mek });
-      } else {
-        throw new Error("No download URL returned.");
-      }
+      const dlUrl = await tryEndpoints(tiktokEndpoints(text), { extract: extractDownloadUrl });
+      await sock.sendMessage(chatJid, { video: { url: dlUrl }, mimetype: 'video/mp4' }, { quoted: mek });
     } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ Failed: ${e.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: `❌ TikTok download failed: ${e.message}` }, { quoted: mek });
     }
   },
 
-  tiktok: async (args) => {
-    return module.exports.tt(args);
-  },
+  tiktok: async (args) => module.exports.tt(args),
 
   fb: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide a Facebook video link!" }, { quoted: mek });
-    await sock.sendMessage(chatJid, { text: "📥 Fetching Facebook video... Please wait." }, { quoted: mek });
+    if (!text)
+      return sock.sendMessage(chatJid, { text: '❌ Please provide a Facebook video link!' }, { quoted: mek });
+
+    await sock.sendMessage(chatJid, { text: '📥 Downloading Facebook HD video...' }, { quoted: mek });
+
     try {
-      const data = await downloadWithCobalt(text);
-      if (data.url) {
-        await sock.sendMessage(chatJid, {
-          video: { url: data.url },
-          mimetype: "video/mp4"
-        }, { quoted: mek });
-      } else {
-        throw new Error("No download URL returned.");
-      }
+      const dlUrl = await tryEndpoints(fbEndpoints(text), { extract: extractDownloadUrl });
+      await sock.sendMessage(chatJid, { video: { url: dlUrl }, mimetype: 'video/mp4' }, { quoted: mek });
     } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ Failed: ${e.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: `❌ Facebook download failed: ${e.message}` }, { quoted: mek });
     }
   },
 
-  fbdl: async (args) => {
-    return module.exports.fb(args);
-  }
+  fbdl: async (args) => module.exports.fb(args)
 };
