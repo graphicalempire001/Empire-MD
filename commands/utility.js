@@ -197,7 +197,9 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
 ╰━━━━━━━━━━━━━━━┈⊷`;
 
         await sock.sendMessage(chatJid, {
-            text: menu,
+            text: menu + "
+
+*Join here:* " + config.channelUrl,
             contextInfo: {
                 forwardingScore: 999,
                 isForwarded: true,
@@ -205,7 +207,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
                     title: `Join ${config.botName} Official Channel`,
                     body: "Tap here to follow and get latest updates!",
                     mediaType: 1, // Standard text link card
-                    thumbnail: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"), // 1x1 transparent PNG buffer
+                    jpegThumbnail: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"), // Tiny binary 1x1 image Buffer
                     sourceUrl: config.channelUrl,
                     renderLargerThumbnail: true,
                     showAdAttribution: true
