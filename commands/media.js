@@ -93,11 +93,12 @@ async function resolveYouTubeUrl(query) {
 
 // ─────────────────────────────────────────────────────────────
 // ⬇️ DOWNLOAD — Cobalt failover.
-// Set COBALT_API in your environment to your OWN self-hosted
-// instance for maximum reliability; public ones are best-effort.
+// Your OWN self-hosted instance is tried FIRST for reliability.
+// Public ones are best-effort fallbacks (YouTube blocks them).
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
-  process.env.COBALT_API, // ✅ your own instance (most reliable)
+  process.env.COBALT_API,                              // optional override
+  "https://cobalt-production-04bf.up.railway.app",     // ✅ your own instance
   "https://cobalt-api.kwiatekmiki.com",
   "https://co.eepy.today",
   "https://cobaltapi.squair.xyz"
@@ -127,7 +128,7 @@ async function downloadWithCobalt(url, options = {}) {
       console.error(`Cobalt endpoint ${endpoint} failed:`, lastErr);
     }
   }
-  throw new Error("All public media download servers are currently busy or offline. Please try again shortly.");
+  throw new Error("All media download servers are currently busy or offline. Please try again shortly.");
 }
 
 module.exports = {
