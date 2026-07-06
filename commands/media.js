@@ -86,7 +86,7 @@ async function resolveYouTubeUrl(query) {
       let id = first.videoId || first.id || null;
       if (!id && first.url) {
         // Piped returns url like "/watch?v=XXXX"
-        const m = first.url.match(/[?&]v=([a-zA-Z0-9_-]+)/) || first.url.match(//([a-zA-Z0-9_-]{11})$/);
+        const m = first.url.match(/[?&]v=([a-zA-Z0-9_-]+)/) || first.url.match(///([a-zA-Z0-9_-]{11})$/);
         id = m ? m[1] : null;
       }
       if (id) return `https://www.youtube.com/watch?v=${id}`;
