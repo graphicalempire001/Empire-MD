@@ -36,8 +36,7 @@ async function downloadBuffer(node, type) {
     return buffer;
 }
 
-// Categorized catalog. Add new commands here; anything registered but
-// missing shows automatically under "🧩 Uncategorized".
+// Categorized catalog.
 const CATALOG = {
     "📥 Media & Downloads": {
         "s": { d: "Sticker from replied/sent image or video", a: ["sticker"] },
@@ -92,7 +91,7 @@ const CATALOG = {
         "excuse": { d: "Developer excuse", a: [] },
         "bible": { d: "Random or specific Bible verse", a: ["verse"] },
         "bal": { d: "Wallet & bank balance", a: ["balance", "wallet"] },
-        "slot": { d: "Slot machine", a: ["slots"] },
+        "slots": { d: "Slot machine", a: ["slot"] },
         "daily": { d: "Claim daily coins", a: [] }
     }
 };
@@ -132,7 +131,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         const uptime = formatUptime(process.uptime());
         const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
         const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
-        const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
+        const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "本地缓存";
         const now = new Date().toLocaleString();
 
         // Coverage check vs live registry
@@ -151,22 +150,32 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         for (const cat of Object.values(CATALOG)) total += Object.keys(cat).length;
         total += uncategorized.length;
 
-        let menu = `╭━━━〔 *${config.botName}* 〕━━━┈⊷
-┃ 👋 Hello, *${senderName || "User"}*!
-┃ 👑 *Owner:* ${config.ownerName}
-┃ ⚙️ *Prefix:* ${px}
-┃ 🔒 *Mode:* ${(config.mode || "private").toUpperCase()}
-┃ 🕒 *Uptime:* ${uptime}
-┃ 💾 *Memory:* ${mem} MB
-┃ 🗄️ *Database:* ${dbStatus}
-┃ 📊 *Commands:* ${total}
-┃ 📅 ${now}
-╰━━━━━━━━━━━━━━━┈⊷
+        let menu = `╭━━━〔 *${config.botName}* *MENU* 〕━━━┈⊷
+`;
+        menu += `┃ 👋 Hello, *${senderName || "User"}*!
+`;
+        menu += `┃ 👑 *Owner:* ${config.ownerName}
+`;
+        menu += `┃ ⚙️ *Prefix:* ${px}
+`;
+        menu += `┃ 🔒 *Mode:* ${(config.mode || "private").toUpperCase()}
+`;
+        menu += `┃ 🕒 *Uptime:* ${uptime}
+`;
+        menu += `┃ 💾 *Memory:* ${mem} MB
+`;
+        menu += `┃ 🗄️ *Database:* ${dbStatus}
+`;
+        menu += `┃ 📊 *Commands:* ${total}
+`;
+        menu += `┃ 📅 ${now}
+`;
+        menu += `╰━━━━━━━━━━━━━━━┈⊷
+
 `;
 
         for (const [category, cmds] of Object.entries(CATALOG)) {
-            menu += `
-╭──〔 *${category}* 〕
+            menu += `╭──〔 *${category}* 〕
 `;
             for (const [cmd, meta] of Object.entries(cmds)) {
                 const aliasTxt = meta.a && meta.a.length ? ` (${meta.a.map(a => px + a).join(", ")})` : "";
@@ -179,8 +188,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         }
 
         if (uncategorized.length) {
-            menu += `
-╭──〔 *🧩 Uncategorized* 〕
+            menu += `╭──〔 *🧩 Uncategorized* 〕
 `;
             uncategorized.forEach(c => { menu += `┃ ▸ *${px}${c}*
 `; });
@@ -190,29 +198,20 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
 
         menu += `
 ╭━━━━━━━━━━━━━━━┈⊷
-┃ 📢 *Channel:*
-┃ 🔗 _Tap the card below to join!_
-┃
-┃ _Powered by ${config.botName} • Made with ❤️_
-╰━━━━━━━━━━━━━━━┈⊷`;
+`;
+        menu += `┃ 📢 *Official Channel:*
+`;
+        menu += `┃ 🔗 ${config.channelUrl}
+`;
+        menu += `┃
+`;
+        menu += `┃ _Powered by ${config.botName} • Made with ❤️_
+`;
+        menu += `╰━━━━━━━━━━━━━━━┈⊷`;
 
+        // We use a simplified, universally supported message body to prevent client rendering crashes.
         await sock.sendMessage(chatJid, {
-            text: `${menu}
-
-*Join here:* ${config.channelUrl}`,
-            contextInfo: {
-                forwardingScore: 999,
-                isForwarded: true,
-                externalAdReply: {
-                    title: `Join ${config.botName} Official Channel`,
-                    body: "Tap here to follow and get latest updates!",
-                    mediaType: 1, // Standard text link card
-                    jpegThumbnail: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"), // Tiny binary 1x1 image Buffer
-                    sourceUrl: config.channelUrl,
-                    renderLargerThumbnail: true,
-                    showAdAttribution: true
-                }
-            }
+            text: menu
         }, { quoted: mek });
     },
     h: async (ctx) => module.exports.help(ctx),
@@ -263,7 +262,6 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
 
     // 🎵 Play — search a song by name and send as a downloadable MP3
     play: async (args) => {
-        // Delegate to media.js play command to keep it centralized and clean!
         const media = require('./media');
         return media.play(args);
     },
@@ -279,7 +277,7 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
         }
     },
 
-    // 👁️ View-once revealer (uses deep-unwrapped quoted)
+    // 👁️ View-once revealer
     vv: async ({ sock, chatJid, mek }) => {
         const q = getQuoted(mek);
         if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a view once message!" }, { quoted: mek });
