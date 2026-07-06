@@ -1,25 +1,52 @@
 const config = require('../config');
+const { updateSettings } = require('../lib/database');
 
 module.exports = {
     // ⚙️ Change Prefix (Alias: prefix, sp)
-    setprefix: async ({ sock, chatJid, mek, text, isOwner }) => {
+    setprefix: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide a new prefix (e.g. .setprefix !)" }, { quoted: mek });
-        config.prefix = text.trim();
-        await sock.sendMessage(chatJid, { text: `✅ *Success:* Bot prefix has been successfully updated to: *${config.prefix}*` }, { quoted: mek });
+        
+        const newPrefix = text.trim();
+        const merged = { ...(settings || {}), prefix: newPrefix };
+        sock.botSettings = merged; // update live memory cache instantly
+        
+        if (sock.sessionId) {
+            try {
+                await updateSettings(sock.sessionId, { prefix: newPrefix });
+            } catch (err) {
+                console.error("Failed to persist prefix change:", err.message);
+            }
+        }
+        
+        await sock.sendMessage(chatJid, { text: `✅ *Success:* Bot prefix has been successfully updated to: *${newPrefix}*` }, { quoted: mek });
     },
     sp: async (args) => module.exports.setprefix(args),
 
     // 🔒 Toggle Bot Mode: Public / Private (Alias: mode, setmode)
-    setmode: async ({ sock, chatJid, mek, text, isOwner }) => {
+    setmode: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
-        if (!text || (text.toLowerCase() !== "public" && text.toLowerCase() !== "private")) {
+        
+        const mode = (text || "").toLowerCase().trim();
+        if (!mode || (mode !== "public" && mode !== "private")) {
+            const currentMode = settings?.mode || config.mode || "private";
             return sock.sendMessage(chatJid, { text: `❌ Invalid mode! Use:
 👉 *.setmode public* to allow everyone to use commands
-👉 *.setmode private* to restrict commands to owners only (Current: *${config.mode}*)` }, { quoted: mek });
+👉 *.setmode private* to restrict commands to owners only (Current: *${currentMode.toUpperCase()}*)` }, { quoted: mek });
         }
-        config.mode = text.toLowerCase();
-        await sock.sendMessage(chatJid, { text: `✅ *Bot Mode Updated:* The bot is now set to *${config.mode.toUpperCase()}* mode.` }, { quoted: mek });
+        
+        const merged = { ...(settings || {}), mode };
+        sock.botSettings = merged; // update live memory cache instantly
+        
+        if (sock.sessionId) {
+            try {
+                await updateSettings(sock.sessionId, { mode });
+            } catch (err) {
+                console.error("Failed to persist mode change:", err.message);
+            }
+        }
+        
+        await sock.sendMessage(chatJid, { text: `✅ *Bot Mode Updated:* The bot is now set to *${mode.toUpperCase()}* mode.` }, { quoted: mek });
     },
     mode: async (args) => module.exports.setmode(args),
 
@@ -58,10 +85,6 @@ ${text}
     bc: async (args) => module.exports.broadcast(args),
 
     // 📲 Pair a new bot for another number (reply / mention / typed number)
-    // Usage:
-    //   Reply to a user:   .pair BotName
-    //   Mention a user:    .pair @user BotName
-    //   Type a number:     .pair 2347012345678 BotName
     pair: async ({ sock, chatJid, mek, text, isOwner, quotedSender, contextInfo }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
 
