@@ -41,9 +41,11 @@ async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null)
       mimetype: 'video/mp4'
     }, { quoted: mek });
   } else if (mediaObj.audio) {
+    // Deliver native WhatsApp audio with clean filename
     return sock.sendMessage(chatJid, {
       audio: mediaObj.audio,
       mimetype: 'audio/mp4',
+      fileName: mediaObj.fileName || 'audio.mp4',
       ptt: mediaObj.ptt || false
     }, { quoted: mek });
   } else if (mediaObj.image) {
@@ -67,7 +69,7 @@ const SEARCH_INSTANCES = [
 
 async function resolveYouTubeUrl(query) {
   // Already a direct URL — use as-is.
-  if (/^https?:\/\//i.test(query)) return query;
+  if (/^https?:///i.test(query)) return query;
 
   for (const base of SEARCH_INSTANCES) {
     try {
@@ -84,7 +86,7 @@ async function resolveYouTubeUrl(query) {
       let id = first.videoId || first.id || null;
       if (!id && first.url) {
         // Piped returns url like "/watch?v=XXXX"
-        const m = first.url.match(/[?&]v=([a-zA-Z0-9_-]+)/) || first.url.match(/\/([a-zA-Z0-9_-]{11})$/);
+        const m = first.url.match(/[?&]v=([a-zA-Z0-9_-]+)/) || first.url.match(//([a-zA-Z0-9_-]{11})$/);
         id = m ? m[1] : null;
       }
       if (id) return `https://www.youtube.com/watch?v=${id}`;
@@ -96,12 +98,10 @@ async function resolveYouTubeUrl(query) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ⬇️ DOWNLOAD — Cobalt failover.
-// Set COBALT_API in your environment to your OWN self-hosted
-// instance for maximum reliability; public ones are best-effort.
+// ⬇️ DOWNLOAD — Cobalt endpoints
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
-  process.env.COBALT_API,                    // ✅ your own instance (most reliable)
+  process.env.COBALT_API, // ✅ your own instance (most reliable)
   "https://cobalt-api.kwiatekmiki.com",
   "https://co.eepy.today",
   "https://cobaltapi.squair.xyz"
@@ -119,13 +119,13 @@ async function downloadWithCobalt(url, options = {}) {
         timeout: 20000
       });
       const data = res.data;
-      // Support Cobalt v7 ({ url }) and v10 ({ url | tunnel | picker[] }) shapes.
+      // Support Cobalt shapes
       const link =
         data?.url ||
         data?.tunnel ||
         (Array.isArray(data?.picker) && data.picker[0]?.url) ||
         null;
-      if (link) return { url: link, filename: data.filename };
+      if (link) return { url: link, filename: data.filename || 'media' };
     } catch (e) {
       lastErr = e.response?.status || e.message;
       console.error(`Cobalt endpoint ${endpoint} failed:`, lastErr);
@@ -190,24 +190,34 @@ module.exports = {
   },
   sticker: async (args) => module.exports.s(args),
 
-  // 🎵 YouTube Song / MP3 Downloader (search by text OR url)
+  // 🎵 Cobalt-powered YouTube Song / MP3 Downloader (delivered as native Audio message, not document)
   play: async ({ sock, chatJid, mek, text }) => {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name or YouTube URL!" }, { quoted: mek });
     try {
       await sock.sendMessage(chatJid, { text: `🎵 *Searching/Downloading:* BOT-WAN is Searching for "${text}" ...` }, { quoted: mek });
       const url = await resolveYouTubeUrl(text);
       if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
+      
       const downloadData = await downloadWithCobalt(url, { downloadMode: "audio" });
       const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
-      await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
-      await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
+      
+      const audioBuffer = Buffer.from(mediaBufferRes.data);
+      const filename = downloadData.filename || `${text}.mp3`;
+      
+      await sock.sendMessage(chatJid, { text: `🎵 Sending "${filename}" as clean audio... BOT-WAN links will be attached.` }, { quoted: mek });
+      
+      // Sends as direct native audio with clean filename
+      await sendGroupMedia(sock, chatJid, { 
+        audio: audioBuffer,
+        fileName: filename
+      }, filename, mek);
     } catch (err) {
       console.error("Play error:", err);
       await sock.sendMessage(chatJid, { text: `❌ Failed to play song: ${err.message}` }, { quoted: mek });
     }
   },
 
-  // 🎬 Video Downloader (search by text OR url) — mirrors .play but delivers MP4
+  // 🎬 Video Downloader (search by text OR url) — delivers MP4
   video: async ({ sock, chatJid, mek, text }) => {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide a video/movie name or YouTube URL! e.g. *.video lion king trailer*" }, { quoted: mek });
     try {
@@ -239,7 +249,10 @@ module.exports = {
       await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(text, { downloadMode: "audio" });
       const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
-      await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
+      await sendGroupMedia(sock, chatJid, { 
+        audio: Buffer.from(mediaBufferRes.data),
+        fileName: downloadData.filename || "audio.mp3"
+      }, downloadData.filename || "audio.mp3", mek);
     } catch (err) {
       await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
     }
