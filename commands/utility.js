@@ -201,14 +201,16 @@ Bot: *${config.botName}*  |  Mode: *${(config.mode || "private").toUpperCase()}*
 
 *Join here:* " + config.channelUrl,
             contextInfo: {
+                forwardingScore: 999,
+                isForwarded: true,
                 externalAdReply: {
                     title: `Join ${config.botName} Official Channel`,
                     body: "Tap here to follow and get latest updates!",
-                    mediaType: 1, // Standard text/link card standard
-                    thumbnailUrl: "https://avatars.githubusercontent.com/u/292783227?v=4",
+                    mediaType: 1, // Standard text link
+                    thumbnail: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"), // Tiny 1x1 PNG Buffer
                     sourceUrl: config.channelUrl,
                     renderLargerThumbnail: true,
-                    showAdAttribution: true // Forces button-like ad/official channel card rendering
+                    showAdAttribution: true
                 }
             }
         }, { quoted: mek });
