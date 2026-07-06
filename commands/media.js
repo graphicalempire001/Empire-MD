@@ -93,12 +93,13 @@ async function resolveYouTubeUrl(query) {
 
 // ─────────────────────────────────────────────────────────────
 // ⬇️ DOWNLOAD — Cobalt failover.
-// Your OWN self-hosted instance is tried FIRST for reliability.
+// Your OWN self-hosted instance is hardcoded + tried FIRST.
+// process.env.COBALT_API still overrides if you ever set it.
 // Public ones are best-effort fallbacks (YouTube blocks them).
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
   process.env.COBALT_API,                              // optional override
-  "https://cobalt-production-04bf.up.railway.app",     // ✅ your own instance
+  "https://cobalt-production-04bf.up.railway.app",     // ✅ your own instance (primary)
   "https://cobalt-api.kwiatekmiki.com",
   "https://co.eepy.today",
   "https://cobaltapi.squair.xyz"
