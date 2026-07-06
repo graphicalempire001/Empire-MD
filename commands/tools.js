@@ -3,122 +3,82 @@ const PDFDocument = require('pdfkit');
 const FormData = require('form-data');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-async function downloadBuffer(msgNode, type) {
-  const stream = await downloadContentFromMessage(msgNode[type], type.replace('Message', ''));
-  let buf = Buffer.from([]);
-  for await (const chunk of stream) buf = Buffer.concat([buf, chunk]);
-  return buf;
+async function downloadBuffer(node, type) {
+  const stream = await downloadContentFromMessage(node[type], type.replace('Message', ''));
+  let buffer = Buffer.from([]);
+  for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+  return buffer;
 }
 
 function getQuoted(mek) {
-  if (mek.quoted?.message) return { message: mek.quoted.message, type: mek.quoted.type };
+  if (mek.quoted && mek.quoted.message) return { message: mek.quoted.message, type: mek.quoted.type };
   let q = mek.message?.extendedTextMessage?.contextInfo?.quotedMessage;
   if (!q) return null;
   while (q?.ephemeralMessage || q?.viewOnceMessage || q?.viewOnceMessageV2 || q?.viewOnceMessageV2Extension) {
-    q = q.ephemeralMessage?.message || q.viewOnceMessage?.message ||
-        q.viewOnceMessageV2?.message || q.viewOnceMessageV2Extension?.message;
+    q = q.ephemeralMessage?.message || q.viewOnceMessage?.message || q.viewOnceMessageV2?.message || q.viewOnceMessageV2Extension?.message;
   }
   if (!q) return null;
   return { message: q, type: Object.keys(q)[0] };
 }
 
-// ─── Commands ─────────────────────────────────────────────────────────────────
-
 module.exports = {
-
-  // 🔍 OCR — extract text from a replied image
   ocr: async ({ sock, chatJid, mek }) => {
     const q = getQuoted(mek);
-    if (!q || q.type !== 'imageMessage')
-      return sock.sendMessage(chatJid, { text: '❌ Reply to an *image* with `.ocr` to extract its text.' }, { quoted: mek });
-
-    await sock.sendMessage(chatJid, { text: '🔍 Scanning image for text...' }, { quoted: mek });
-
+    if (!q || q.type !== 'imageMessage') {
+      return sock.sendMessage(chatJid, { text: "❌ Please reply to an *image* with `.ocr` to extract text." }, { quoted: mek });
+    }
+    await sock.sendMessage(chatJid, { text: "🔍 Analyzing image and extracting text..." }, { quoted: mek });
     try {
-      const buf = await downloadBuffer(q.message, 'imageMessage');
+      const buffer = await downloadBuffer(q.message, 'imageMessage');
       const form = new FormData();
-      form.append('file', buf, { filename: 'scan.jpg', contentType: 'image/jpeg' });
+      form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
       form.append('OCREngine', '2');
-      form.append('isOverlayRequired', 'false');
-
       const res = await axios.post('https://api.ocr.space/parse/image', form, {
         headers: { ...form.getHeaders(), apikey: process.env.OCR_API_KEY || 'helloworld' },
-        timeout: 30000
+        timeout: 30000,
       });
-
-      const text = res.data?.ParsedResults?.[0]?.ParsedText?.trim();
-      if (!text) throw new Error('No readable text found in this image.');
-
-      await sock.sendMessage(chatJid, {
-        text: `📝 *[OCR EXTRACTED TEXT]*\n\n${text}`
-      }, { quoted: mek });
+      const parsedText = res.data?.ParsedResults?.[0]?.ParsedText?.trim();
+      if (!parsedText) throw new Error("No readable text found in the image.");
+      await sock.sendMessage(chatJid, { text: "📝 *[OCR EXTRACTED TEXT]*:\n\n" + parsedText }, { quoted: mek });
     } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ OCR failed: ${e.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: "❌ OCR Failed: " + e.message }, { quoted: mek });
     }
   },
-
-  // 📄 PDF — compile replied text or image into a PDF document
   pdf: async ({ sock, chatJid, mek, text }) => {
     const q = getQuoted(mek);
-
-    // Collect the content to embed
     let rawText = text;
-    if (!rawText && q?.message?.conversation)            rawText = q.message.conversation;
-    if (!rawText && q?.message?.extendedTextMessage?.text) rawText = q.message.extendedTextMessage.text;
-
-    const hasImage = q?.type === 'imageMessage';
-
-    if (!rawText && !hasImage)
-      return sock.sendMessage(chatJid, {
-        text: '❌ Usage:\n• `.pdf Your text here`\n• Reply to a *text message* with `.pdf`\n• Reply to an *image* with `.pdf`'
-      }, { quoted: mek });
-
-    await sock.sendMessage(chatJid, { text: '⏳ Generating PDF document...' }, { quoted: mek });
-
+    if (!rawText && q && q.message?.conversation) rawText = q.message.conversation;
+    else if (!rawText && q && q.message?.extendedTextMessage?.text) rawText = q.message.extendedTextMessage.text;
+    if (!rawText && (!q || q.type !== 'imageMessage')) {
+      return sock.sendMessage(chatJid, { text: "❌ Provide text, reply to text, or reply to an image to convert to PDF!\n\n*Usage:*\n• .pdf Hello\n• Reply to msg with .pdf" }, { quoted: mek });
+    }
+    await sock.sendMessage(chatJid, { text: "⏳ Generating professional PDF document..." }, { quoted: mek });
     try {
-      const doc = new PDFDocument({ margin: 55 });
-      const chunks = [];
-      doc.on('data', c => chunks.push(c));
-
+      const doc = new PDFDocument({ margin: 50 });
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
       doc.on('end', async () => {
-        const pdfBuf = Buffer.concat(chunks);
-        await sock.sendMessage(chatJid, {
-          document: pdfBuf,
-          mimetype: 'application/pdf',
-          fileName: `Empire_MD_${Date.now().toString().slice(-6)}.pdf`,
-          caption: '📄 *Your PDF is ready!* — Generated by Empire-MD'
-        }, { quoted: mek });
+        const pdfBuffer = Buffer.concat(buffers);
+        const fileName = 'Empire_MD_' + Date.now().toString().slice(-6) + '.pdf';
+        await sock.sendMessage(chatJid, { document: pdfBuffer, mimetype: 'application/pdf', fileName: fileName, caption: '📄 Here is your generated PDF document!' }, { quoted: mek });
       });
-
-      // ── Header ──
-      doc.fillColor('#1A365D').fontSize(22)
-         .text('EMPIRE-MD · DOCUMENT', { align: 'center' });
-      doc.moveDown(0.5);
-      doc.strokeColor('#AAAAAA').lineWidth(1)
-         .moveTo(55, doc.y).lineTo(540, doc.y).stroke();
-      doc.moveDown(1.5);
-
-      // ── Body ──
-      if (hasImage) {
-        const imgBuf = await downloadBuffer(q.message, 'imageMessage');
-        doc.fillColor('#333333').fontSize(11)
-           .text('Attached Image:', { underline: true });
-        doc.moveDown(0.5);
-        doc.image(imgBuf, { fit: [480, 380], align: 'center' });
+      doc.fillColor('#1A365D').fontSize(24).text('EMPIRE MD', { align: 'center' });
+      doc.moveDown();
+      doc.strokeColor('#CCCCCC').lineWidth(1).moveTo(50, doc.y).lineTo(562, doc.y).stroke();
+      doc.moveDown(2);
+      if (q && q.type === 'imageMessage') {
+        const imgBuffer = await downloadBuffer(q.message, 'imageMessage');
+        doc.fillColor('#333333').fontSize(12).text('Attached Image Content:', { underline: true });
+        doc.moveDown();
+        doc.image(imgBuffer, { fit: [500, 400], align: 'center', valign: 'center' });
       } else {
-        doc.fillColor('#222222').fontSize(12)
-           .text(rawText, { lineGap: 5, align: 'left' });
+        doc.fillColor('#333333').fontSize(12).text(rawText, { align: 'left', lineGap: 4 });
       }
-
-      // ── Footer ──
       doc.moveDown(3);
-      doc.fontSize(9).fillColor('#888888')
-         .text(`Generated ${new Date().toLocaleString()} · Powered by Empire-MD`, { align: 'center' });
-
+      doc.fontSize(10).fillColor('#777777').text('Generated on: ' + new Date().toLocaleString() + ' | Powered by Empire-MD WhatsApp Bot', { align: 'center' });
       doc.end();
     } catch (e) {
-      await sock.sendMessage(chatJid, { text: `❌ PDF generation failed: ${e.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: "❌ PDF compilation failed: " + e.message }, { quoted: mek });
     }
   }
 };
