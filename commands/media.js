@@ -69,7 +69,7 @@ const SEARCH_INSTANCES = [
 
 async function resolveYouTubeUrl(query) {
   // Already a direct URL — use as-is.
-  if (/^https?:///i.test(query)) return query;
+  if (query.startsWith("http://") || query.startsWith("https://")) return query;
 
   for (const base of SEARCH_INSTANCES) {
     try {
