@@ -32,7 +32,6 @@ async function downloadMedia(mek, type) {
 }
 
 // Convert any audio buffer to Opus/Ogg (most reliable for WhatsApp playback).
-// Rejects if ffmpeg is unavailable so callers can fall back to a document.
 function convertAudio(inputBuffer, format = 'ogg') {
   return new Promise((resolve, reject) => {
     if (!ffmpeg) return reject(new Error("ffmpeg unavailable"));
@@ -54,15 +53,36 @@ function convertAudio(inputBuffer, format = 'ogg') {
   });
 }
 
-// Download a Cobalt tunnel URL into a Buffer (follows redirects, treats as binary).
-async function fetchBuffer(url, timeout = 60000) {
-  const res = await axios.get(url, {
-    responseType: 'arraybuffer',
-    timeout,
-    maxRedirects: 5,
-    headers: { 'User-Agent': 'Mozilla/5.0' }
-  });
-  return Buffer.from(res.data);
+// Robust binary download. Streams the response, validates size, retries once.
+// Logs status/headers so empty downloads can be diagnosed.
+async function fetchBuffer(url, timeout = 60000, attempt = 1) {
+  try {
+    const res = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout,
+      maxRedirects: 5,
+      decompress: true,
+      validateStatus: s => s >= 200 && s < 400,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept': '*/*'
+      }
+    });
+    const buf = Buffer.from(res.data);
+    console.log(`fetchBuffer attempt ${attempt}: status=${res.status} bytes=${buf.length} type=${res.headers['content-type']} len=${res.headers['content-length']}`);
+    if (buf.length > 0) return buf;
+    throw new Error(`empty body (status ${res.status})`);
+  } catch (e) {
+    const info = e.response
+      ? `HTTP ${e.response.status}`
+      : e.message;
+    console.error(`fetchBuffer attempt ${attempt} failed: ${info}`);
+    if (attempt < 2) {
+      // one retry — tunnel may have briefly stalled
+      return fetchBuffer(url, timeout, attempt + 1);
+    }
+    throw new Error(`download failed: ${info}`);
+  }
 }
 
 // Helper to send media with "leads to channel" button/link
@@ -111,7 +131,6 @@ async function sendAudioSafe(sock, chatJid, rawBuffer, filename, mek) {
     );
   } catch (convErr) {
     console.error("Audio convert unavailable/failed, sending as document:", convErr.message);
-    // Fallback: deliver the raw file as a document so it always lands.
     return sock.sendMessage(chatJid, {
       document: rawBuffer,
       mimetype: 'audio/mpeg',
@@ -282,8 +301,8 @@ module.exports = {
       const url = await resolveYouTubeUrl(text);
       if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(url, { downloadMode: "audio", audioFormat: "best" });
+      console.log("tunnel url:", downloadData.url);
       const audioBuf = await fetchBuffer(downloadData.url, 60000);
-      console.log("audio bytes:", audioBuf.length);
       await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
       await sendAudioSafe(sock, chatJid, audioBuf, downloadData.filename || "audio", mek);
     } catch (err) {
@@ -320,8 +339,8 @@ module.exports = {
     try {
       await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
       const downloadData = await downloadWithCobalt(text, { downloadMode: "audio", audioFormat: "best" });
+      console.log("tunnel url:", downloadData.url);
       const audioBuf = await fetchBuffer(downloadData.url, 60000);
-      console.log("audio bytes:", audioBuf.length);
       await sendAudioSafe(sock, chatJid, audioBuf, downloadData.filename || "audio", mek);
     } catch (err) {
       await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
