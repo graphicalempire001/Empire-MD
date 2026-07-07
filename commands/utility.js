@@ -132,7 +132,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     const uptime = formatUptime(process.uptime());
     const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
     const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
-    const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
+    const dbStatus = dbConnected ? "🟢 Connected" : "🟡 Local Cache";
     const now = new Date().toLocaleString();
     // Coverage check vs live registry
     let registered = {};
@@ -233,43 +233,34 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
   },
   get: async (args) => module.exports.send(args),
 
-  // 🎵 Play — search a song by name and send as DIRECT PLAYABLE AUDIO (filename preserved)
+  // 🎵 Play — clean: just the audio file + one description, no status chatter
   play: async ({ sock, chatJid, mek, text }) => {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>" }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
-      await sock.sendMessage(chatJid, { text: `🔍 Searching *"${text}"*...` }, { quoted: mek });
-      // 1) Search YouTube by name
+      // Search silently (no "searching" message)
       const search = await yt.search(text);
       const video = search?.results?.find(v => v.type === 'video') || search?.results?.[0];
       if (!video || !video.url) {
         return sock.sendMessage(chatJid, { text: `❌ No results found for *"${text}"*.` }, { quoted: mek });
       }
-      await sock.sendMessage(chatJid, {
-        text: `🎧 *Found:* ${video.title}
-⏱️ *Duration:* ${video.timestamp || video.duration?.timestamp || "N/A"}
-📥 _Downloading audio..._`
-      }, { quoted: mek });
-      // 2) Download as MP3 (128 kbps = fast & reliable; 256/320 also supported)
+      // Download silently (no "found" message)
       const dl = await yt.ytmp3(video.url, 128);
       if (!dl?.status || !dl?.download?.url) {
         return sock.sendMessage(chatJid, { text: "❌ Failed to fetch the audio. Try again in a moment." }, { quoted: mek });
       }
-      const audioUrl = dl.download.url;
       const meta = dl.metadata || {};
       const title = meta.title || video.title || text;
       const fileName = dl.download.filename || `${title}.mp3`;
-      // 3) Download the file into a buffer
-      const buf = await axios.get(audioUrl, { responseType: 'arraybuffer', timeout: 60000 });
-      const audioBuffer = Buffer.from(buf.data);
-      // 4) Send as DIRECT PLAYABLE AUDIO (still carries the file name for saving)
+      const buf = await axios.get(dl.download.url, { responseType: 'arraybuffer', timeout: 60000 });
+      // 1) The audio file
       await sock.sendMessage(chatJid, {
-        audio: audioBuffer,
+        audio: Buffer.from(buf.data),
         mimetype: 'audio/mpeg',
         fileName: fileName,
         ptt: false
       }, { quoted: mek });
-      // Follow-up caption (audio messages don't render captions)
+      // 2) One description, right after the audio
       await sock.sendMessage(chatJid, {
         text: `🎵 *${title}*
 ${meta.author?.name ? `👤 ${meta.author.name}
