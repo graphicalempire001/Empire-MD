@@ -15,7 +15,7 @@ module.exports = {
     mode: "private",        // New bots start private until their owner opens them
     pairingCode: true,      // Pairing code flow enabled
     channelUrl: "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15", 
-  channelThumb: "https://i.ibb.co/8LMKhwqt/download.jpg", 
+  channelThumb: "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15", 
   channelName: "Empire BOT-WAN",
 
 
