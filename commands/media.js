@@ -92,12 +92,11 @@ async function resolveYouTubeUrl(query) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ⬇️ DOWNLOAD — YOUR self-hosted Cobalt instance ONLY (v11).
-// No public fallbacks. If this fails, the issue is your instance.
+// ⬇️ DOWNLOAD — YOUR self-hosted Cobalt instance (v11).
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
   process.env.COBALT_API_URL ||
-  "https://imputcobalt-api-production-f1ce.up.railway.app/"  // ✅ full URL + scheme + trailing slash
+  "https://imputcobalt-api-production-f1ce.up.railway.app/"  // full URL + scheme + trailing slash
 ];
 
 // Optional: set COBALT_API_KEY in env if your instance is key-protected.
@@ -137,10 +136,17 @@ async function downloadWithCobalt(url, options = {}) {
           break;
         }
 
-        case "local-processing":
-          if (data.url) return { url: data.url, filename: data.output?.filename };
-          lastErr = "local-processing without direct url";
+        case "local-processing": {
+          // v11 returns raw streams meant for client-side muxing.
+          // Use a directly-tunnelable stream if present; otherwise fail loudly.
+          const direct =
+            data.url ||
+            (Array.isArray(data.tunnel) && data.tunnel[0]) ||
+            null;
+          if (direct) return { url: direct, filename: data?.output?.filename };
+          lastErr = "audio needs local processing (try audioFormat:'best')";
           break;
+        }
 
         case "error":
           lastErr = data?.error?.code || "cobalt error";
@@ -230,7 +236,7 @@ module.exports = {
       await sock.sendMessage(chatJid, { text: `🎵 *Searching/Downloading:* BOT-WAN is Searching for "${text}" ...` }, { quoted: mek });
       const url = await resolveYouTubeUrl(text);
       if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
-      const downloadData = await downloadWithCobalt(url, { downloadMode: "audio", audioFormat: "mp3" });
+      const downloadData = await downloadWithCobalt(url, { downloadMode: "audio", audioFormat: "best" });
       const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
       await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
@@ -268,7 +274,7 @@ module.exports = {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
     try {
       await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
-      const downloadData = await downloadWithCobalt(text, { downloadMode: "audio", audioFormat: "mp3" });
+      const downloadData = await downloadWithCobalt(text, { downloadMode: "audio", audioFormat: "best" });
       const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
     } catch (err) {
