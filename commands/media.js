@@ -1,11 +1,18 @@
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const axios = require('axios'); axios = require('axios');
+const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { Sticker, StickerTypes } = require('wa-sticker-formatter');
-const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
 const config = require('../config');
+
+// Optional ffmpeg — NEVER let a missing dependency crash the whole module.
+let ffmpeg = null;
+try {
+  ffmpeg = require('fluent-ffmpeg');
+} catch {
+  console.warn("fluent-ffmpeg not installed — audio will be sent as a document instead of an inline note.");
+}
 
 // Helper to download media message
 async function downloadMedia(mek, type) {
@@ -25,8 +32,10 @@ async function downloadMedia(mek, type) {
 }
 
 // Convert any audio buffer to Opus/Ogg (most reliable for WhatsApp playback).
+// Rejects if ffmpeg is unavailable so callers can fall back to a document.
 function convertAudio(inputBuffer, format = 'ogg') {
   return new Promise((resolve, reject) => {
+    if (!ffmpeg) return reject(new Error("ffmpeg unavailable"));
     const input = new PassThrough();
     input.end(inputBuffer);
     const chunks = [];
@@ -87,7 +96,7 @@ async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null)
   }
 }
 
-// Robust audio sender: convert -> send as audio; on failure, fall back to document.
+// Robust audio sender: convert -> send as audio; on any failure, fall back to document.
 async function sendAudioSafe(sock, chatJid, rawBuffer, filename, mek) {
   if (!rawBuffer || !rawBuffer.length) {
     return sock.sendMessage(chatJid, { text: "❌ Downloaded empty audio file." }, { quoted: mek });
@@ -101,7 +110,7 @@ async function sendAudioSafe(sock, chatJid, rawBuffer, filename, mek) {
       cleanName, mek
     );
   } catch (convErr) {
-    console.error("Audio convert failed, sending as document:", convErr.message);
+    console.error("Audio convert unavailable/failed, sending as document:", convErr.message);
     // Fallback: deliver the raw file as a document so it always lands.
     return sock.sendMessage(chatJid, {
       document: rawBuffer,
