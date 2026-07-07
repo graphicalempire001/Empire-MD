@@ -14,7 +14,12 @@ module.exports = {
     prefix: ".",            // Default prefix (per-bot prefix overrides this)
     mode: "private",        // New bots start private until their owner opens them
     pairingCode: true,      // Pairing code flow enabled
-    channelUrl: "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15", // Official BOT-WAN WhatsApp Channel
+    channelUrl: "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15", 
+  channelThumb: "https://i.ibb.co/8LMKhwqt/download.jpg", 
+  channelName: "Empire BOT-WAN",
+
+};
+
 
     // Core default user settings (applied to a new bot, then customizable per-session)
     settings: {
