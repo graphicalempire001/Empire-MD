@@ -53,7 +53,7 @@ async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null)
   }
 }
 
-// Resolve free-text into a YouTube watch URL (shared by .play and .video)
+// Resolve free-text into a YouTube watch URL (shared helper)
 async function resolveYouTubeUrl(query) {
   if (query.startsWith("http")) return query;
   const searchRes = await axios.get(
@@ -152,12 +152,11 @@ module.exports = {
   },
   sticker: async (args) => module.exports.s(args),
 
-  // 🎵 YouTube Song / MP3 Downloader (search by text OR url) — via scraper, direct audio
+  // 🎵 Play — clean: just the audio file + one description, no status chatter
   play: async ({ sock, chatJid, mek, text }) => {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide song name or YouTube URL!" }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
-      await sock.sendMessage(chatJid, { text: `🎵 *Searching/Downloading:* BOT-WAN is Searching for "${text}" ...` }, { quoted: mek });
       let url = text;
       if (!text.startsWith("http")) {
         const search = await yt.search(text);
@@ -173,12 +172,20 @@ module.exports = {
       const title = meta.title || text;
       const fileName = dl.download.filename || `${title}.mp3`;
       const buf = await axios.get(dl.download.url, { responseType: 'arraybuffer', timeout: 60000 });
-      await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
+      // 1) The audio file
       await sock.sendMessage(chatJid, {
         audio: Buffer.from(buf.data),
         mimetype: 'audio/mpeg',
         fileName: fileName,
         ptt: false
+      }, { quoted: mek });
+      // 2) One description, right after the audio
+      await sock.sendMessage(chatJid, {
+        text: `🎵 *${title}*
+${meta.author?.name ? `👤 ${meta.author.name}
+` : ""}⏱️ ${meta.timestamp || "N/A"} • 🎚️ ${dl.download.quality || "128kbps"}
+📁 ${fileName}
+_Powered by ${config.botName}_`
       }, { quoted: mek });
     } catch (err) {
       console.error("Play error:", err);
@@ -191,7 +198,6 @@ module.exports = {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
-      await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
       const dl = await yt.ytmp3(text, 128);
       if (!dl?.status || !dl?.download?.url) {
         return sock.sendMessage(chatJid, { text: "❌ Failed to fetch the audio. Try again in a moment." }, { quoted: mek });
@@ -215,7 +221,6 @@ module.exports = {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
-      await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP4..." }, { quoted: mek });
       const dl = await yt.ytmp4(text, 720);
       if (!dl?.status || !dl?.download?.url) {
         return sock.sendMessage(chatJid, { text: "❌ Failed to fetch the video. Try again in a moment." }, { quoted: mek });
