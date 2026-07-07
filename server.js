@@ -56,7 +56,7 @@ async function getBaileysVersion() {
 }
 
 // Random emoji pool for status reactions (matches auto.js)
-const RANDOM_STATUS_EMOJIS = ["💖","🔥","😂","😍","👏","🎉","💯","👍","🙌","✨","😎","🥰","⚡","🌟","💪","👀","🤩","❤️","😮","🚀"];
+const RANDOM_STATUS_EMOJIS = ["💖","🔥","💯","👀","🤩","❤️","🚀"];
 
 function generateSessionId(botName) {
   const formattedName = botName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
