@@ -92,34 +92,71 @@ async function resolveYouTubeUrl(query) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ⬇️ DOWNLOAD — YOUR self-hosted Cobalt instance ONLY.
+// ⬇️ DOWNLOAD — YOUR self-hosted Cobalt instance ONLY (v11).
 // No public fallbacks. If this fails, the issue is your instance.
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
-  "imputcobalt-api-production-f1ce.up.railway.app"     // ✅ your own instance (ONLY)
+  process.env.COBALT_API_URL ||
+  "https://imputcobalt-api-production-f1ce.up.railway.app/"  // ✅ full URL + scheme + trailing slash
 ];
 
+// Optional: set COBALT_API_KEY in env if your instance is key-protected.
+const COBALT_API_KEY = process.env.COBALT_API_KEY || null;
+
 async function downloadWithCobalt(url, options = {}) {
+  if (!url || !/^https?:\/\//i.test(url)) {
+    throw new Error(`bad input url: "${url}"`);
+  }
+
+  const headers = {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  };
+  if (COBALT_API_KEY) headers["Authorization"] = `Api-Key ${COBALT_API_KEY}`;
+
   let lastErr = null;
   for (const endpoint of COBALT_ENDPOINTS) {
     try {
-      const res = await axios.post(endpoint, { url, ...options }, {
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json"
-        },
-        timeout: 20000
-      });
+      const res = await axios.post(
+        endpoint,
+        { url, ...options },
+        { headers, timeout: 20000 }
+      );
       const data = res.data;
-      // Support Cobalt v7 ({ url }) and v10 ({ url | tunnel | picker[] }) shapes.
-      const link =
-        data?.url ||
-        data?.tunnel ||
-        (Array.isArray(data?.picker) && data.picker[0]?.url) ||
-        null;
-      if (link) return { url: link, filename: data.filename };
-      // Instance answered but returned no link — surface the reason.
-      lastErr = data?.error?.code || data?.status || "no download link returned";
+
+      // v11 status-based handling
+      switch (data?.status) {
+        case "tunnel":
+        case "redirect":
+          return { url: data.url, filename: data.filename };
+
+        case "picker": {
+          const first = Array.isArray(data.picker) && data.picker[0];
+          if (first?.url) return { url: first.url, filename: data.filename };
+          lastErr = "picker returned but empty";
+          break;
+        }
+
+        case "local-processing":
+          if (data.url) return { url: data.url, filename: data.output?.filename };
+          lastErr = "local-processing without direct url";
+          break;
+
+        case "error":
+          lastErr = data?.error?.code || "cobalt error";
+          break;
+
+        default: {
+          // legacy shapes just in case
+          const link =
+            data?.url ||
+            data?.tunnel ||
+            (Array.isArray(data?.picker) && data.picker[0]?.url) ||
+            null;
+          if (link) return { url: link, filename: data.filename };
+          lastErr = data?.status || "no download link returned";
+        }
+      }
     } catch (e) {
       lastErr = e.response?.status
         ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data || "")}`
@@ -193,7 +230,7 @@ module.exports = {
       await sock.sendMessage(chatJid, { text: `🎵 *Searching/Downloading:* BOT-WAN is Searching for "${text}" ...` }, { quoted: mek });
       const url = await resolveYouTubeUrl(text);
       if (!url) return sock.sendMessage(chatJid, { text: "❌ Could not find any matching YouTube videos." }, { quoted: mek });
-      const downloadData = await downloadWithCobalt(url, { downloadMode: "audio" });
+      const downloadData = await downloadWithCobalt(url, { downloadMode: "audio", audioFormat: "mp3" });
       const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sock.sendMessage(chatJid, { text: "🎵 Sending audio file... BOT-WAN links will be attached." }, { quoted: mek });
       await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
@@ -231,7 +268,7 @@ module.exports = {
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide YouTube link!" }, { quoted: mek });
     try {
       await sock.sendMessage(chatJid, { text: "📥 Downloading YouTube MP3..." }, { quoted: mek });
-      const downloadData = await downloadWithCobalt(text, { downloadMode: "audio" });
+      const downloadData = await downloadWithCobalt(text, { downloadMode: "audio", audioFormat: "mp3" });
       const mediaBufferRes = await axios.get(downloadData.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sendGroupMedia(sock, chatJid, { audio: Buffer.from(mediaBufferRes.data) }, downloadData.filename || "audio.mp3", mek);
     } catch (err) {
