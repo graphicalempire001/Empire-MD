@@ -49,18 +49,21 @@ async function getChannelThumb() {
   }
 }
 
-// Build the channel "card" contextInfo shared by menu-style messages
+// Build the tappable channel "card" contextInfo.
+// FIX: set BOTH sourceUrl and mediaUrl to the channel link, and enable ad attribution
+// so WhatsApp treats the card tap as an actionable link (prevents the "bounce off").
 async function buildChannelContext() {
   const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
   const thumb = await getChannelThumb();
   const ctx = {
     externalAdReply: {
       title: `${config.botName || "Empire MD"} • Official Channel`,
-      body: "Tap here to follow the channel",
+      body: "Tap to open the channel",
       mediaType: 1,                 // 1 = image card
       renderLargerThumbnail: true,  // big header-style card; set false for compact
-      sourceUrl: channelUrl,
-      showAdAttribution: false
+      sourceUrl: channelUrl,        // where the tap should go
+      mediaUrl: channelUrl,         // FIX: some clients require this to route the tap
+      showAdAttribution: true       // FIX: makes the card an actionable link, not decorative
     }
   };
   if (thumb) {
@@ -68,11 +71,10 @@ async function buildChannelContext() {
   } else if (config.channelThumb || config.menuThumb) {
     ctx.externalAdReply.thumbnailUrl = config.channelThumb || config.menuThumb;
   }
-  // Optional best-effort "forwarded from channel" header.
-  // Only include if you have a REAL newsletter JID; otherwise leave it off.
+  // Optional best-effort "forwarded from channel" header (needs a REAL newsletter JID)
   if (config.newsletterJid) {
     ctx.forwardedNewsletterMessageInfo = {
-      newsletterJid: config.newsletterJid,                 // e.g. "1203630xxxxxxxxxx@newsletter"
+      newsletterJid: config.newsletterJid,
       newsletterName: config.channelName || config.botName || "Empire MD",
       serverMessageId: 1
     };
@@ -172,7 +174,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
   },
   system: async (args) => module.exports.info(args),
 
-  // ❓ Professional, self-verifying Menu (Alias: h, menu) — now with channel card
+  // ❓ Professional, self-verifying Menu (Alias: h, menu) — channel card with working tap
   help: async ({ sock, chatJid, mek, senderName, prefix }) => {
     const px = prefix || config.prefix || ".";
     const uptime = formatUptime(process.uptime());
@@ -180,6 +182,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
     const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
     const now = new Date().toLocaleString();
+    const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
     // Coverage check vs live registry
     let registered = {};
     try { registered = require('../lib/commands'); } catch (_) {}
@@ -228,9 +231,11 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       menu += `╰────────────┈⊷
 `;
     }
+    // Keep the raw channel link in the body as a guaranteed-working fallback tap target.
     menu += `
 ╭━━━━━━━━━━━━━━━┈⊷
-┃ 📢 *Channel:* Tap the card below to follow
+┃ 📢 *Official Channel:*
+┃ ${channelUrl}
 ┃
 ┃ _Powered by ${config.botName} • Made with ❤️_
 ╰━━━━━━━━━━━━━━━┈⊷`;
