@@ -18,7 +18,7 @@ module.exports = {
   channelThumb: "https://i.ibb.co/8LMKhwqt/download.jpg", 
   channelName: "Empire BOT-WAN",
 
-};
+
 
 
     // Core default user settings (applied to a new bot, then customizable per-session)
