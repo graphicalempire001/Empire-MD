@@ -36,6 +36,52 @@ async function downloadBuffer(node, type) {
   return buffer;
 }
 
+// Fetch a thumbnail buffer for the channel card (best-effort; card still works without it)
+async function getChannelThumb() {
+  const thumbUrl = config.channelThumb || config.menuThumb;
+  if (!thumbUrl) return null;
+  try {
+    const res = await axios.get(thumbUrl, { responseType: 'arraybuffer', timeout: 10000 });
+    return Buffer.from(res.data);
+  } catch (e) {
+    console.error("Channel thumb fetch failed:", e.message);
+    return null;
+  }
+}
+
+// Build the channel "card" contextInfo shared by menu-style messages
+async function buildChannelContext() {
+  const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
+  const thumb = await getChannelThumb();
+  const ctx = {
+    externalAdReply: {
+      title: `${config.botName || "Empire MD"} • Official Channel`,
+      body: "Tap here to follow the channel",
+      mediaType: 1,                 // 1 = image card
+      renderLargerThumbnail: true,  // big header-style card; set false for compact
+      sourceUrl: channelUrl,
+      showAdAttribution: false
+    }
+  };
+  if (thumb) {
+    ctx.externalAdReply.thumbnail = thumb;
+  } else if (config.channelThumb || config.menuThumb) {
+    ctx.externalAdReply.thumbnailUrl = config.channelThumb || config.menuThumb;
+  }
+  // Optional best-effort "forwarded from channel" header.
+  // Only include if you have a REAL newsletter JID; otherwise leave it off.
+  if (config.newsletterJid) {
+    ctx.forwardedNewsletterMessageInfo = {
+      newsletterJid: config.newsletterJid,                 // e.g. "1203630xxxxxxxxxx@newsletter"
+      newsletterName: config.channelName || config.botName || "Empire MD",
+      serverMessageId: 1
+    };
+    ctx.isForwarded = true;
+    ctx.forwardingScore = 1;
+  }
+  return ctx;
+}
+
 // Categorized catalog. Add new commands here; anything registered but
 // missing shows automatically under "🧩 Uncategorized".
 const CATALOG = {
@@ -126,13 +172,13 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
   },
   system: async (args) => module.exports.info(args),
 
-  // ❓ Professional, self-verifying Menu (Alias: h, menu)
+  // ❓ Professional, self-verifying Menu (Alias: h, menu) — now with channel card
   help: async ({ sock, chatJid, mek, senderName, prefix }) => {
     const px = prefix || config.prefix || ".";
     const uptime = formatUptime(process.uptime());
     const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
     const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
-    const dbStatus = dbConnected ? "🟢 Connected" : "🟡 Local Cache";
+    const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
     const now = new Date().toLocaleString();
     // Coverage check vs live registry
     let registered = {};
@@ -184,12 +230,19 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     }
     menu += `
 ╭━━━━━━━━━━━━━━━┈⊷
-┃ 📢 *Channel:*
-┃ ${config.channelUrl}
+┃ 📢 *Channel:* Tap the card below to follow
 ┃
 ┃ _Powered by ${config.botName} • Made with ❤️_
 ╰━━━━━━━━━━━━━━━┈⊷`;
-    await sock.sendMessage(chatJid, { text: menu }, { quoted: mek });
+
+    // Attach the tappable channel card (externalAdReply). Falls back to plain text if it errors.
+    try {
+      const contextInfo = await buildChannelContext();
+      await sock.sendMessage(chatJid, { text: menu, contextInfo }, { quoted: mek });
+    } catch (err) {
+      console.error("Menu card error, sending plain menu:", err.message);
+      await sock.sendMessage(chatJid, { text: menu }, { quoted: mek });
+    }
   },
   h: async (args) => module.exports.help(args),
   menu: async (args) => module.exports.help(args),
@@ -238,13 +291,11 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>" }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
-      // Search silently (no "searching" message)
       const search = await yt.search(text);
       const video = search?.results?.find(v => v.type === 'video') || search?.results?.[0];
       if (!video || !video.url) {
         return sock.sendMessage(chatJid, { text: `❌ No results found for *"${text}"*.` }, { quoted: mek });
       }
-      // Download silently (no "found" message)
       const dl = await yt.ytmp3(video.url, 128);
       if (!dl?.status || !dl?.download?.url) {
         return sock.sendMessage(chatJid, { text: "❌ Failed to fetch the audio. Try again in a moment." }, { quoted: mek });
@@ -253,14 +304,12 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       const title = meta.title || video.title || text;
       const fileName = dl.download.filename || `${title}.mp3`;
       const buf = await axios.get(dl.download.url, { responseType: 'arraybuffer', timeout: 60000 });
-      // 1) The audio file
       await sock.sendMessage(chatJid, {
         audio: Buffer.from(buf.data),
         mimetype: 'audio/mpeg',
         fileName: fileName,
         ptt: false
       }, { quoted: mek });
-      // 2) One description, right after the audio
       await sock.sendMessage(chatJid, {
         text: `🎵 *${title}*
 ${meta.author?.name ? `👤 ${meta.author.name}
