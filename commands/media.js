@@ -96,7 +96,7 @@ async function resolveYouTubeUrl(query) {
 // No public fallbacks. If this fails, the issue is your instance.
 // ─────────────────────────────────────────────────────────────
 const COBALT_ENDPOINTS = [
-  "https://cobalt-production-04bf.up.railway.app"     // ✅ your own instance (ONLY)
+  "imputcobalt-api-production-f1ce.up.railway.app"     // ✅ your own instance (ONLY)
 ];
 
 async function downloadWithCobalt(url, options = {}) {
