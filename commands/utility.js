@@ -41,7 +41,7 @@ async function downloadBuffer(node, type) {
 const CATALOG = {
   "📥 Media & Downloads": {
     "s": { d: "Sticker from replied/sent image or video", a: ["sticker"] },
-    "play": { d: "Search & download a song as MP3 document", a: [] },
+    "play": { d: "Search & download a song as direct audio", a: [] },
     "ytmp3": { d: "YouTube link → MP3 audio", a: [] },
     "ytmp4": { d: "YouTube link → MP4 video", a: ["video"] },
     "insta": { d: "Download Instagram reel/post", a: ["ig"] },
@@ -233,9 +233,9 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
   },
   get: async (args) => module.exports.send(args),
 
-  // 🎵 Play — search a song by name and send as a downloadable MP3 document
+  // 🎵 Play — search a song by name and send as DIRECT PLAYABLE AUDIO (filename preserved)
   play: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play " }, { quoted: mek });
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>" }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
       await sock.sendMessage(chatJid, { text: `🔍 Searching *"${text}"*...` }, { quoted: mek });
@@ -262,14 +262,19 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       // 3) Download the file into a buffer
       const buf = await axios.get(audioUrl, { responseType: 'arraybuffer', timeout: 60000 });
       const audioBuffer = Buffer.from(buf.data);
-      // 4) Send as a downloadable DOCUMENT (so receivers can save it)
+      // 4) Send as DIRECT PLAYABLE AUDIO (still carries the file name for saving)
       await sock.sendMessage(chatJid, {
-        document: audioBuffer,
+        audio: audioBuffer,
         mimetype: 'audio/mpeg',
         fileName: fileName,
-        caption: `🎵 *${title}*
+        ptt: false
+      }, { quoted: mek });
+      // Follow-up caption (audio messages don't render captions)
+      await sock.sendMessage(chatJid, {
+        text: `🎵 *${title}*
 ${meta.author?.name ? `👤 ${meta.author.name}
 ` : ""}⏱️ ${meta.timestamp || "N/A"} • 🎚️ ${dl.download.quality || "128kbps"}
+📁 ${fileName}
 _Powered by ${config.botName}_`
       }, { quoted: mek });
     } catch (err) {
