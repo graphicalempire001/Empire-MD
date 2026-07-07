@@ -6,7 +6,6 @@ const fs = require('fs');
 const axios = require('axios');
 const {
   default: makeWASocket,
-  useMultiFileAuthState,
   DisconnectReason,
   Browsers,
   fetchLatestBaileysVersion
@@ -27,6 +26,9 @@ const {
   markBotOffline
 } = require('./lib/database');
 
+// IMPORT THE NEW DATABASE-BACKED AUTH STATE
+const { useSupabaseAuthState } = require('./lib/useSupabaseAuthState');
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
@@ -37,6 +39,21 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const activeSessions = {};
 const SESSIONS_ROOT = path.join(__dirname, 'sessions');
+
+// CACHE FOR BAILEYS VERSION (Finding 2: Prevents 400 simultaneous outbound API requests on boot)
+let cachedBaileysVersion = null;
+async function getBaileysVersion() {
+  if (cachedBaileysVersion) return cachedBaileysVersion;
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    cachedBaileysVersion = version;
+    console.log(`ℹ️ Cached latest Baileys version: ${version.join('.')}`);
+    return version;
+  } catch (err) {
+    console.warn("⚠️ Failed to fetch latest Baileys version, using standard fallback:", err.message);
+    return [2, 3000, 1]; // standard safe fallback
+  }
+}
 
 // Random emoji pool for status reactions (matches auto.js)
 const RANDOM_STATUS_EMOJIS = ["💖","🔥","😂","😍","👏","🎉","💯","👍","🙌","✨","😎","🥰","⚡","🌟","💪","👀","🤩","❤️","😮","🚀"];
@@ -66,6 +83,7 @@ async function killSession(sessionId) {
     try { s.sock.end(); } catch (_) {}
   }
   delete activeSessions[sessionId];
+  // best-effort wipe of disk credentials folder (if they exist)
   try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -79,7 +97,7 @@ async function fetchThumb(url) {
   }
 }
 
-// 🧽 Periodic cleanup: purge session folders that never completed pairing (fixes ENOSPC).
+// 🧽 Periodic cleanup: purge disk session folders that never completed pairing (fixes ENOSPC).
 function cleanupOrphanSessions() {
   try {
     if (!fs.existsSync(SESSIONS_ROOT)) return;
@@ -97,7 +115,7 @@ function cleanupOrphanSessions() {
       if (!fs.existsSync(credsFile) && !isActive && ageMin > 15) {
         try {
           fs.rmSync(dir, { recursive: true, force: true });
-          console.log(`🧹 Purged orphan session ${name}`);
+          console.log(`🧹 Purged orphan session folder ${name}`);
         } catch (_) {}
       }
     }
@@ -106,18 +124,13 @@ function cleanupOrphanSessions() {
   }
 }
 
+// Tracks reconnection attempts per-session for exponential backoff (Finding 3)
+const reconnectAttempts = {};
+
 async function startSession(sessionId, botName, cleanPhone) {
-  const sessionFolder = path.join(SESSIONS_ROOT, sessionId);
-
-  if (cleanPhone) {
-    const credsFile = path.join(sessionFolder, 'creds.json');
-    if (!fs.existsSync(credsFile)) {
-      try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
-    }
-  }
-
-  const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-  const { version } = await fetchLatestBaileysVersion();
+  // Finding 1: Swapped useMultiFileAuthState out for our scale-ready useSupabaseAuthState
+  const { state, saveCreds } = await useSupabaseAuthState(sessionId);
+  const version = await getBaileysVersion();
 
   const sock = makeWASocket({
     version,
@@ -196,7 +209,6 @@ async function startSession(sessionId, botName, cleanPhone) {
             }
 
             if (s.autostatusreact && mek.key.participant) {
-              // random emoji unless a fixed one is set
               const emoji = s.defaultStatusEmoji ||
                 RANDOM_STATUS_EMOJIS[Math.floor(Math.random() * RANDOM_STATUS_EMOJIS.length)];
               try {
@@ -244,22 +256,29 @@ async function startSession(sessionId, botName, cleanPhone) {
 
       if (reason === DisconnectReason.loggedOut) {
         delete activeSessions[sessionId];
-        try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
+        delete reconnectAttempts[sessionId];
         try { await markBotOffline(sessionId); } catch (_) {}
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
 
-      } else if (reason === DisconnectReason.restartRequired || reason === 515) {
-        console.log(`♻️ Restart required for ${sessionId} — reconnecting to complete login...`);
-        setTimeout(() => startSession(sessionId, botName, cleanPhone), 1500);
-
       } else {
-        console.log(`🔄 Reconnecting ${sessionId} (reason ${reason})...`);
+        // Finding 3: Exponential Backoff with Jitter Reconnect to prevent CPU/reconnect storms at 1000 bots
+        const attempts = reconnectAttempts[sessionId] || 0;
+        reconnectAttempts[sessionId] = attempts + 1;
+        
+        const delay = Math.min(2000 * Math.pow(2, attempts), 60000) + Math.floor(Math.random() * 3000);
+        console.log(`🔄 Reconnecting ${sessionId} (reason ${reason}) in ${(delay / 1000).toFixed(1)}s (attempt ${attempts + 1})...`);
+        
         const stillPairing = !sock.authState?.creds?.registered;
-        setTimeout(() => startSession(sessionId, botName, stillPairing ? cleanPhone : null), 2000);
+        setTimeout(() => {
+          startSession(sessionId, botName, stillPairing ? cleanPhone : null);
+        }, delay);
       }
 
     } else if (connection === 'open') {
       console.log(`✅ Session ${sessionId} connected!`);
+      // Reset backoff attempts on successful connection
+      delete reconnectAttempts[sessionId];
+
       if (activeSessions[sessionId]) activeSessions[sessionId].status = 'connected';
 
       const connectedNumber = sock.user.id.split(':')[0];
@@ -356,7 +375,7 @@ _Type .help in any chat to view your commands!_`;
   return sock;
 }
 
-// 🔗 Global bridge so commands (e.g. .pair) can trigger a new pairing session.
+// 🔁 Global bridge so commands can trigger a new pairing session.
 global.startPairingSession = async function (botName, cleanPhone) {
   if (!isValidMsisdn(cleanPhone)) {
     return { ok: false, error: "Invalid number. Use full international format, no + or leading zero (e.g. 2347012345678)." };
@@ -373,7 +392,6 @@ global.startPairingSession = async function (botName, cleanPhone) {
     return { ok: false, error: err.message };
   }
 
-  // Wait briefly for requestPairingCode (fires ~3s after socket start).
   const started = Date.now();
   while (Date.now() - started < 12000) {
     const s = activeSessions[sessionId];
@@ -384,48 +402,49 @@ global.startPairingSession = async function (botName, cleanPhone) {
   return { ok: false, error: "Timed out generating the pairing code. Please try again." };
 };
 
-
+// 🔁 Staggered Boot Resume (Finding 5)
+// Instead of scanning local file folders, we pull active bot sessions from the database
+// and stagger their boot startups to prevent thundering herd CPU spikes on server restarts.
 async function resumeSavedSessions() {
   try {
-    if (!fs.existsSync(SESSIONS_ROOT)) {
-      console.log('ℹ️ No sessions folder yet — nothing to resume.');
+    const { getSettings } = require('./lib/database');
+    const { createClient } = require('@supabase/supabase-js');
+    
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+      console.log('ℹ️ Supabase not configured — skipping session resume.');
       return;
     }
-    const folders = fs.readdirSync(SESSIONS_ROOT, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name)
-      .filter(name => name.startsWith('BOTWAN_'));
+    
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+    
+    // Select all registered session_ids that are not flagged as offline or deleted
+    const { data: activeBots, error } = await supabase
+      .from('bots')
+      .select('session_id, bot_name')
+      .eq('status', 'connected'); // only resume active ones
+      
+    if (error) throw error;
 
-    if (folders.length === 0) {
-      console.log('ℹ️ No saved bot sessions to resume yet.');
+    if (!activeBots || activeBots.length === 0) {
+      console.log('ℹ️ No saved bot sessions found to resume in database.');
       return;
     }
 
-    for (const sessionId of folders) {
-      const credsFile = path.join(SESSIONS_ROOT, sessionId, 'creds.json');
-      if (!fs.existsSync(credsFile)) {
-        console.log(`⏭️ Skipping ${sessionId} — no creds, not a completed pairing.`);
-        continue;
-      }
+    console.log(`♻️ Found ${activeBots.length} active bot sessions to resume. Staggering startup...`);
 
-      // 🔑 Verify session status against Supabase before resuming
-      try {
-        const settings = await getSettings(sessionId);
-        // If settings read fails, or return value doesn't have required parameters, we check if it is active.
-        // We will only resume if a row exists in Supabase.
-        if (!settings || Object.keys(settings).length === 0) {
-          console.log(`🧹 Purging orphan session ${sessionId} — not found or deleted in Supabase.`);
-          try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
-          continue;
+    // Stagger starts (e.g., 1 bot every 1.5 seconds) so 400 bots boot beautifully
+    let index = 0;
+    for (const bot of activeBots) {
+      const delay = index * 1500;
+      setTimeout(async () => {
+        try {
+          console.log(`[RESUME] Booting session ${index + 1}/${activeBots.length}: ${bot.session_id}`);
+          await startSession(bot.session_id, bot.bot_name || "Empire MD", null);
+        } catch (err) {
+          console.error(`[RESUME ERROR] Session ${bot.session_id} failed:`, err.message);
         }
-        
-        console.log(`♻️ Resuming saved session: ${sessionId}`);
-        await startSession(sessionId, settings.botName || config.botName || "Empire MD", null);
-      } catch (dbErr) {
-        console.error(`Error verifying session ${sessionId} on resume:`, dbErr.message);
-        // Fail-safe: if DB lookup fails, still try to resume, but log error
-        await startSession(sessionId, config.botName || "Empire MD", null);
-      }
+      }, delay);
+      index++;
     }
   } catch (err) {
     console.error("resumeSavedSessions error:", err);
@@ -545,9 +564,7 @@ app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
 app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    // 1. Fully kill/disconnect the live WhatsApp socket and delete its session folder from disk
     await killSession(sessionId);
-    // 2. Remove the bot record completely from Supabase to prevent resurrection on restart
     await deleteBot(sessionId);
     return res.json({ success: true, message: `Bot ${sessionId} has been permanently deleted and credentials wiped.` });
   } catch (err) {
