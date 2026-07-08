@@ -483,6 +483,101 @@
         document.getElementById('keyInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
         if (getKey()) { loadAdminBots(); startLive(); } else { showGate(); }
     });
+
+
+
+<div id="cap-panel" style="max-width:560px;margin:20px auto;font-family:system-ui,-apple-system,sans-serif;
+     background:#111827;color:#e5e7eb;border:1px solid #1f2937;border-radius:16px;
+     padding:22px;box-shadow:0 8px 30px rgba(0,0,0,.35)">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <h2 style="margin:0;font-size:17px;font-weight:700">🗄️ Server Capacity Control</h2>
+    <span id="cap-bots" style="font-size:12px;color:#9ca3af">— bots</span>
+  </div>
+
+  <div id="cap-warning" style="display:none;background:#7f1d1d;color:#fecaca;
+       padding:10px 14px;border-radius:10px;font-weight:600;margin-bottom:14px;font-size:13px">
+    ⚠️ Disk reached the reserve limit (10% left). Prepare the second server and pause new pairing.
+  </div>
+
+  <div style="background:#1f2937;border-radius:999px;height:18px;overflow:hidden;margin-bottom:8px">
+    <div id="cap-bar" style="height:100%;width:0%;background:#22c55e;transition:width .4s ease,background .4s ease"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:12px;color:#9ca3af;margin-bottom:18px">
+    <span id="cap-pct">— % used</span>
+    <span id="cap-free">— MB free</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:12px">
+    <button id="cap-btn" style="flex:1;padding:13px;border:none;border-radius:11px;
+            font-weight:700;font-size:14px;cursor:pointer;background:#ef4444;color:#fff;transition:background .2s">
+      Pause New Pairing (Emergency)
+    </button>
+  </div>
+  <div id="cap-state" style="margin-top:10px;font-size:12px;color:#9ca3af;text-align:center">Status: active — accepting new bots</div>
+</div>
+
+<script>
+(function () {
+  // Reuse the same admin key your dashboard already uses.
+  // If your page stores it under a different name, change ONLY this line.
+  var CAP_KEY = localStorage.getItem('adminKey') ||
+                localStorage.getItem('admin_key') ||
+                sessionStorage.getItem('adminKey') || '';
+
+  var H = { 'Content-Type': 'application/json', 'x-admin-key': CAP_KEY };
+  var paused = false;
+
+  function el(id) { return document.getElementById(id); }
+
+  function paint(pct, freeMB, bots, isPaused, threshold) {
+    var bar = el('cap-bar');
+    bar.style.width = Math.min(pct, 100) + '%';
+    bar.style.background = pct >= threshold ? '#ef4444' : (pct >= 75 ? '#f59e0b' : '#22c55e');
+    el('cap-pct').textContent  = pct + '% used';
+    el('cap-free').textContent = (freeMB === null ? '—' : freeMB + ' MB free');
+    el('cap-bots').textContent = bots + ' bots';
+    el('cap-warning').style.display = pct >= threshold ? 'block' : 'none';
+    paused = isPaused;
+    paintBtn();
+  }
+
+  function paintBtn() {
+    var btn = el('cap-btn'), st = el('cap-state');
+    if (paused) {
+      btn.textContent = 'Resume New Pairing';
+      btn.style.background = '#22c55e';
+      st.textContent = 'Status: PAUSED — new pairing blocked (existing bots safe)';
+    } else {
+      btn.textContent = 'Pause New Pairing (Emergency)';
+      btn.style.background = '#ef4444';
+      st.textContent = 'Status: active — accepting new bots';
+    }
+  }
+
+  function refresh() {
+    fetch('/api/admin/status', { headers: H })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.success) return;
+        var free = (d.disk.availMB === null || d.disk.availMB === undefined) ? null : d.disk.availMB;
+        paint(d.disk.usePercent, free, d.activeBots, d.pairingPaused, d.reserveThreshold || 90);
+      })
+      .catch(function (e) { console.error('capacity status error', e); });
+  }
+
+  el('cap-btn').addEventListener('click', function () {
+    fetch('/api/admin/pause', {
+      method: 'POST', headers: H, body: JSON.stringify({ paused: !paused })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.success) { paused = d.pairingPaused; paintBtn(); } })
+      .catch(function (e) { console.error('pause toggle error', e); });
+  });
+
+  refresh();
+  setInterval(refresh, 15000);
+})();
 </script>
 </body>
 </html>
