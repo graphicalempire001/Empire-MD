@@ -481,10 +481,9 @@
     // ---- Boot ----------------------------------------------------
     window.addEventListener('load', () => {
         document.getElementById('keyInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
-        if (getKey()) { loadAdminBots(); startLive(); } else { showGate(); }
-    });
-
-
+           if (getKey()) { loadAdminBots(); startLive(); } else { showGate(); }
+  });
+  </script>
 
 <div id="cap-panel" style="max-width:560px;margin:20px auto;font-family:system-ui,-apple-system,sans-serif;
      background:#111827;color:#e5e7eb;border:1px solid #1f2937;border-radius:16px;
@@ -579,5 +578,6 @@
   setInterval(refresh, 15000);
 })();
         </script>
+     </script>
 </body>
 </html>
