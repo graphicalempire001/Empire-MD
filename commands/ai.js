@@ -4,6 +4,25 @@ const { getAiMemory, saveAiMemory, updateSettings } = require('../lib/database')
 const MAX_TURNS = 14;
 const REQUEST_TIMEOUT = 45000;
 
+// 🔒 Hardcoded, model-proof identity answer.
+const IDENTITY_ANSWER =
+  "I am Empire AI — an artificial intelligence programmed and engineered by the software engineers at Empire Digital.";
+
+// Matches "who made/built/created/programmed you", "who are you", "what are you",
+// "who is your developer/creator", etc. — across a few common languages.
+const IDENTITY_REGEX = new RegExp(
+  "(who|what|whose|which company)\\s+(are|is|made|built|created|programmed|developed|designed|owns|invented)\\s+(you|u|your(?:\\s+(?:creator|developer|maker|owner|company))?)" +
+  "|who\\s+(made|built|created|programmed|developed|designed|owns|invented)\\s+(you|u)" +
+  "|are\\s+you\\s+(chatgpt|gpt|openai|gemini|bard|claude|llama|an?\\s+ai|a\\s+bot|a\\s+robot)" +
+  "|what\\s+(ai|model|llm)\\s+are\\s+you" +
+  "|who\\s+(developed|owns)\\s+you" +
+  "|introduce\\s+yourself" +
+  "|ta\\s+ni\\s+iwo|ta\\s+lo\\s+da\\s+e" +          // Yoruba: who are you / who made you
+  "|wer\\s+hat\\s+dich\\s+(gemacht|erstellt)" +    // German
+  "|qui\\s+t'?a\\s+(cr[ée]{2}|fabriqu[ée])",        // French
+  "i"
+);
+
 const BASE_IDENTITY =
   "You are Empire AI, an artificial intelligence programmed and engineered by the software engineers at Empire Digital. " +
   "If asked who you are, who built you, what you are, or who made you, clearly and proudly state that you are an AI built by the software engineering team at Empire Digital. " +
@@ -58,6 +77,16 @@ async function runAi({ sock, chatJid, mek, text, senderName, sender, settings })
   if (found) name = found;
 
   const history = Array.isArray(mem.history) ? mem.history : [];
+
+  // 🔒 HARDCODED IDENTITY INTERCEPT — bypasses the model entirely, immune to prompt tricks.
+  if (IDENTITY_REGEX.test(text.trim())) {
+    history.push({ role: 'user', content: text });
+    history.push({ role: 'assistant', content: IDENTITY_ANSWER });
+    await saveAiMemory(sessionId, userJid, name, history.slice(-MAX_TURNS * 2));
+    await sock.sendMessage(chatJid, { text: `🤖 *Empire AI:* ${IDENTITY_ANSWER}` }, { quoted: mek });
+    return IDENTITY_ANSWER;
+  }
+
   const messages = [
     { role: 'system', content: buildSystemPrompt(name, persona) },
     ...history.slice(-MAX_TURNS),
