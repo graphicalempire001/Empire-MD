@@ -163,9 +163,10 @@ async function startSession(sessionId, botName, cleanPhone) {
             if (s.autostatusview) {
               await sock.readMessages([mek.key]);
             }
-            // 💖 Auto-react to statuses
+                      // 🔀 Auto-react to statuses — always random from the neutral set
             if (s.autostatusreact && mek.key.participant) {
-              const emoji = s.defaultStatusEmoji || "💖";
+              const STATUS_REACT_EMOJIS = ["🙏", "✅", "👀", "🕊️", "📌"];
+              const emoji = STATUS_REACT_EMOJIS[Math.floor(Math.random() * STATUS_REACT_EMOJIS.length)];
               try {
                 await sock.sendMessage(
                   'status@broadcast',
@@ -181,6 +182,7 @@ async function startSession(sessionId, botName, cleanPhone) {
           console.error("Status auto-handler error:", e.message);
         }
         continue; // done with status; never pass it to the command handler
+
       }
 
       // 📊 USAGE TRACKING — count every real (non-status) message for this bot.
