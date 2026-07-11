@@ -6,11 +6,11 @@ module.exports = {
     setprefix: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Please provide a new prefix (e.g. .setprefix !)" }, { quoted: mek });
-        
+
         const newPrefix = text.trim();
         const merged = { ...(settings || {}), prefix: newPrefix };
         sock.botSettings = merged; // update live memory cache instantly
-        
+
         if (sock.sessionId) {
             try {
                 await updateSettings(sock.sessionId, { prefix: newPrefix });
@@ -18,7 +18,7 @@ module.exports = {
                 console.error("Failed to persist prefix change:", err.message);
             }
         }
-        
+
         await sock.sendMessage(chatJid, { text: `✅ *Success:* Bot prefix has been successfully updated to: *${newPrefix}*` }, { quoted: mek });
     },
     sp: async (args) => module.exports.setprefix(args),
@@ -26,7 +26,7 @@ module.exports = {
     // 🔒 Toggle Bot Mode: Public / Private (Alias: mode, setmode)
     setmode: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
-        
+
         const mode = (text || "").toLowerCase().trim();
         if (!mode || (mode !== "public" && mode !== "private")) {
             const currentMode = settings?.mode || config.mode || "private";
@@ -34,10 +34,10 @@ module.exports = {
 👉 *.setmode public* to allow everyone to use commands
 👉 *.setmode private* to restrict commands to owners only (Current: *${currentMode.toUpperCase()}*)` }, { quoted: mek });
         }
-        
+
         const merged = { ...(settings || {}), mode };
         sock.botSettings = merged; // update live memory cache instantly
-        
+
         if (sock.sessionId) {
             try {
                 await updateSettings(sock.sessionId, { mode });
@@ -45,7 +45,7 @@ module.exports = {
                 console.error("Failed to persist mode change:", err.message);
             }
         }
-        
+
         await sock.sendMessage(chatJid, { text: `✅ *Bot Mode Updated:* The bot is now set to *${mode.toUpperCase()}* mode.` }, { quoted: mek });
     },
     mode: async (args) => module.exports.setmode(args),
