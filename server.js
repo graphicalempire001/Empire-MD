@@ -70,6 +70,11 @@ function generateSessionId(botName) {
   return `BOTWAN_${formattedName}_${randomSuffix}`;
 }
 
+// ✅ Validate a full international MSISDN (no + and no leading zero).
+function isValidMsisdn(num) {
+  return /^[1-9][0-9]{7,14}$/.test(num);
+}
+
 // 🔐 Owner-only gate — only the repo owner who holds ADMIN_KEY can pass.
 function requireAdmin(req, res, next) {
   const key = req.headers['x-admin-key'] || req.query.adminKey;
@@ -107,7 +112,6 @@ async function startSession(sessionId, botName, cleanPhone) {
   const sessionFolder = path.join(SESSIONS_ROOT, sessionId);
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
   const { version } = await fetchLatestBaileysVersion();
-
   const sock = makeWASocket({
     version,
     auth: state,
@@ -212,11 +216,9 @@ async function startSession(sessionId, botName, cleanPhone) {
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update;
-
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
-
       if (reason === DisconnectReason.loggedOut) {
         delete activeSessions[sessionId];
         try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
@@ -253,22 +255,18 @@ async function startSession(sessionId, botName, cleanPhone) {
       const ownerJid = ownerForBot + '@s.whatsapp.net';
 
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-      const cardTitle   = "BOT-WAN MD V 1.0---The Future is NOW";
-      const cardBody    = "The future of is NOW.";
-      const cardLink    = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-      const thumbUrl    = "https://i.ibb.co/8LMKhwqt/download.jpg";
+      const cardTitle = "BOT-WAN MD V 1.0---The Future is NOW";
+      const cardBody = "The future of is NOW.";
+      const cardLink = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
+      const thumbUrl = "https://i.ibb.co/8LMKhwqt/download.jpg";
 
       const welcomeDm =
-` *Welcome  ${botName}!* 
-
+` *Welcome ${botName}!*
 BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and registered.
 🆔 *Session ID:* ${sessionId}
-
 🔮 Enjoy fast downloads, stickers, and smart moderation.
-
 📢 *Join our official channel:*
 👉 ${channelUrl}
-
 _Type .help in any chat to view your commands!_`;
 
       // Only send the welcome DM + register on a FRESH pairing (when we have the phone number)
@@ -327,6 +325,31 @@ _Type .help in any chat to view your commands!_`;
   return sock;
 }
 
+// 🔁 Global bridge so commands (e.g. .pair) can trigger a new pairing session.
+global.startPairingSession = async function (botName, cleanPhone) {
+  if (!isValidMsisdn(cleanPhone)) {
+    return { ok: false, error: "Invalid number. Use full international format, no + or leading zero (e.g. 2347012345678)." };
+  }
+  if (await isBotNameTaken(botName)) {
+    return { ok: false, error: `The bot name "${botName}" is already taken. Choose another.` };
+  }
+  const sessionId = generateSessionId(botName);
+  try {
+    await startSession(sessionId, botName, cleanPhone);
+  } catch (err) {
+    if (err.code === 'ENOSPC') return { ok: false, error: "Server storage is full. Try again shortly." };
+    return { ok: false, error: err.message };
+  }
+  const started = Date.now();
+  while (Date.now() - started < 12000) {
+    const s = activeSessions[sessionId];
+    if (s?.pairingCode) return { ok: true, sessionId, code: s.pairingCode };
+    if (s?.error) return { ok: false, error: s.error };
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return { ok: false, error: "Timed out generating the pairing code. Please try again." };
+};
+
 // 🔁 On boot, resume any REAL sessions saved on the volume (so bots survive redeploys)
 async function resumeSavedSessions() {
   try {
@@ -338,12 +361,10 @@ async function resumeSavedSessions() {
       .filter(d => d.isDirectory())
       .map(d => d.name)
       .filter(name => name.startsWith('BOTWAN_'));
-
     if (folders.length === 0) {
       console.log('ℹ️ No saved bot sessions to resume yet.');
       return;
     }
-
     for (const sessionId of folders) {
       console.log(`♻️ Resuming saved session: ${sessionId}`);
       await startSession(sessionId, config.botName || "Empire MD", null);
@@ -382,7 +403,6 @@ app.post('/api/connect', async (req, res) => {
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
     console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
-
     await startSession(sessionId, botName, cleanPhone);
     return res.json({ success: true, sessionId, expiryIn: 120 });
   } catch (err) {
@@ -420,11 +440,9 @@ app.post('/api/setup', async (req, res) => {
     const fallbackOwner = activeSessions[sessionId]?.phoneNumber
       ? [activeSessions[sessionId].phoneNumber]
       : [];
-
     const ownerList = ownerNumber
       ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean)
       : [];
-
     const truthy = (v) => v === 'true' || v === true || v === 'on';
 
     const updatedSettings = {
@@ -440,7 +458,6 @@ app.post('/api/setup', async (req, res) => {
       autorecord: truthy(autorecord),
       defaultStatusEmoji: defaultStatusEmoji || "💖"
     };
-
     await updateSettings(sessionId, updatedSettings);
 
     const liveSock = activeSessions[sessionId]?.sock;
@@ -448,7 +465,6 @@ app.post('/api/setup', async (req, res) => {
       if (updatedSettings.ownerNumber.length) liveSock.ownerNumber = updatedSettings.ownerNumber;
       liveSock.botSettings = { ...(liveSock.botSettings || {}), ...updatedSettings };
     }
-
     return res.json({ success: true, message: "Configuration saved!" });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
