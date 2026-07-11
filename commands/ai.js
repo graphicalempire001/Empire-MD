@@ -2,14 +2,12 @@ const axios = require('axios');
 const { getAiMemory, saveAiMemory, updateSettings } = require('../lib/database');
 
 const MAX_TURNS = 14;
-const REQUEST_TIMEOUT = 45000;
+const REQUEST_TIMEOUT = 40000;
 
 // 🔒 Hardcoded, model-proof identity answer.
 const IDENTITY_ANSWER =
   "I am Empire AI — an artificial intelligence programmed and engineered by the software engineers at Empire Digital.";
 
-// Matches "who made/built/created/programmed you", "who are you", "what are you",
-// "who is your developer/creator", etc. — across a few common languages.
 const IDENTITY_REGEX = new RegExp(
   "(who|what|whose|which company)\\s+(are|is|made|built|created|programmed|developed|designed|owns|invented)\\s+(you|u|your(?:\\s+(?:creator|developer|maker|owner|company))?)" +
   "|who\\s+(made|built|created|programmed|developed|designed|owns|invented)\\s+(you|u)" +
@@ -17,9 +15,9 @@ const IDENTITY_REGEX = new RegExp(
   "|what\\s+(ai|model|llm)\\s+are\\s+you" +
   "|who\\s+(developed|owns)\\s+you" +
   "|introduce\\s+yourself" +
-  "|ta\\s+ni\\s+iwo|ta\\s+lo\\s+da\\s+e" +          // Yoruba: who are you / who made you
-  "|wer\\s+hat\\s+dich\\s+(gemacht|erstellt)" +    // German
-  "|qui\\s+t'?a\\s+(cr[ée]{2}|fabriqu[ée])",        // French
+  "|ta\\s+ni\\s+iwo|ta\\s+lo\\s+da\\s+e" +
+  "|wer\\s+hat\\s+dich\\s+(gemacht|erstellt)" +
+  "|qui\\s+t'?a\\s+(cr[ée]{2}|fabriqu[ée])",
   "i"
 );
 
@@ -45,7 +43,10 @@ function detectName(text) {
   return m[1].trim().split(/\s+/).slice(0, 2).join(' ').replace(/[.'-]+$/, '').trim() || null;
 }
 
-async function askLLM(messages) {
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ── Provider 1: Pollinations (OpenAI-compatible, keyless) ──
+async function providerPollinationsChat(messages) {
   const res = await axios.post(
     'https://text.pollinations.ai/openai',
     { model: 'openai', messages, temperature: 0.75 },
@@ -53,16 +54,63 @@ async function askLLM(messages) {
   );
   const out = res.data?.choices?.[0]?.message?.content;
   if (out && out.trim()) return out.trim();
-  throw new Error("Empty LLM response");
+  throw new Error("Pollinations chat empty");
 }
 
-async function askFallback(prompt) {
+// ── Provider 2: Pollinations simple prompt GET ──
+async function providerPollinationsGet(messages) {
+  const prompt = messages.map(m =>
+    m.role === 'system' ? m.content
+      : (m.role === 'user' ? `User: ${m.content}` : `Empire AI: ${m.content}`)
+  ).join('\n') + '\nEmpire AI:';
   const res = await axios.get(
     `https://text.pollinations.ai/${encodeURIComponent(prompt)}`,
     { timeout: REQUEST_TIMEOUT }
   );
   if (typeof res.data === 'string' && res.data.trim()) return res.data.trim();
-  throw new Error("Empty fallback response");
+  throw new Error("Pollinations GET empty");
+}
+
+// ── Provider 3: OpenAI-compatible key (optional, if set in .env) ──
+async function providerOpenAiCompat(messages) {
+  if (!process.env.AI_API_KEY) throw new Error("No AI_API_KEY configured");
+  const base = process.env.AI_API_BASE || 'https://api.groq.com/openai/v1';
+  const model = process.env.AI_MODEL || 'llama-3.1-8b-instant';
+  const res = await axios.post(
+    `${base}/chat/completions`,
+    { model, messages, temperature: 0.75 },
+    {
+      timeout: REQUEST_TIMEOUT,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.AI_API_KEY}`
+      }
+    }
+  );
+  const out = res.data?.choices?.[0]?.message?.content;
+  if (out && out.trim()) return out.trim();
+  throw new Error("OpenAI-compat empty");
+}
+
+// 🔁 Try each provider in order, with one retry each, before giving up.
+async function askAI(messages) {
+  const providers = [
+    providerOpenAiCompat,      // used first ONLY if AI_API_KEY is set
+    providerPollinationsChat,
+    providerPollinationsGet
+  ];
+  let lastErr;
+  for (const provider of providers) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await provider(messages);
+      } catch (e) {
+        lastErr = e;
+        if (attempt === 0) await sleep(700); // brief backoff, then retry same provider
+      }
+    }
+  }
+  throw lastErr || new Error("All AI providers failed");
 }
 
 // Core engine — reused by the .ai command AND by mention/swipe/aggressive triggers.
@@ -71,6 +119,9 @@ async function runAi({ sock, chatJid, mek, text, senderName, sender, settings })
   const userJid = sender || mek.key.participant || chatJid;
   const persona = settings?.aipersona || sock.botSettings?.aipersona || "";
 
+  // Natural "typing…" indicator instead of a filler message.
+  try { await sock.sendPresenceUpdate('composing', chatJid); } catch (_) {}
+
   const mem = await getAiMemory(sessionId, userJid);
   let name = mem.display_name || senderName || null;
   const found = detectName(text);
@@ -78,11 +129,12 @@ async function runAi({ sock, chatJid, mek, text, senderName, sender, settings })
 
   const history = Array.isArray(mem.history) ? mem.history : [];
 
-  // 🔒 HARDCODED IDENTITY INTERCEPT — bypasses the model entirely, immune to prompt tricks.
+  // 🔒 HARDCODED IDENTITY INTERCEPT — bypasses the model entirely.
   if (IDENTITY_REGEX.test(text.trim())) {
     history.push({ role: 'user', content: text });
     history.push({ role: 'assistant', content: IDENTITY_ANSWER });
     await saveAiMemory(sessionId, userJid, name, history.slice(-MAX_TURNS * 2));
+    try { await sock.sendPresenceUpdate('paused', chatJid); } catch (_) {}
     await sock.sendMessage(chatJid, { text: `🤖 *Empire AI:* ${IDENTITY_ANSWER}` }, { quoted: mek });
     return IDENTITY_ANSWER;
   }
@@ -93,31 +145,23 @@ async function runAi({ sock, chatJid, mek, text, senderName, sender, settings })
     { role: 'user', content: text }
   ];
 
-  let reply;
-  try {
-    reply = await askLLM(messages);
-  } catch (e) {
-    const ctx = name ? `User's name is ${name}. ` : '';
-    reply = await askFallback(`${buildSystemPrompt(name, persona)}
-${ctx}User: ${text}
-Empire AI:`);
-  }
+  const reply = await askAI(messages);
 
   history.push({ role: 'user', content: text });
   history.push({ role: 'assistant', content: reply });
   await saveAiMemory(sessionId, userJid, name, history.slice(-MAX_TURNS * 2));
 
+  try { await sock.sendPresenceUpdate('paused', chatJid); } catch (_) {}
   await sock.sendMessage(chatJid, { text: `🤖 *Empire AI:* ${reply}` }, { quoted: mek });
   return reply;
 }
 
 module.exports = {
-  runAi, // exported for msgHandler auto-triggers (mention / swipe / aggressive)
+  runAi,
 
   ai: async ({ sock, chatJid, mek, text, senderName, sender, isOwner, settings }) => {
     const arg = (text || "").trim();
 
-    // ── .ai mode <off|reply|aggressive> (owner-only) ──
     if (/^mode\b/i.test(arg)) {
       if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Only the owner can change AI mode." }, { quoted: mek });
       const m = arg.split(/\s+/)[1]?.toLowerCase();
@@ -135,7 +179,6 @@ module.exports = {
       return sock.sendMessage(chatJid, { text: `✅ AI conversation mode set to *${m.toUpperCase()}*.` }, { quoted: mek });
     }
 
-    // ── .ai teach <instruction> (owner trains persona/behaviour) ──
     if (/^teach\b/i.test(arg)) {
       if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Only the owner can teach the AI." }, { quoted: mek });
       const lesson = arg.replace(/^teach\s*/i, '').trim();
@@ -155,14 +198,12 @@ Example: *.ai teach Always greet Empire customers warmly and promote our channel
       return sock.sendMessage(chatJid, { text: "✅ *Learned.* I'll apply that from now on." }, { quoted: mek });
     }
 
-    // ── .ai persona (view learned instructions) ──
     if (/^persona$/i.test(arg)) {
       const p = settings?.aipersona || "(none set)";
       return sock.sendMessage(chatJid, { text: `🎭 *Current AI instructions:*
 ${p}` }, { quoted: mek });
     }
 
-    // ── .ai forget (wipe learned persona) ──
     if (/^forget$/i.test(arg)) {
       if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Only the owner can reset the AI persona." }, { quoted: mek });
       if (sock.sessionId) await updateSettings(sock.sessionId, { aipersona: "" });
@@ -170,7 +211,6 @@ ${p}` }, { quoted: mek });
       return sock.sendMessage(chatJid, { text: "🧽 *Persona cleared.* Back to default behaviour." }, { quoted: mek });
     }
 
-    // ── .ai reset (wipe this user's conversation memory) ──
     if (/^reset$/i.test(arg)) {
       const uid = sender || mek.key.participant || chatJid;
       await saveAiMemory(sock.sessionId || 'default', uid, null, []);
@@ -187,12 +227,11 @@ ${p}` }, { quoted: mek });
       }, { quoted: mek });
     }
 
-    await sock.sendMessage(chatJid, { text: "🧠 *Empire AI is thinking...*" }, { quoted: mek });
     try {
       await runAi({ sock, chatJid, mek, text: arg, senderName, sender, settings });
     } catch (err) {
       console.error("AI error:", err.message);
-      await sock.sendMessage(chatJid, { text: "🤖 *Empire AI:* My servers are briefly overloaded — try again in a moment." }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: "🤖 *Empire AI:* I couldn't reach my reasoning engine just now — please resend that in a moment." }, { quoted: mek });
     }
   },
   chat: async (args) => module.exports.ai(args),
