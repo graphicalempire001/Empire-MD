@@ -53,8 +53,7 @@ const DISK_ALERT_AT = 100 - RESERVE_PERCENT; // 90
 // 💾 Disk status for the volume that holds the sessions folder.
 function getDiskStatus() {
   try {
-    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('
-')[1];
+    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('')[1];
     const cols = out.split(/\s+/);
     return {
       usePercent: Number(cols[4].replace('%', '')),
