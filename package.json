@@ -19,4 +19,10 @@
     "qrcode-terminal": "^0.12.0",
     "wa-sticker-formatter": "^4.4.4"
   }
+  "scripts": {
+  "start": "node index.js",
+  "build": "cd public/Frontend && npm install && npm run build",
+  "postinstall": "npm run build"
+}
+
 }
