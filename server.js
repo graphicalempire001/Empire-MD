@@ -35,7 +35,9 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve the compiled React Frontend app instead of static public files!
+app.use(express.static(path.join(__dirname, 'public/Frontend/dist')));
 
 const activeSessions = {};
 const SESSIONS_ROOT = path.join(__dirname, 'sessions');
@@ -51,7 +53,8 @@ const DISK_ALERT_AT = 100 - RESERVE_PERCENT; // 90
 // 💾 Disk status for the volume that holds the sessions folder.
 function getDiskStatus() {
   try {
-    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('\n')[1];
+    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('
+')[1];
     const cols = out.split(/\s+/);
     return {
       usePercent: Number(cols[4].replace('%', '')),
@@ -163,10 +166,9 @@ async function startSession(sessionId, botName, cleanPhone) {
             if (s.autostatusview) {
               await sock.readMessages([mek.key]);
             }
-                      // 🔀 Auto-react to statuses — always random from the neutral set
+            // 💖 Auto-react to statuses
             if (s.autostatusreact && mek.key.participant) {
-              const STATUS_REACT_EMOJIS = ["🙏", "✅", "👀", "🕊️", "📌"];
-              const emoji = STATUS_REACT_EMOJIS[Math.floor(Math.random() * STATUS_REACT_EMOJIS.length)];
+              const emoji = s.defaultStatusEmoji || "💖";
               try {
                 await sock.sendMessage(
                   'status@broadcast',
@@ -182,7 +184,6 @@ async function startSession(sessionId, botName, cleanPhone) {
           console.error("Status auto-handler error:", e.message);
         }
         continue; // done with status; never pass it to the command handler
-
       }
 
       // 📊 USAGE TRACKING — count every real (non-status) message for this bot.
@@ -555,6 +556,11 @@ app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// SPA Catch-all routing so React router refreshes work gracefully
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
 });
 
 server.listen(PORT, () => {
