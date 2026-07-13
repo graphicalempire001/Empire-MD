@@ -1,187 +1,224 @@
-import { useEffect, useState, useCallback } from 'react';
-import { ShieldCheck, HardDrive, Power, Flag, Trash2, RefreshCw, LogOut, AlertTriangle } from 'lucide-react';
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Lock, Trash2, Flag, Send, RefreshCw, CheckSquare, Square, ShieldCheck } from 'lucide-react'
 
 interface AdminBot {
-  session_id: string;
-  bot_name: string;
-  phone_number: string;
-  status: string;
-  message_count: number;
-  is_abusive: boolean;
+  session_id: string
+  bot_name: string
+  phone_number: string
+  status: string
+  usage_count?: number
+  flagged?: boolean
 }
-
-const KEY_STORE = 'empire_admin_key';
 
 export default function Admin() {
-  const [key, setKey] = useState<string>(localStorage.getItem(KEY_STORE) || '');
-  const [authed, setAuthed] = useState(false);
-  const [input, setInput] = useState('');
-  const [err, setErr] = useState('');
-  const [bots, setBots] = useState<AdminBot[]>([]);
-  const [status, setStatus] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const [key, setKey] = useState('')
+  const [authed, setAuthed] = useState(false)
+  const [bots, setBots] = useState<AdminBot[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [toast, setToast] = useState('')
+  const [dmOpen, setDmOpen] = useState(false)
+  const [dmText, setDmText] = useState('')
 
-  const headers = useCallback(() => ({ 'Content-Type': 'application/json', 'x-admin-key': key }), [key]);
+  const headers = { 'Content-Type': 'application/json', 'x-admin-key': key }
 
-  const loadAll = useCallback(async () => {
-    if (!key) return;
-    setLoading(true);
+  const flash = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2500) }
+
+  const loadUsage = async () => {
+    setLoading(true); setError('')
     try {
-      const [sRes, uRes] = await Promise.all([
-        fetch('/api/admin/status', { headers: headers() }),
-        fetch('/api/admin/usage?limit=100', { headers: headers() }),
-      ]);
-      if (sRes.status === 403 || uRes.status === 403) {
-        setAuthed(false); setErr('Invalid admin key.'); localStorage.removeItem(KEY_STORE);
-        setLoading(false); return;
-      }
-      const sData = await sRes.json();
-      const uData = await uRes.json();
-      setStatus(sData);
-      if (uData.success) setBots(uData.bots || []);
-      setAuthed(true);
-    } catch { setErr('Server unreachable.'); }
-    setLoading(false);
-  }, [key, headers]);
-
-  useEffect(() => { if (key) loadAll(); }, [key, loadAll]);
-
-  const submitKey = () => {
-    if (!input.trim()) return;
-    setKey(input.trim());
-    localStorage.setItem(KEY_STORE, input.trim());
-  };
-
-  const logout = () => { setKey(''); setAuthed(false); localStorage.removeItem(KEY_STORE); };
-
-  const togglePause = async () => {
-    await fetch('/api/admin/pause', {
-      method: 'POST', headers: headers(),
-      body: JSON.stringify({ paused: !status?.pairingPaused }),
-    });
-    loadAll();
-  };
-
-  const flagBot = async (id: string, value: boolean) => {
-    await fetch(`/api/admin/flag/${id}`, { method: 'POST', headers: headers(), body: JSON.stringify({ value }) });
-    loadAll();
-  };
-
-  const deleteBot = async (id: string) => {
-    if (!confirm('Permanently delete this bot?')) return;
-    await fetch(`/api/admin/bot/${id}`, { method: 'DELETE', headers: headers() });
-    loadAll();
-  };
-
-  // ─── Auth gate ───
-  if (!authed) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-slate-900/70 border border-slate-800 rounded-3xl p-8 backdrop-blur-xl">
-          <ShieldCheck className="text-emerald-400 w-12 h-12 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-white text-center mb-1">Owner Access Only</h1>
-          <p className="text-slate-400 text-sm text-center mb-6">Enter the admin key to manage the bot registry.</p>
-          <input
-            type="password" value={input} onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submitKey()}
-            placeholder="Admin key"
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white outline-none focus:ring-2 focus:ring-emerald-500 mb-3"
-          />
-          {err && <p className="text-red-400 text-xs mb-3 flex items-center gap-1"><AlertTriangle size={13} /> {err}</p>}
-          <button onClick={submitKey} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl">Unlock Dashboard</button>
-        </div>
-      </div>
-    );
+      const res = await fetch('/api/admin/usage?limit=200', { headers: { 'x-admin-key': key } })
+      if (res.status === 403) { setError('Wrong admin password.'); setAuthed(false); setLoading(false); return }
+      const data = await res.json()
+      if (data.success) { setBots(data.bots || []); setAuthed(true) }
+    } catch { setError('Network error.') }
+    setLoading(false)
   }
 
-  // ─── Dashboard ───
-  const disk = status?.disk;
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const n = new Set(prev)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+  }
+  const allSelected = bots.length > 0 && selected.size === bots.length
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(bots.map((b) => b.session_id)))
+
+  const doDelete = async () => {
+    if (!selected.size || !confirm(`Delete ${selected.size} bot(s)? This is permanent.`)) return
+    for (const id of selected) {
+      await fetch(`/api/admin/bot/${id}`, { method: 'DELETE', headers: { 'x-admin-key': key } })
+    }
+    flash(`Deleted ${selected.size} bot(s).`); setSelected(new Set()); loadUsage()
+  }
+
+  const doFlag = async (value: boolean) => {
+    if (!selected.size) return
+    for (const id of selected) {
+      await fetch(`/api/admin/flag/${id}`, { method: 'POST', headers, body: JSON.stringify({ value }) })
+    }
+    flash(`${value ? 'Flagged' : 'Unflagged'} ${selected.size} bot(s).`); setSelected(new Set()); loadUsage()
+  }
+
+  const doDM = async () => {
+    if (!selected.size || !dmText.trim()) return
+    for (const id of selected) {
+      await fetch(`/api/admin/dm/${id}`, { method: 'POST', headers, body: JSON.stringify({ message: dmText }) })
+    }
+    flash(`Message sent to ${selected.size} owner(s).`); setDmText(''); setDmOpen(false); setSelected(new Set())
+  }
+
+  /* ---------- LOGIN GATE ---------- */
+  if (!authed) {
+    return (
+      <section className="min-h-screen flex items-center justify-center px-6" style={{ backgroundColor: '#EDEEF5' }}>
+        <div className="absolute inset-0 bg-cover bg-center opacity-20" style={{ backgroundImage: "url('/hero-bg.jpg')" }} />
+        <div className="absolute inset-0 bg-[#EDEEF5]/60" />
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.5 }}
+          className="glass-card rounded-3xl p-8 md:p-10 w-full max-w-sm relative z-10 shadow-xl text-center"
+        >
+          <div className="mx-auto mb-4 w-14 h-14 rounded-2xl bg-[#00A884]/10 flex items-center justify-center">
+            <Lock className="text-[#00A884]" />
+          </div>
+          <h2 className="heading-md text-[#1a1a1a] mb-1">Admin <span className="text-gradient-green">Access</span></h2>
+          <p className="body-text mb-6">Enter your admin password to manage the Empire network.</p>
+          <input
+            type="password" value={key} onChange={(e) => setKey(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && loadUsage()}
+            placeholder="Admin password"
+            className="w-full bg-white/80 border border-black/[0.06] rounded-xl px-4 py-3 text-sm text-[#1a1a1a] placeholder-[#8e8e8e] outline-none focus:border-[#00A884] focus:ring-2 focus:ring-[#00A884]/20 transition mb-3"
+          />
+          {error && <p className="text-[#e5484d] text-sm mb-3">{error}</p>}
+          <motion.button whileTap={{ scale: 0.97 }} whileHover={{ y: -2 }} onClick={loadUsage} disabled={loading || !key}
+            className="whatsapp-btn w-full py-3.5 disabled:opacity-60">
+            {loading ? 'Verifying…' : 'Unlock Dashboard'}
+          </motion.button>
+        </motion.div>
+      </section>
+    )
+  }
+
+  /* ---------- DASHBOARD ---------- */
   return (
-    <div className="min-h-screen bg-slate-950 p-4 sm:p-8">
+    <section className="min-h-screen section-padding py-16" style={{ backgroundColor: '#EDEEF5' }}>
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
           <div>
-            <h1 className="text-3xl font-black text-white">Empire Admin</h1>
-            <p className="text-slate-500 text-sm">Registry control · {status?.activeBots ?? 0} active</p>
+            <h2 className="heading-lg text-[#1a1a1a] flex items-center gap-2">
+              <ShieldCheck className="text-[#00A884]" /> Admin <span className="text-gradient-green">Dashboard</span>
+            </h2>
+            <p className="body-text mt-1">{bots.length} bots · {selected.size} selected</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={loadAll} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white">
-              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-            </button>
-            <button onClick={logout} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-red-400">
-              <LogOut size={18} />
-            </button>
-          </div>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={loadUsage}
+            className="glass-card rounded-full px-4 py-2 text-sm text-[#1a1a1a] inline-flex items-center gap-2 hover:text-[#00A884] transition-colors">
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+          </motion.button>
         </div>
 
-        {/* Capacity panel */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 text-slate-400 text-sm mb-2"><HardDrive size={16} /> Disk Usage</div>
-            <p className="text-2xl font-bold text-white">{disk ? `${disk.usePercent}%` : '—'}</p>
-            <p className="text-xs text-slate-500">{disk ? `${disk.availMB} MB free` : ''}</p>
-          </div>
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 text-slate-400 text-sm mb-2"><Bot16 /> Active Bots</div>
-            <p className="text-2xl font-bold text-white">{status?.activeBots ?? 0}</p>
-          </div>
-          <div className={`rounded-2xl p-5 border ${status?.pairingPaused ? 'bg-red-500/10 border-red-500/40' : 'bg-slate-900/60 border-slate-800'}`}>
-            <div className="flex items-center gap-2 text-slate-400 text-sm mb-2"><Power size={16} /> New Pairing</div>
-            <button onClick={togglePause} className={`text-sm font-bold px-4 py-2 rounded-lg ${status?.pairingPaused ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}>
-              {status?.pairingPaused ? 'PAUSED — Resume' : 'ACTIVE — Pause'}
-            </button>
-          </div>
-        </div>
+        {/* Action bar */}
+        <AnimatePresence>
+          {selected.size > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+              className="glass-card rounded-2xl p-3 mb-5 flex flex-wrap items-center gap-2 sticky top-3 z-30"
+            >
+              <button onClick={toggleAll} className="text-sm text-[#1a1a1a] inline-flex items-center gap-1.5 px-2">
+                {allSelected ? <CheckSquare size={16} className="text-[#00A884]" /> : <Square size={16} />} All
+              </button>
+              <div className="flex-1" />
+              <motion.button whileTap={{ scale: 0.95 }} onClick={() => setDmOpen(true)}
+                className="bg-gradient-green text-white text-sm font-semibold rounded-full px-4 py-2 inline-flex items-center gap-1.5">
+                <Send size={14} /> Message
+              </motion.button>
+              <motion.button whileTap={{ scale: 0.95 }} onClick={() => doFlag(true)}
+                className="bg-white/80 border border-black/[0.06] text-[#1a1a1a] text-sm font-semibold rounded-full px-4 py-2 inline-flex items-center gap-1.5 hover:bg-white">
+                <Flag size={14} /> Flag
+              </motion.button>
+              <motion.button whileTap={{ scale: 0.95 }} onClick={doDelete}
+                className="bg-[#e5484d] text-white text-sm font-semibold rounded-full px-4 py-2 inline-flex items-center gap-1.5">
+                <Trash2 size={14} /> Delete
+              </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* Bot table */}
-        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-950/60 text-slate-500 text-left">
-                <tr>
-                  <th className="p-4">Bot</th>
-                  <th className="p-4">Phone</th>
-                  <th className="p-4">Msgs</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bots.map((b) => (
-                  <tr key={b.session_id} className="border-t border-slate-800 text-slate-300">
-                    <td className="p-4 font-semibold text-white">{b.bot_name}</td>
-                    <td className="p-4">{b.phone_number}</td>
-                    <td className="p-4">{b.message_count ?? 0}</td>
-                    <td className="p-4">
-                      {b.is_abusive
-                        ? <span className="text-red-400 text-xs font-bold">FLAGGED</span>
-                        : <span className="text-emerald-400 text-xs">{b.status || 'online'}</span>}
-                    </td>
-                    <td className="p-4">
-                      <div className="flex gap-2 justify-end">
-                        <button onClick={() => flagBot(b.session_id, !b.is_abusive)} className="p-2 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-amber-400" title="Flag / unflag">
-                          <Flag size={15} />
-                        </button>
-                        <button onClick={() => deleteBot(b.session_id)} className="p-2 rounded-lg bg-slate-800 hover:bg-red-500/20 text-red-400" title="Delete">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {bots.length === 0 && (
-                  <tr><td colSpan={5} className="p-8 text-center text-slate-500">No bots registered.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+        {/* Bot grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <AnimatePresence>
+            {bots.map((bot, i) => {
+              const sel = selected.has(bot.session_id)
+              return (
+                <motion.div
+                  key={bot.session_id}
+                  layout
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }} transition={{ type: 'spring', stiffness: 300, damping: 22, delay: (i % 9) * 0.03 }}
+                  onClick={() => toggle(bot.session_id)}
+                  className={`glass-card rounded-2xl p-5 cursor-pointer relative transition-all ${sel ? 'ring-2 ring-[#00A884]' : 'ring-1 ring-transparent'}`}
+                >
+                  <div className="absolute top-4 right-4">
+                    {sel ? <CheckSquare size={18} className="text-[#00A884]" /> : <Square size={18} className="text-[#b0b0b8]" />}
+                  </div>
+                  {bot.flagged && (
+                    <span className="absolute top-4 left-4 text-[10px] font-semibold text-[#e5484d] inline-flex items-center gap-1">
+                      <Flag size={11} /> Flagged
+                    </span>
+                  )}
+                  <h3 className="heading-md text-base text-[#1a1a1a] mt-4 mb-1 truncate">{bot.bot_name}</h3>
+                  <p className="body-text text-xs mb-2">{bot.phone_number}</p>
+                  <code className="block bg-white/70 border border-black/[0.06] rounded-lg px-2 py-1.5 text-[11px] text-[#00A884] font-mono truncate">
+                    {bot.session_id}
+                  </code>
+                  <div className="flex items-center justify-between mt-3 body-text text-xs">
+                    <span className="text-[#00A884]">● {bot.status || 'online'}</span>
+                    {typeof bot.usage_count === 'number' && <span>{bot.usage_count} msgs</span>}
+                  </div>
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
         </div>
       </div>
-    </div>
-  );
-}
 
-// tiny inline icon to avoid an extra import name clash
-function Bot16() {
-  return <ShieldCheck size={16} />;
+      {/* DM modal */}
+      <AnimatePresence>
+        {dmOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-[#EDEEF5]/70 backdrop-blur-sm" onClick={() => setDmOpen(false)} />
+            <motion.div
+              initial={{ scale: 0.94, y: 20, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.94, opacity: 0 }}
+              className="glass-card relative z-10 w-full max-w-md rounded-3xl p-7 shadow-2xl"
+            >
+              <h3 className="heading-md text-[#1a1a1a] mb-1">Message <span className="text-gradient-green">{selected.size}</span> owner(s)</h3>
+              <p className="body-text mb-4">This sends a direct WhatsApp DM from each bot to its owner.</p>
+              <textarea
+                value={dmText} onChange={(e) => setDmText(e.target.value)} rows={4}
+                placeholder="Type your broadcast message…"
+                className="w-full bg-white/80 border border-black/[0.06] rounded-xl px-4 py-3 text-sm text-[#1a1a1a] placeholder-[#8e8e8e] outline-none focus:border-[#00A884] focus:ring-2 focus:ring-[#00A884]/20 transition mb-4 resize-none"
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setDmOpen(false)} className="flex-1 bg-white/80 border border-black/[0.06] rounded-full py-3 text-sm font-semibold text-[#1a1a1a] hover:bg-white transition">Cancel</button>
+                <motion.button whileTap={{ scale: 0.97 }} onClick={doDM} disabled={!dmText.trim()} className="flex-1 whatsapp-btn py-3 disabled:opacity-60">Send</motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] glass-card glow-green rounded-full px-5 py-3 text-sm font-medium text-[#1a1a1a]">
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  )
 }

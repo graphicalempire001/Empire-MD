@@ -2,9 +2,10 @@ import { motion } from 'framer-motion'
 
 interface HeroProps {
   onGetBot: () => void
+  onOpenChat: () => void
 }
 
-export default function Hero({ onGetBot }: HeroProps) {
+export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
   return (
     <section
       className="relative min-h-[110vh] sm:min-h-[140vh] w-full flex flex-col items-center justify-start overflow-hidden"
@@ -12,19 +13,14 @@ export default function Hero({ onGetBot }: HeroProps) {
     >
       {/* Background Layer */}
       <div className="absolute top-[12vh] sm:top-[18vh] left-0 w-full h-[90vh] sm:h-[115vh] z-0 pointer-events-none">
-        {/* Faint static background image — no dark spots */}
         <div
           className="absolute inset-0 bg-cover bg-center opacity-25"
           style={{ backgroundImage: "url('/hero-bg.jpg')" }}
         ></div>
         <div className="absolute inset-0 bg-[#EDEEF5]/60"></div>
 
-        {/* Background Video */}
         <video
-          autoPlay
-          loop
-          muted
-          playsInline
+          autoPlay loop muted playsInline
           className="relative w-full h-full object-cover opacity-90"
           poster="/hero-bg.jpg"
         >
@@ -34,18 +30,15 @@ export default function Hero({ onGetBot }: HeroProps) {
           />
         </video>
 
-        {/* BOTTOM fade only — no side brushes on mobile */}
+        {/* BOTTOM fade only */}
         <div className="absolute bottom-0 left-0 w-full h-32 sm:h-48 bg-gradient-to-t from-[#EDEEF5] to-transparent"></div>
       </div>
 
       {/* Hero Content */}
       <div className="max-w-7xl w-full mx-auto px-6 md:px-16 lg:px-20 relative z-10 grid grid-cols-12 gap-x-4 md:gap-x-8 pt-28 sm:pt-36">
         <div className="col-span-12 md:col-span-10 md:col-start-2">
-          {/* Hero Header */}
           <motion.h1
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
+            initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}
             className="heading-xl mb-6"
           >
             <span className="text-[#1a1a1a]">Empire MD offers</span>{' '}
@@ -60,34 +53,29 @@ export default function Hero({ onGetBot }: HeroProps) {
             <span className="text-[#1a1a1a]"> bot.</span>
           </motion.h1>
 
-          {/* Subtitle */}
           <motion.p
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.1 }}
+            initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }}
             className="body-text max-w-lg mb-8"
           >
             No code. No servers. No stress. Just connect your number and Empire MD handles everything —
             media downloads, stickers, group management, AI chat, and more.
           </motion.p>
 
-          {/* Search Pill */}
+          {/* Search Pill → opens WhatsApp chat */}
           <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.15 }}
+            initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.15 }}
             className="mb-8"
           >
             <div className="bg-white rounded-[6px] border border-black/[0.05] p-1 pl-4 flex items-center shadow-sm max-w-md">
               <input
                 type="text"
                 placeholder="Ask me anything..."
-                className="flex-1 bg-transparent text-sm text-[#1a1a1a] placeholder-[#8e8e8e] outline-none py-2.5"
+                className="flex-1 bg-transparent text-sm text-[#1a1a1a] placeholder-[#8e8e8e] outline-none py-2.5 cursor-pointer"
                 readOnly
-                onClick={onGetBot}
+                onClick={onOpenChat}
               />
               <button
-                onClick={onGetBot}
+                onClick={onOpenChat}
                 className="bg-[#1a1a1a] text-white w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-[#333] transition-colors"
               >
                 <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
@@ -99,14 +87,11 @@ export default function Hero({ onGetBot }: HeroProps) {
 
           {/* CTA Buttons */}
           <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
+            initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.2 }}
             className="flex flex-col sm:flex-row gap-3"
           >
             <motion.button
-              whileHover={{ y: -3, scale: 1.02 }}
-              whileTap={{ scale: 0.96 }}
+              whileHover={{ y: -3, scale: 1.02 }} whileTap={{ scale: 0.96 }}
               transition={{ type: 'spring', stiffness: 400, damping: 18 }}
               onClick={onGetBot}
               className="whatsapp-btn inline-flex items-center justify-center gap-2 text-sm py-3.5 px-7"
@@ -117,8 +102,7 @@ export default function Hero({ onGetBot }: HeroProps) {
               Get Your Free Bot
             </motion.button>
             <motion.a
-              whileHover={{ y: -3, scale: 1.02 }}
-              whileTap={{ scale: 0.96 }}
+              whileHover={{ y: -3, scale: 1.02 }} whileTap={{ scale: 0.96 }}
               transition={{ type: 'spring', stiffness: 400, damping: 18 }}
               href="#features"
               className="inline-flex items-center justify-center gap-2 bg-white/80 border border-black/[0.06] text-[#1a1a1a] font-semibold text-sm py-3.5 px-7 rounded-full hover:bg-white transition-colors"
@@ -134,15 +118,12 @@ export default function Hero({ onGetBot }: HeroProps) {
 
       {/* Floating Robot */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 1, delay: 0.4 }}
+        initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.4 }}
         className="absolute bottom-[8vh] right-[5%] md:right-[10%] z-10 w-40 md:w-56 lg:w-72 floating"
       >
         <img src="/robot-mascot.png" alt="Empire MD Bot" className="w-full h-auto mascot-shadow" />
       </motion.div>
 
-      {/* Edge Anchors */}
       <div className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 z-20 hidden lg:block">
         <div className="glass-card rounded-full px-3 py-2 flex flex-col gap-1 text-[10px] font-medium text-[#8e8e8e]">
           <span className="text-[#1a1a1a] font-semibold cursor-pointer">en</span>
@@ -154,7 +135,6 @@ export default function Hero({ onGetBot }: HeroProps) {
       <div className="absolute bottom-6 left-6 md:left-10 z-20">
         <span className="text-[10px] font-medium text-[#8e8e8e] tracking-wider">2024</span>
       </div>
-
       <div className="absolute bottom-6 right-6 md:right-10 z-20">
         <span className="text-[10px] font-medium text-[#8e8e8e] tracking-wider lowercase">whatsapp automation tools</span>
       </div>
