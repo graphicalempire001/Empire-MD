@@ -5,8 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "build": "cd public/Frontend && npm install && npm run build",
-    "postinstall": "npm run build"
+    "build": "cd public/Frontend && npm install && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
