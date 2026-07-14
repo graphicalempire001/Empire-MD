@@ -182,7 +182,7 @@ export default function Pricing() {
 
               {/* CTA Button */}
               <a
-                href="https://wa.me/2347086757575?text=Hi!%20I%20want%20to%20subscribe%20to%20the%20${encodeURIComponent(plan.name)}%20plan."
+                href={`https://wa.me/2347086757575?text=${encodeURIComponent(`Hi! I want to subscribe to the ${plan.name} plan.`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 ${
