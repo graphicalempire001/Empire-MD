@@ -120,7 +120,7 @@ export default function Transformation() {
         {/* Rabbit */}
         <img
           ref={rabbitRef}
-          src="/rabbit-mascot.png"
+          src="/hello-boy.png"
           alt="Cute Rabbit"
           className="absolute w-48 md:w-64 lg:w-80 h-auto object-contain"
           style={{ willChange: 'transform, opacity' }}
