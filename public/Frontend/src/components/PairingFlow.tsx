@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+interface PairingFlowProps {
+  open: boolean;
+  onClose: () => void;
+}
+
 type Step = 'form' | 'pairing' | 'success';
 type PairingFormat = 'code' | 'qr';
 
-const PairingFlow: React.FC = () => {
+const PairingFlow: React.FC<PairingFlowProps> = ({ open, onClose }) => {
   const [step, setStep] = useState<Step>('form');
   const [pairingFormat, setPairingFormat] = useState<PairingFormat>('code');
 
@@ -20,6 +25,42 @@ const PairingFlow: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  // Poll the server for the code / qr / connected status.
+  const startPolling = (sid: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/status/${sid}`);
+        const data = await res.json();
+
+        if (data.status === 'connected') {
+          stopPolling();
+          setStep('success');
+        } else if (data.status === 'expired') {
+          stopPolling();
+          setError('This session expired. Please start again.');
+          setStep('form');
+        } else if (data.status === 'error') {
+          stopPolling();
+          setError(data.error || 'Connection error.');
+        } else {
+          if (data.pairingCode) setPairingCode(data.pairingCode);
+          if (data.qr) setQrCode(data.qr);
+          if (typeof data.secondsLeft === 'number') setSecondsLeft(data.secondsLeft);
+        }
+      } catch (_) {
+        // transient network hiccup — keep polling
+      }
+    }, 2000);
+  };
 
   // Kick off a connection using whichever format the user chose.
   const startConnection = async () => {
@@ -65,44 +106,6 @@ const PairingFlow: React.FC = () => {
     }
   };
 
-  // Poll the server for the code / qr / connected status.
-  const startPolling = (sid: string) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/status/${sid}`);
-        const data = await res.json();
-
-        if (data.status === 'connected') {
-          stopPolling();
-          setStep('success');
-        } else if (data.status === 'expired') {
-          stopPolling();
-          setError('This session expired. Please start again.');
-          setStep('form');
-        } else if (data.status === 'error') {
-          stopPolling();
-          setError(data.error || 'Connection error.');
-        } else {
-          if (data.pairingCode) setPairingCode(data.pairingCode);
-          if (data.qr) setQrCode(data.qr);
-          if (typeof data.secondsLeft === 'number') setSecondsLeft(data.secondsLeft);
-        }
-      } catch (_) {
-        // transient network hiccup — keep polling
-      }
-    }, 2000);
-  };
-
-  const stopPolling = () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  };
-
-  useEffect(() => () => stopPolling(), []);
-
   const copySession = async () => {
     if (!sessionId) return;
     try {
@@ -112,7 +115,24 @@ const PairingFlow: React.FC = () => {
     } catch (_) {}
   };
 
-  const reset = () => {
+  // Full reset of internal state.
+  const resetState = () => {
+    stopPolling();
+    setStep('form');
+    setPairingFormat('code');
+    setBotName('');
+    setPhoneNumber('');
+    setPairingCode(null);
+    setQrCode(null);
+    setSecondsLeft(null);
+    setSessionId(null);
+    setError(null);
+    setLoading(false);
+    setCopied(false);
+  };
+
+  // "Start over" inside the flow (keeps modal open).
+  const startOver = () => {
     stopPolling();
     setStep('form');
     setPairingCode(null);
@@ -122,132 +142,192 @@ const PairingFlow: React.FC = () => {
     setError(null);
   };
 
+  // Close the modal from the parent's perspective.
+  const handleClose = () => {
+    resetState();
+    onClose();
+  };
+
+  // Stop polling on unmount.
+  useEffect(() => () => stopPolling(), []);
+
+  // Reset everything whenever the modal is closed.
+  useEffect(() => {
+    if (!open) resetState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // 🔑 This is what makes it a modal: render nothing when closed.
+  if (!open) return null;
+
   return (
-    <div className="pairing-flow">
-      {/* STEP 1: FORM */}
-      {step === 'form' && (
-        <div className="pairing-card">
-          <h3>Connect Your WhatsApp</h3>
-          <p>Enter your details to get your personal connection.</p>
+    <div
+      className="pairing-overlay"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(0,0,0,0.5)',
+        padding: '1rem',
+      }}
+      onClick={handleClose}
+    >
+      <div
+        className="pairing-flow"
+        style={{ maxWidth: 440, width: '100%' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <button
+          type="button"
+          className="pairing-close"
+          onClick={handleClose}
+          aria-label="Close"
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 16,
+            background: 'transparent',
+            border: 'none',
+            fontSize: 22,
+            cursor: 'pointer',
+          }}
+        >
+          ×
+        </button>
 
-          {/* Format switcher: Pairing Code vs QR */}
-          <div className="format-toggle" role="tablist">
-            <button
-              type="button"
-              className={pairingFormat === 'code' ? 'toggle active' : 'toggle'}
-              onClick={() => setPairingFormat('code')}
-            >
-              Pairing Code
-            </button>
-            <button
-              type="button"
-              className={pairingFormat === 'qr' ? 'toggle active' : 'toggle'}
-              onClick={() => setPairingFormat('qr')}
-            >
-              QR Code (iPhone)
-            </button>
-          </div>
+        {/* STEP 1: FORM */}
+        {step === 'form' && (
+          <div className="pairing-card">
+            <h3>Connect Your WhatsApp</h3>
+            <p>Enter your details to get your personal connection.</p>
 
-          <label>
-            Bot Name
-            <input
-              type="text"
-              value={botName}
-              maxLength={30}
-              onChange={(e) => setBotName(e.target.value)}
-              placeholder="My Empire Bot"
-            />
-            <small>This will be your bot's display name. Max 30 chars.</small>
-          </label>
+            {/* Format switcher: Pairing Code vs QR */}
+            <div className="format-toggle" role="tablist">
+              <button
+                type="button"
+                className={pairingFormat === 'code' ? 'toggle active' : 'toggle'}
+                onClick={() => setPairingFormat('code')}
+              >
+                Pairing Code
+              </button>
+              <button
+                type="button"
+                className={pairingFormat === 'qr' ? 'toggle active' : 'toggle'}
+                onClick={() => setPairingFormat('qr')}
+              >
+                QR Code (iPhone)
+              </button>
+            </div>
 
-          {pairingFormat === 'code' && (
             <label>
-              Phone Number
+              Bot Name
               <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="2348012345678"
+                type="text"
+                value={botName}
+                maxLength={30}
+                onChange={(e) => setBotName(e.target.value)}
+                placeholder="My Empire Bot"
               />
-              <small>Include country code. No spaces or dashes. E.g. 2348012345678</small>
+              <small>This will be your bot's display name. Max 30 chars.</small>
             </label>
-          )}
 
-          {error && <div className="error-box">{error}</div>}
+            {pairingFormat === 'code' && (
+              <label>
+                Phone Number
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="2348012345678"
+                />
+                <small>Include country code. No spaces or dashes. E.g. 2348012345678</small>
+              </label>
+            )}
 
-          <button className="primary-btn" onClick={startConnection} disabled={loading}>
-            {loading ? 'Connecting…' : pairingFormat === 'code' ? 'Get Pairing Code' : 'Generate QR Code'}
-          </button>
+            {error && <div className="error-box">{error}</div>}
 
-          <small className="privacy-note">
-            Your number is never stored publicly. This is your own personal bot connection.
-          </small>
-        </div>
-      )}
+            <button className="primary-btn" onClick={startConnection} disabled={loading}>
+              {loading ? 'Connecting…' : pairingFormat === 'code' ? 'Get Pairing Code' : 'Generate QR Code'}
+            </button>
 
-      {/* STEP 2: PAIRING / QR */}
-      {step === 'pairing' && (
-        <div className="pairing-card">
-          <h3>{pairingFormat === 'code' ? 'Enter Pairing Code' : 'Scan QR Code'}</h3>
-
-          {pairingFormat === 'code' ? (
-            <>
-              <p>
-                Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> →{' '}
-                <strong>Link with phone number instead</strong>
-              </p>
-              <div className="pairing-code">
-                {pairingCode ? pairingCode : 'Generating code…'}
-              </div>
-            </>
-          ) : (
-            <>
-              <p>
-                Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> and point
-                your phone's camera at this screen.
-              </p>
-              <div className="qr-wrap">
-                {qrCode ? (
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
-                      qrCode
-                    )}`}
-                    alt="WhatsApp QR Code"
-                  />
-                ) : (
-                  <p>Generating QR…</p>
-                )}
-              </div>
-            </>
-          )}
-
-          <p className="waiting">
-            Waiting for WhatsApp to confirm
-            {secondsLeft != null ? ` · ${secondsLeft}s expires` : ''}
-          </p>
-
-          {error && <div className="error-box">{error}</div>}
-
-          <button className="ghost-btn" onClick={reset}>
-            Start over
-          </button>
-        </div>
-      )}
-
-      {/* STEP 3: SUCCESS */}
-      {step === 'success' && (
-        <div className="pairing-card success">
-          <h3>🎉 Your Bot Is Live!</h3>
-          <p>Check your WhatsApp DM — a welcome message was just sent to you.</p>
-
-          <div className="session-box" onClick={copySession}>
-            <code>{sessionId}</code>
+            <small className="privacy-note">
+              Your number is never stored publicly. This is your own personal bot connection.
+            </small>
           </div>
-          {copied && <p className="copied">✅ Session ID copied to clipboard!</p>}
+        )}
 
-          <p className="warn">⚠️ Keep your Session ID private — it's your bot's identity.</p>
-        </div>
-      )}
+        {/* STEP 2: PAIRING / QR */}
+        {step === 'pairing' && (
+          <div className="pairing-card">
+            <h3>{pairingFormat === 'code' ? 'Enter Pairing Code' : 'Scan QR Code'}</h3>
+
+            {pairingFormat === 'code' ? (
+              <>
+                <p>
+                  Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> →{' '}
+                  <strong>Link with phone number instead</strong>
+                </p>
+                <div className="pairing-code">
+                  {pairingCode ? pairingCode : 'Generating code…'}
+                </div>
+              </>
+            ) : (
+              <>
+                <p>
+                  Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> and point
+                  your phone's camera at this screen.
+                </p>
+                <div className="qr-wrap">
+                  {qrCode ? (
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+                        qrCode
+                      )}`}
+                      alt="WhatsApp QR Code"
+                    />
+                  ) : (
+                    <p>Generating QR…</p>
+                  )}
+                </div>
+              </>
+            )}
+
+            <p className="waiting">
+              Waiting for WhatsApp to confirm
+              {secondsLeft != null ? ` · ${secondsLeft}s expires` : ''}
+            </p>
+
+            {error && <div className="error-box">{error}</div>}
+
+            <button className="ghost-btn" onClick={startOver}>
+              Start over
+            </button>
+          </div>
+        )}
+
+        {/* STEP 3: SUCCESS */}
+        {step === 'success' && (
+          <div className="pairing-card success">
+            <h3>🎉 Your Bot Is Live!</h3>
+            <p>Check your WhatsApp DM — a welcome message was just sent to you.</p>
+
+            <div className="session-box" onClick={copySession}>
+              <code>{sessionId}</code>
+            </div>
+            {copied && <p className="copied">✅ Session ID copied to clipboard!</p>}
+
+            <p className="warn">⚠️ Keep your Session ID private — it's your bot's identity.</p>
+
+            <button className="primary-btn" onClick={handleClose}>
+              Done
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
