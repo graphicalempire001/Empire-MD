@@ -41,16 +41,16 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
             initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}
             className="heading-xl mb-6"
           >
-            <span className="text-[#1a1a1a]">Empire MD offers</span>{' '}
+            <span className="text-[#1a1a1a]">Empire MD </span>{' '}
             <span className="text-[#8e8e8e]">powerful</span>
             <br />
-            <span className="text-[#8e8e8e]">WhatsApp automation to help you</span>
+            <span className="text-[#8e8e8e]">Get A Whatsapp</span>
             <br />
-            <span className="text-[#8e8e8e]">manage your </span>
+            <span className="text-[#8e8e8e]">Bot in 30</span>
             <span className="inline-flex items-center justify-center w-[16px] md:w-[42px] lg:w-[62px] h-[16px] md:h-[42px] lg:h-[62px] border-[2px] border-[#1a1a1a] rounded-full mx-1 align-middle">
               <span className="w-2 h-2 bg-[#1a1a1a] rounded-full"></span>
             </span>
-            <span className="text-[#1a1a1a]"> bot.</span>
+            <span className="text-[#1a1a1a]"> seconds.</span>
           </motion.h1>
 
           <motion.p
