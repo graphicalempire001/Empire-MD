@@ -1,4 +1,5 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + PER-BOT AUTO SETTINGS + ADMIN)
+// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal
+// (PER-BOT OWNER + PER-BOT AUTO SETTINGS + ADMIN + QR + ANTIDELETE)
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -35,7 +36,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 // Serve the compiled React Frontend app instead of static public files!
 app.use(express.static(path.join(__dirname, 'public/Frontend/dist')));
 
@@ -53,6 +53,32 @@ const DISK_ALERT_AT = 100 - RESERVE_PERCENT; // 90
 const NEUTRAL_STATUS_EMOJIS = ['🗿', '🤖', '💻', '⚙️', '📦', '📁', '🗒️', '🪙', '🔌', '🛸', '🧊', '🫧', '🔔', '✨', '⚡', '☕', '🔎', '🛡️', '🔑', '📟'];
 function randomNeutralEmoji() {
   return NEUTRAL_STATUS_EMOJIS[Math.floor(Math.random() * NEUTRAL_STATUS_EMOJIS.length)];
+}
+
+// 🗃️ ANTIDELETE — rolling in-memory cache of recent messages, per session.
+const messageCache = {}; // { [sessionId]: Map(messageId -> {mek, chatJid, sender, ts}) }
+const MSG_CACHE_LIMIT = 400;
+function cacheMessage(sessionId, mek) {
+  if (!sessionId || !mek?.key?.id) return;
+  if (!messageCache[sessionId]) messageCache[sessionId] = new Map();
+  const store = messageCache[sessionId];
+  store.set(mek.key.id, {
+    mek,
+    chatJid: mek.key.remoteJid,
+    sender: mek.key.participant || mek.key.remoteJid,
+    ts: Date.now()
+  });
+  if (store.size > MSG_CACHE_LIMIT) {
+    const oldest = store.keys().next().value;
+    store.delete(oldest);
+  }
+}
+// Normalize antidelete setting → 'off' | 'chat' | 'dm'
+// (config.js ships antidelete:true, so true means "restore in same chat").
+function normalizeAntidelete(v) {
+  if (v === true || v === 'true' || v === 'on' || v === 'chat') return 'chat';
+  if (v === 'dm') return 'dm';
+  return 'off';
 }
 
 // 💾 Disk status for the volume that holds the sessions folder.
@@ -99,6 +125,7 @@ async function killSession(sessionId) {
     try { s.sock.end(); } catch (_) {}
   }
   delete activeSessions[sessionId];
+  delete messageCache[sessionId];
   try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -180,6 +207,43 @@ async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
     for (const mek of messages) {
       if (!mek.message) continue;
 
+      // 🗃️ ANTIDELETE — catch revokes, otherwise cache the message.
+      const proto = mek.message?.protocolMessage;
+      if (proto && proto.type === 0 /* REVOKE */) {
+        try {
+          let s = sock.botSettings;
+          if (!s && sock.sessionId) {
+            try { s = await getSettings(sock.sessionId); sock.botSettings = s; } catch (_) {}
+          }
+          s = s || config.settings || {};
+          const antidelete = normalizeAntidelete(s.antidelete);
+          if (antidelete !== 'off') {
+            const delId = proto.key?.id;
+            const cached = delId && messageCache[sock.sessionId]?.get(delId);
+            if (cached && !cached.mek.key.fromMe) {
+              const ownerJid = (sock.ownerNumber?.[0] || sock.user.id.split(':')[0]) + '@s.whatsapp.net';
+              const destination = antidelete === 'dm' ? ownerJid : cached.chatJid;
+              const who = cached.sender.split('@')[0];
+              const header =
+                `🗑️ *Antidelete — recovered message*\n` +
+                `👤 *From:* @${who}\n` +
+                `💬 *Chat:* ${cached.chatJid.endsWith('@g.us') ? 'Group' : 'Private'}`;
+              try {
+                await sock.sendMessage(destination, { text: header, mentions: [cached.sender] });
+                await sock.sendMessage(destination, { forward: cached.mek });
+              } catch (fwdErr) {
+                console.error("Antidelete forward failed:", fwdErr.message);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Antidelete handler error:", e.message);
+        }
+        continue; // never process a revoke as a normal message
+      } else {
+        cacheMessage(sock.sessionId, mek);
+      }
+
       // 🟢 STATUS HANDLING — must run BEFORE the status skip
       if (mek.key && mek.key.remoteJid === 'status@broadcast') {
         try {
@@ -189,12 +253,10 @@ async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
               try { s = await getSettings(sock.sessionId); sock.botSettings = s; } catch (_) {}
             }
             s = s || config.settings;
-
             // 👁️ Auto-view statuses
             if (s.autostatusview) {
               await sock.readMessages([mek.key]);
             }
-
             // 💠 Auto-react with a RANDOM NEUTRAL emoji
             if (s.autostatusreact && mek.key.participant) {
               const emoji = randomNeutralEmoji();
@@ -266,6 +328,7 @@ async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
       if (reason === DisconnectReason.loggedOut) {
         delete activeSessions[sessionId];
+        delete messageCache[sessionId];
         try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch (_) {}
         try { await markBotOffline(sessionId); } catch (_) {}
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
@@ -280,16 +343,13 @@ async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
         activeSessions[sessionId].qr = null; // clear QR once connected
       }
       const connectedNumber = sock.user.id.split(':')[0];
-
       if (!sock.ownerNumber || !sock.ownerNumber.length) {
         sock.ownerNumber = [connectedNumber];
       }
-
       try {
         const latest = await getSettings(sessionId);
         if (latest) sock.botSettings = latest;
       } catch (_) {}
-
       try {
         const s = sock.botSettings || config.settings;
         if (s.alwaysOnline) await sock.sendPresenceUpdate('available');
@@ -297,15 +357,17 @@ async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
 
       const ownerForBot = cleanPhone || connectedNumber;
       const ownerJid = ownerForBot + '@s.whatsapp.net';
-      const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-      const cardTitle = "BOT-WAN MD V 1.0---The Future is NOW";
-      const cardBody = "The future of is NOW.";
-      const cardLink = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-      const thumbUrl = "https://i.ibb.co/8LMKhwqt/download.jpg";
+
+      // De-hardcoded: pull branding from config with safe fallbacks.
+      const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
+      const cardTitle = `${config.botName || "Empire MD"} — Connected`;
+      const cardBody = config.channelName || "Empire MD";
+      const cardLink = channelUrl;
+      const thumbUrl = config.channelThumb || "https://i.ibb.co/8LMKhwqt/download.jpg";
 
       const welcomeDm =
-`  *Welcome ${botName}!*
-BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and registered.
+`*Welcome ${botName}!*
+${config.botName || "Empire MD"} is connected and ready. Your WhatsApp bot is connected and registered.
 🆔 *Session ID:* ${sessionId}
 🔮 Enjoy fast downloads, stickers, and smart moderation.
 📢 *Join our official channel:*
@@ -448,19 +510,16 @@ app.post('/api/connect', async (req, res) => {
         error: "🚧 We're preparing a second server to handle demand. New bot pairing is paused for a few minutes — please try again shortly. Existing bots are unaffected."
       });
     }
-
     const { phoneNumber, botName } = req.body;
     if (!phoneNumber || !botName) {
       return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
     }
-
     if (await isBotNameTaken(botName)) {
       return res.status(409).json({
         success: false,
         error: `The bot name "${botName}" is already taken. Please choose another.`
       });
     }
-
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
     console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
@@ -482,19 +541,16 @@ app.post('/api/qr-connect', async (req, res) => {
         error: "🚧 New bot connections are paused for a few minutes — please try again shortly."
       });
     }
-
     const { botName } = req.body;
     if (!botName) {
       return res.status(400).json({ success: false, error: "Bot name is required!" });
     }
-
     if (await isBotNameTaken(botName)) {
       return res.status(409).json({
         success: false,
         error: `The bot name "${botName}" is already taken. Please choose another.`
       });
     }
-
     const sessionId = generateSessionId(botName);
     console.log(`📷 QR connect for ${botName} → ${sessionId}`);
     await startSession(sessionId, botName, null, 'qr');
@@ -505,7 +561,7 @@ app.post('/api/qr-connect', async (req, res) => {
   }
 });
 
-// API 2: Poll Status (now returns qr as well)
+// API 2: Poll Status (returns qr as well)
 app.get('/api/status/:sessionId', (req, res) => {
   const session = activeSessions[req.params.sessionId];
   if (!session) return res.json({ status: 'expired' });
@@ -529,9 +585,9 @@ app.post('/api/setup', async (req, res) => {
   try {
     const {
       sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome,
-      autostatusview, autostatusreact, auttyping, autorecord, defaultStatusEmoji
+      autostatusview, autostatusreact, auttyping, autorecord, defaultStatusEmoji,
+      antidelete
     } = req.body;
-
     if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
 
     const fallbackOwner = activeSessions[sessionId]?.phoneNumber
@@ -554,6 +610,7 @@ app.post('/api/setup', async (req, res) => {
       autostatusreact: truthy(autostatusreact),
       auttyping: truthy(auttyping),
       autorecord: truthy(autorecord),
+      antidelete: normalizeAntidelete(antidelete), // 'off' | 'chat' | 'dm'
       // Kept for backward compat; auto-react now uses a random neutral emoji.
       defaultStatusEmoji: defaultStatusEmoji || "✨"
     };
