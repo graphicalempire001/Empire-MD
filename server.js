@@ -1,3 +1,4 @@
+const neutralEmojis = ['🗿', '🤖', '💻', '⚙️', '📦', '📁', '🗒️', '🪙', '🔌', '🛸', '🧊', '🫧', '🔔', '✨', '⚡', '☕', '🔎', '🛡️', '🔑', '📟'];
 // Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + PER-BOT AUTO SETTINGS + ADMIN)
 const express = require('express');
 const http = require('http');
@@ -106,7 +107,13 @@ async function startSession(sessionId, botName, cleanPhone) {
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: Browsers.ubuntu('Chrome') // correct browser for pairing-code flow
+    browser: Browsers.ubuntu('Chrome'),
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
+    keepAliveIntervalMs: 30000,
+    retryRequestDelayMs: 2000,
+    maxMsgRetryCount: 5,
+    fireInitQueries: true
   });
   sock.sessionId = sessionId;
   // 🔑 OWNER TAG: on a fresh pairing, the typed phone IS the owner of this bot.
@@ -126,6 +133,13 @@ async function startSession(sessionId, botName, cleanPhone) {
   activeSessions[sessionId].sock = sock;
   activeSessions[sessionId].saveCreds = saveCreds;
   sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('connection.update', (update) => {
+    if (update.qr) {
+      if (activeSessions[sessionId]) {
+        activeSessions[sessionId].qrCode = update.qr;
+      }
+    }
+  });
   // 📩 MESSAGE LISTENER — routes incoming messages to the command handler
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
@@ -147,7 +161,7 @@ async function startSession(sessionId, botName, cleanPhone) {
             }
             // 💖 Auto-react to statuses
             if (s.autostatusreact && mek.key.participant) {
-              const emoji = s.defaultStatusEmoji || "💖";
+              const emoji = s.defaultStatusEmoji && s.defaultStatusEmoji !== "💖" ? s.defaultStatusEmoji : neutralEmojis[Math.floor(Math.random() * neutralEmojis.length)];
               try {
                 await sock.sendMessage(
                   'status@broadcast',
@@ -385,6 +399,7 @@ app.get('/api/status/:sessionId', (req, res) => {
   return res.json({
     status: 'pairing',
     pairingCode: session.pairingCode,
+    qrCode: session.qrCode || null,
     secondsLeft: Math.max(0, Math.floor((session.expiry - Date.now()) / 1000))
   });
 });
