@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Smartphone, Bot, Loader2, CheckCircle2, Copy, AlertCircle, X, RefreshCw, Terminal } from 'lucide-react';
+import { Smartphone, Bot, Loader2, CheckCircle2, Copy, AlertCircle, X, RefreshCw, Terminal, QrCode } from 'lucide-react';
 
 interface PairingFlowProps {
   open: boolean;
@@ -8,6 +8,7 @@ interface PairingFlowProps {
 }
 type Step = 1 | 2 | 3;
 type LogLine = { t: string; msg: string };
+type PairingFormat = 'code' | 'qr';
 
 export default function PairingFlow({ open, onClose }: PairingFlowProps) {
   const [step, setStep] = useState<Step>(1);
@@ -15,6 +16,8 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
   const [phone, setPhone] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [pairingCode, setPairingCode] = useState('');
+  const [qrCode, setQrCode] = useState('');
+  const [pairingFormat, setPairingFormat] = useState<PairingFormat>('code');
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,7 +34,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
 
   const resetAll = useCallback(() => {
     setStep(1); setBotName(''); setPhone(''); setSessionId('');
-    setPairingCode(''); setSecondsLeft(null); setLoading(false);
+    setPairingCode(''); setQrCode(''); setPairingFormat('code'); setSecondsLeft(null); setLoading(false);
     setError(''); setCopied(null); setLog([]);
   }, []);
 
@@ -52,7 +55,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       if (data.success) {
         setSessionId(data.sessionId);
         pushLog(`✔ Session created: ${data.sessionId}`);
-        pushLog('▶ Requesting pairing code from WhatsApp...');
+        pushLog('▶ Requesting pairing state from WhatsApp...');
         setStep(2);
       } else {
         pushLog(`✖ ${data.error || 'Connection failed'}`);
@@ -70,6 +73,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
     if (step !== 2 || !sessionId) return;
     let active = true;
     let codeShown = false;
+    let qrShown = false;
 
     const poll = async () => {
       try {
@@ -79,6 +83,10 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
         if (data.pairingCode) {
           setPairingCode(data.pairingCode);
           if (!codeShown) { pushLog(`✔ Pairing code ready: ${data.pairingCode}`); codeShown = true; }
+        }
+        if (data.qrCode) {
+          setQrCode(data.qrCode);
+          if (!qrShown) { pushLog('✔ QR Code generated and ready to scan!'); qrShown = true; }
         }
         if (typeof data.secondsLeft === 'number') setSecondsLeft(data.secondsLeft);
         if (data.status === 'connected') { pushLog('✔ WhatsApp confirmed! Bot is live.'); setStep(3); }
@@ -182,19 +190,59 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
 
               {step === 2 && (
                 <motion.div key="step2" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="text-center">
-                  <div className="w-16 h-16 bg-[#00A884]/15 rounded-full flex items-center justify-center mx-auto mb-4"><Smartphone className="text-[#00A884] animate-pulse" /></div>
-                  <h3 className="text-xl font-bold text-[#1a1a1a] mb-1" style={{ fontFamily: 'var(--font-display)' }}>Enter Pairing Code</h3>
-                  <p className="body-text mb-6">Open WhatsApp → <b className="text-[#1a1a1a]">Linked Devices</b> → <b className="text-[#1a1a1a]">Link a Device</b> → <b className="text-[#1a1a1a]">Enter Code Manually</b></p>
-                  <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 240, damping: 18 }}
-                    className="glass-card glow-green rounded-2xl p-6 mb-3">
-                    <span className="text-3xl sm:text-4xl font-mono font-black tracking-[0.2em] text-[#1a1a1a]">{pairingCode || '···· ····'}</span>
-                  </motion.div>
-                  {pairingCode && (
-                    <button onClick={() => copy(pairingCode.replace(/-/g, ''), 'code')} className="text-xs text-[#8e8e8e] hover:text-[#00A884] inline-flex items-center gap-1 mb-2 transition-colors">
-                      <Copy size={13} /> {copied === 'code' ? 'Copied!' : 'Copy Code'}
+                  <div className="w-16 h-16 bg-[#00A884]/15 rounded-full flex items-center justify-center mx-auto mb-4">
+                    {pairingFormat === 'code' ? <Smartphone className="text-[#00A884] animate-pulse" /> : <QrCode className="text-[#00A884]" />}
+                  </div>
+                  <h3 className="text-xl font-bold text-[#1a1a1a] mb-1" style={{ fontFamily: 'var(--font-display)' }}>
+                    {pairingFormat === 'code' ? 'Enter Pairing Code' : 'Scan QR Code'}
+                  </h3>
+                  
+                  {/* Format Switch Toggle */}
+                  <div className="flex justify-center gap-2 mb-4 mt-2">
+                    <button
+                      onClick={() => setPairingFormat('code')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${pairingFormat === 'code' ? 'bg-[#00A884] text-white' : 'bg-black/[0.05] text-[#5a5a63] hover:bg-black/[0.1]'}`}
+                    >
+                      Pairing Code
                     </button>
+                    <button
+                      onClick={() => setPairingFormat('qr')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${pairingFormat === 'qr' ? 'bg-[#00A884] text-white' : 'bg-black/[0.05] text-[#5a5a63] hover:bg-black/[0.1]'}`}
+                    >
+                      QR Code (iPhones/Web)
+                    </button>
+                  </div>
+
+                  {pairingFormat === 'code' ? (
+                    <>
+                      <p className="body-text mb-6">Open WhatsApp → <b className="text-[#1a1a1a]">Linked Devices</b> → <b className="text-[#1a1a1a]">Link a Device</b> → <b className="text-[#1a1a1a]">Link with phone number instead</b></p>
+                      <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 240, damping: 18 }}
+                        className="glass-card glow-green rounded-2xl p-6 mb-3">
+                        <span className="text-3xl sm:text-4xl font-mono font-black tracking-[0.2em] text-[#1a1a1a]">{pairingCode || '···· ····'}</span>
+                      </motion.div>
+                      {pairingCode && (
+                        <button onClick={() => copy(pairingCode.replace(/-/g, ''), 'code')} className="text-xs text-[#8e8e8e] hover:text-[#00A884] inline-flex items-center gap-1 mb-2 transition-colors">
+                          <Copy size={13} /> {copied === 'code' ? 'Copied!' : 'Copy Code'}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="body-text mb-4">Open WhatsApp → <b className="text-[#1a1a1a]">Linked Devices</b> → <b className="text-[#1a1a1a]">Link a Device</b> and point your phone's camera at this screen.</p>
+                      <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-black/[0.06] mb-3 mx-auto w-48 h-48">
+                        {qrCode ? (
+                          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrCode)}`} alt="WhatsApp QR Code" className="w-36 h-36" />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-center text-[#8e8e8e] text-xs gap-2">
+                            <Loader2 className="animate-spin text-[#00A884]" size={24} />
+                            <span>Generating QR...</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
+
                   <p className="text-xs text-[#8e8e8e] italic flex items-center justify-center gap-1">
                     <Loader2 size={12} className="animate-spin" /> Waiting for WhatsApp to confirm{secondsLeft != null ? ` · ${secondsLeft}s expires` : ''}
                   </p>
