@@ -55,7 +55,7 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
 
           <motion.p
             initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }}
-            className="body-text max-w-lg mb-8"
+            className="body-text max-w-lg mb-8 hero-glow-text text-[#1a1a1a]"
           >
             No code. No servers. No stress. Just connect your number and Empire MD handles everything —
             media downloads, stickers, group management, AI chat, and more.
