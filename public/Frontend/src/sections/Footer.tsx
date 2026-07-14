@@ -92,7 +92,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="mt-12 pt-6 border-t border-black/[0.06] flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-[11px] text-[#8e8e8e]">
-            &copy; {new Date().getFullYear()} Empire Digital. All rights reserved.
+            &copy; {new Date().getFullYear()} Empire Digitals. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
             <a href="#" className="text-[11px] text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">Privacy</a>

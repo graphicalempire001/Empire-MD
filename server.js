@@ -28,32 +28,25 @@ const {
   deleteBot,
   markBotOffline
 } = require('./lib/database');
-
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 // Serve the compiled React Frontend app instead of static public files!
 app.use(express.static(path.join(__dirname, 'public/Frontend/dist')));
-
 const activeSessions = {};
 const SESSIONS_ROOT = path.join(__dirname, 'sessions');
-
 // 🚦 EMERGENCY SWITCH — when true, /api/connect politely refuses NEW pairings.
 // Existing bots are never affected. Toggled from the admin dashboard.
 let pairingPaused = false;
-
 // Reserve threshold: warn/act when the volume is this % full (keep 10% free).
 const RESERVE_PERCENT = 10;
 const DISK_ALERT_AT = 100 - RESERVE_PERCENT; // 90
-
 // 💾 Disk status for the volume that holds the sessions folder.
 function getDiskStatus() {
   try {
-    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('')[1];
+    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('\n')[1];
     const cols = out.split(/\s+/);
     return {
       usePercent: Number(cols[4].replace('%', '')),
@@ -65,18 +58,15 @@ function getDiskStatus() {
     return { usePercent: 0, availMB: Infinity, totalMB: Infinity };
   }
 }
-
 function generateSessionId(botName) {
   const formattedName = botName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
   return `BOTWAN_${formattedName}_${randomSuffix}`;
 }
-
 // ✅ Validate a full international MSISDN (no + and no leading zero).
 function isValidMsisdn(num) {
   return /^[1-9][0-9]{7,14}$/.test(num);
 }
-
 // 🔐 Owner-only gate — only the repo owner who holds ADMIN_KEY can pass.
 function requireAdmin(req, res, next) {
   const key = req.headers['x-admin-key'] || req.query.adminKey;
@@ -85,7 +75,6 @@ function requireAdmin(req, res, next) {
   }
   next();
 }
-
 // 🧹 Fully terminate a live session (logout + end socket) before removing it.
 async function killSession(sessionId) {
   const s = activeSessions[sessionId];
@@ -97,7 +86,6 @@ async function killSession(sessionId) {
   // best-effort wipe of the auth folder on disk
   try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
-
 // 🖼️ Fetch an image URL as a Buffer so externalAdReply thumbnails always render.
 async function fetchThumb(url) {
   try {
@@ -108,7 +96,6 @@ async function fetchThumb(url) {
     return undefined; // message still sends without the image
   }
 }
-
 // Reusable connection routine so we can actually reconnect
 async function startSession(sessionId, botName, cleanPhone) {
   const sessionFolder = path.join(SESSIONS_ROOT, sessionId);
@@ -122,17 +109,14 @@ async function startSession(sessionId, botName, cleanPhone) {
     browser: Browsers.ubuntu('Chrome') // correct browser for pairing-code flow
   });
   sock.sessionId = sessionId;
-
   // 🔑 OWNER TAG: on a fresh pairing, the typed phone IS the owner of this bot.
   if (cleanPhone) sock.ownerNumber = [cleanPhone];
-
   // 🗂️ Warm the per-bot settings cache so the status handler reads THIS bot's prefs.
   try {
     sock.botSettings = (await getSettings(sessionId)) || null;
   } catch (_) {
     sock.botSettings = null;
   }
-
   if (!activeSessions[sessionId]) {
     activeSessions[sessionId] = {
       botName, phoneNumber: cleanPhone, status: 'pairing',
@@ -141,15 +125,12 @@ async function startSession(sessionId, botName, cleanPhone) {
   }
   activeSessions[sessionId].sock = sock;
   activeSessions[sessionId].saveCreds = saveCreds;
-
   sock.ev.on('creds.update', saveCreds);
-
   // 📩 MESSAGE LISTENER — routes incoming messages to the command handler
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const mek of messages) {
       if (!mek.message) continue;
-
       // 🟢 STATUS HANDLING — must run BEFORE the status skip
       if (mek.key && mek.key.remoteJid === 'status@broadcast') {
         try {
@@ -160,7 +141,6 @@ async function startSession(sessionId, botName, cleanPhone) {
               try { s = await getSettings(sock.sessionId); sock.botSettings = s; } catch (_) {}
             }
             s = s || config.settings;
-
             // 👁️ Auto-view statuses
             if (s.autostatusview) {
               await sock.readMessages([mek.key]);
@@ -184,12 +164,10 @@ async function startSession(sessionId, botName, cleanPhone) {
         }
         continue; // done with status; never pass it to the command handler
       }
-
       // 📊 USAGE TRACKING — count every real (non-status) message for this bot.
       if (sock.sessionId) {
         incrementUsage(sock.sessionId).catch(() => {});
       }
-
       try {
         await handleMessage(sock, mek);
       } catch (err) {
@@ -197,7 +175,6 @@ async function startSession(sessionId, botName, cleanPhone) {
       }
     }
   });
-
   // Only request a pairing code when NOT registered AND we have a phone number (fresh pairing)
   if (!sock.authState.creds.registered && cleanPhone) {
     setTimeout(async () => {
@@ -215,7 +192,6 @@ async function startSession(sessionId, botName, cleanPhone) {
       }
     }, 4000);
   }
-
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update;
     if (connection === 'close') {
@@ -233,35 +209,28 @@ async function startSession(sessionId, botName, cleanPhone) {
     } else if (connection === 'open') {
       console.log(`✅ Session ${sessionId} connected!`);
       if (activeSessions[sessionId]) activeSessions[sessionId].status = 'connected';
-
       const connectedNumber = sock.user.id.split(':')[0];
-
       // 🔑 Guarantee this bot always has an owner = the pairing/connected number.
       if (!sock.ownerNumber || !sock.ownerNumber.length) {
         sock.ownerNumber = [connectedNumber];
       }
-
       // 🗂️ Refresh the per-bot settings cache now that we're connected.
       try {
         const latest = await getSettings(sessionId);
         if (latest) sock.botSettings = latest;
       } catch (_) {}
-
       // ⚡ Apply always-online presence per-bot if enabled.
       try {
         const s = sock.botSettings || config.settings;
         if (s.alwaysOnline) await sock.sendPresenceUpdate('available');
       } catch (_) {}
-
       const ownerForBot = cleanPhone || connectedNumber;
       const ownerJid = ownerForBot + '@s.whatsapp.net';
-
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const cardTitle = "BOT-WAN MD V 1.0---The Future is NOW";
       const cardBody = "The future of is NOW.";
       const cardLink = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const thumbUrl = "https://i.ibb.co/8LMKhwqt/download.jpg";
-
       const welcomeDm =
 ` *Welcome ${botName}!*
 BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and registered.
@@ -270,7 +239,6 @@ BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and r
 📢 *Join our official channel:*
 👉 ${channelUrl}
 _Type .help in any chat to view your commands!_`;
-
       // Only send the welcome DM + register on a FRESH pairing (when we have the phone number)
       if (cleanPhone) {
         // Register FIRST so the bot appears in the directory/admin immediately.
@@ -290,7 +258,6 @@ _Type .help in any chat to view your commands!_`;
         } catch (dbErr) {
           console.error("registerBot error:", dbErr.message);
         }
-
         // Delay the welcome DM so Baileys finishes session/contact sync.
         setTimeout(async () => {
           try {
@@ -323,10 +290,8 @@ _Type .help in any chat to view your commands!_`;
       }
     }
   });
-
   return sock;
 }
-
 // 🔁 Global bridge so commands (e.g. .pair) can trigger a new pairing session.
 global.startPairingSession = async function (botName, cleanPhone) {
   if (!isValidMsisdn(cleanPhone)) {
@@ -351,7 +316,6 @@ global.startPairingSession = async function (botName, cleanPhone) {
   }
   return { ok: false, error: "Timed out generating the pairing code. Please try again." };
 };
-
 // 🔁 On boot, resume any REAL sessions saved on the volume (so bots survive redeploys)
 async function resumeSavedSessions() {
   try {
@@ -375,7 +339,6 @@ async function resumeSavedSessions() {
     console.error("resumeSavedSessions error:", err);
   }
 }
-
 // API 1: Request Pairing Code
 app.post('/api/connect', async (req, res) => {
   try {
@@ -388,12 +351,10 @@ app.post('/api/connect', async (req, res) => {
         error: "🚧 We're preparing a second server to handle demand. New bot pairing is paused for a few minutes — please try again shortly. Existing bots are unaffected."
       });
     }
-
     const { phoneNumber, botName } = req.body;
     if (!phoneNumber || !botName) {
       return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
     }
-
     // 🚫 DUPLICATE-NAME GUARD — block before we ever build a socket.
     if (await isBotNameTaken(botName)) {
       return res.status(409).json({
@@ -401,7 +362,6 @@ app.post('/api/connect', async (req, res) => {
         error: `The bot name "${botName}" is already taken. Please choose another.`
       });
     }
-
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
     console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
@@ -412,7 +372,6 @@ app.post('/api/connect', async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // API 2: Poll Status
 app.get('/api/status/:sessionId', (req, res) => {
   const session = activeSessions[req.params.sessionId];
@@ -429,7 +388,6 @@ app.get('/api/status/:sessionId', (req, res) => {
     secondsLeft: Math.max(0, Math.floor((session.expiry - Date.now()) / 1000))
   });
 });
-
 // API 3: Setup
 app.post('/api/setup', async (req, res) => {
   try {
@@ -438,7 +396,6 @@ app.post('/api/setup', async (req, res) => {
       autostatusview, autostatusreact, auttyping, autorecord, defaultStatusEmoji
     } = req.body;
     if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
-
     const fallbackOwner = activeSessions[sessionId]?.phoneNumber
       ? [activeSessions[sessionId].phoneNumber]
       : [];
@@ -446,7 +403,6 @@ app.post('/api/setup', async (req, res) => {
       ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean)
       : [];
     const truthy = (v) => v === 'true' || v === true || v === 'on';
-
     const updatedSettings = {
       botName: botName || "Empire MD",
       prefix: prefix || ".",
@@ -461,7 +417,6 @@ app.post('/api/setup', async (req, res) => {
       defaultStatusEmoji: defaultStatusEmoji || "💖"
     };
     await updateSettings(sessionId, updatedSettings);
-
     const liveSock = activeSessions[sessionId]?.sock;
     if (liveSock) {
       if (updatedSettings.ownerNumber.length) liveSock.ownerNumber = updatedSettings.ownerNumber;
@@ -472,7 +427,6 @@ app.post('/api/setup', async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // API 4: Public directory - Hide session IDs
 app.get('/api/public-directory', async (req, res) => {
   try {
@@ -488,11 +442,9 @@ app.get('/api/public-directory', async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // ──────────────────────────────────────────────────────────────
 // 🔐 ADMIN API — owner-only (requires x-admin-key header / ?adminKey=)
 // ──────────────────────────────────────────────────────────────
-
 // 🆕 📊 SERVER CAPACITY STATUS — disk usage + pause state + bot count
 app.get('/api/admin/status', requireAdmin, (req, res) => {
   const disk = getDiskStatus();
@@ -504,14 +456,12 @@ app.get('/api/admin/status', requireAdmin, (req, res) => {
     reserveThreshold: DISK_ALERT_AT
   });
 });
-
 // 🆕 🚦 TOGGLE emergency pause on/off
 app.post('/api/admin/pause', requireAdmin, (req, res) => {
   pairingPaused = req.body?.paused === true || req.body?.paused === 'true';
   console.log(`🚦 Pairing ${pairingPaused ? 'PAUSED (emergency mode)' : 'RESUMED'}`);
   res.json({ success: true, pairingPaused });
 });
-
 // 📊 High-volume usage leaderboard
 app.get('/api/admin/usage', requireAdmin, async (req, res) => {
   try {
@@ -521,7 +471,6 @@ app.get('/api/admin/usage', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // 💤 List inactive bots (no activity in N days, default 7)
 app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
   try {
@@ -531,7 +480,6 @@ app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // 🚩 Flag (or unflag) a bot as abusive
 app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
   try {
@@ -544,7 +492,32 @@ app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
+// ✉️ 🆕 ADMIN — send a direct WhatsApp message to a bot's owner (owner-only)
+app.post('/api/admin/dm/:sessionId', requireAdmin, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { message } = req.body || {};
+    if (!message || !message.trim()) {
+      return res.status(400).json({ success: false, error: "Message text is required." });
+    }
+    const live = activeSessions[sessionId];
+    const sock = live?.sock;
+    if (!sock) {
+      return res.status(409).json({ success: false, error: "Bot is offline — cannot deliver right now." });
+    }
+    // Resolve the owner number: live socket tag → in-memory pairing phone.
+    const owner = (sock.ownerNumber && sock.ownerNumber[0]) || live.phoneNumber;
+    if (!owner) {
+      return res.status(404).json({ success: false, error: "No owner number on record for this bot." });
+    }
+    await sock.sendMessage(owner + '@s.whatsapp.net', { text: message });
+    console.log(`✉️ Admin DM delivered to owner of ${sessionId} (${owner}).`);
+    return res.json({ success: true, message: `Message delivered to ${owner}.` });
+  } catch (err) {
+    console.error("Admin DM error:", err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 // 🗑️ Delete an inactive / abusive bot (kills live socket, then removes the row)
 app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   try {
@@ -556,15 +529,12 @@ app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // SPA Catch-all routing so React router refreshes work gracefully
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
 });
-
 server.listen(PORT, () => {
   console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
   resumeSavedSessions();
 });
-
 module.exports = { app, server };
