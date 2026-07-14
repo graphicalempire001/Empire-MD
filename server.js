@@ -67,8 +67,7 @@ function cacheMessage(sessionId, mek) {
 
 function getDiskStatus() {
   try {
-    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('
-')[1];
+    const out = execSync(`df -Pm "${SESSIONS_ROOT}"`).toString().trim().split('')[1];
     const cols = out.split(/\s+/);
     return {
       usePercent: Number(cols[4].replace('%', '')),
