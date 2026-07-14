@@ -23,7 +23,7 @@ function getQuoted(mek) {
     q?.viewOnceMessageV2 || q?.viewOnceMessageV2Extension
   ) {
     q = q.ephemeralMessage?.message || q.viewOnceMessage?.message ||
-      q.viewOnceMessageV2?.message || q.viewOnceMessageV2Extension?.message;
+        q.viewOnceMessageV2?.message || q.viewOnceMessageV2Extension?.message;
   }
   if (!q) return null;
   return { message: q, type: Object.keys(q)[0] };
@@ -50,8 +50,6 @@ async function getChannelThumb() {
 }
 
 // Build the tappable channel "card" contextInfo.
-// FIX: set BOTH sourceUrl and mediaUrl to the channel link, and enable ad attribution
-// so WhatsApp treats the card tap as an actionable link (prevents the "bounce off").
 async function buildChannelContext() {
   const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
   const thumb = await getChannelThumb();
@@ -59,11 +57,11 @@ async function buildChannelContext() {
     externalAdReply: {
       title: `${config.botName || "Empire MD"} • Official Channel`,
       body: "Tap to open the channel",
-      mediaType: 1,                 // 1 = image card
-      renderLargerThumbnail: true,  // big header-style card; set false for compact
-      sourceUrl: channelUrl,        // where the tap should go
-      mediaUrl: channelUrl,         // FIX: some clients require this to route the tap
-      showAdAttribution: true       // FIX: makes the card an actionable link, not decorative
+      mediaType: 1,
+      renderLargerThumbnail: true,
+      sourceUrl: channelUrl,
+      mediaUrl: channelUrl,
+      showAdAttribution: true
     }
   };
   if (thumb) {
@@ -71,7 +69,6 @@ async function buildChannelContext() {
   } else if (config.channelThumb || config.menuThumb) {
     ctx.externalAdReply.thumbnailUrl = config.channelThumb || config.menuThumb;
   }
-  // Optional best-effort "forwarded from channel" header (needs a REAL newsletter JID)
   if (config.newsletterJid) {
     ctx.forwardedNewsletterMessageInfo = {
       newsletterJid: config.newsletterJid,
@@ -84,8 +81,7 @@ async function buildChannelContext() {
   return ctx;
 }
 
-// Categorized catalog. Add new commands here; anything registered but
-// missing shows automatically under "🧩 Uncategorized".
+// Categorized catalog.
 const CATALOG = {
   "📥 Media & Downloads": {
     "s": { d: "Sticker from replied/sent image or video", a: ["sticker"] },
@@ -98,7 +94,7 @@ const CATALOG = {
     "meme": { d: "Fetch a fresh meme", a: [] },
     "vv": { d: "Reveal a replied view-once media", a: [] },
     "send": { d: "Save/steal replied status or media", a: ["get"] },
-    "pp": { d: "Get a user's profile picture", a: [] }
+    "pp": { d: "Get a user's profile picture (reply/mention/number)", a: [] }
   },
   "👥 Group & Moderation": {
     "link": { d: "Get the group invite link", a: [] },
@@ -124,7 +120,8 @@ const CATALOG = {
     "autostatusview": { d: "Toggle auto-view statuses", a: [] },
     "autostatusreact": { d: "Toggle auto-react to statuses", a: [] },
     "autogreet": { d: "Greet new contacts (on/off or custom text)", a: ["greet", "welcome"] },
-    "away": { d: "Away auto-reply for DMs & mentions (on/off or custom)", a: ["awaymode"] }
+    "away": { d: "Away auto-reply for DMs & mentions (on/off or custom)", a: ["awaymode"] },
+    "antidelete": { d: "Recover deleted messages: off/chat/dm", a: ["ad", "antidel"] }
   },
   "👑 Owner & Self": {
     "setprefix": { d: "Change command prefix", a: ["sp"] },
@@ -163,6 +160,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
     await sock.sendMessage(chatJid, {
       text: `🤖 *[EMPIRE MD SYSTEM PROFILE]*
+
 👑 *Bot:* ${config.botName}
 👤 *Owner:* ${config.ownerName}
 ⚙️ *Prefix:* ${config.prefix}
@@ -174,7 +172,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
   },
   system: async (args) => module.exports.info(args),
 
-  // ❓ Professional, self-verifying Menu (Alias: h, menu) — channel card with working tap
+  // ❓ Menu (Alias: h, menu)
   help: async ({ sock, chatJid, mek, senderName, prefix }) => {
     const px = prefix || config.prefix || ".";
     const uptime = formatUptime(process.uptime());
@@ -183,7 +181,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
     const now = new Date().toLocaleString();
     const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-    // Coverage check vs live registry
+
     let registered = {};
     try { registered = require('../lib/commands'); } catch (_) {}
     const listed = new Set();
@@ -194,9 +192,11 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       }
     }
     const uncategorized = Object.keys(registered).filter(c => !listed.has(c));
+
     let total = 0;
     for (const cat of Object.values(CATALOG)) total += Object.keys(cat).length;
     total += uncategorized.length;
+
     let menu = `╭━━━〔 *${config.botName}* 〕━━━┈⊷
 ┃ 👋 Hello, *${senderName || "User"}*!
 ┃ 👑 *Owner:* ${config.ownerName}
@@ -209,6 +209,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
 ┃ 📅 ${now}
 ╰━━━━━━━━━━━━━━━┈⊷
 `;
+
     for (const [category, cmds] of Object.entries(CATALOG)) {
       menu += `
 ╭──〔 *${category}* 〕
@@ -222,6 +223,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       menu += `╰────────────┈⊷
 `;
     }
+
     if (uncategorized.length) {
       menu += `
 ╭──〔 *🧩 Uncategorized* 〕
@@ -231,7 +233,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       menu += `╰────────────┈⊷
 `;
     }
-    // Keep the raw channel link in the body as a guaranteed-working fallback tap target.
+
     menu += `
 ╭━━━━━━━━━━━━━━━┈⊷
 ┃ 📢 *Official Channel:*
@@ -240,7 +242,6 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
 ┃ _Powered by ${config.botName} • Made with ❤️_
 ╰━━━━━━━━━━━━━━━┈⊷`;
 
-    // Attach the tappable channel card (externalAdReply). Falls back to plain text if it errors.
     try {
       const contextInfo = await buildChannelContext();
       await sock.sendMessage(chatJid, { text: menu, contextInfo }, { quoted: mek });
@@ -291,9 +292,9 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
   },
   get: async (args) => module.exports.send(args),
 
-  // 🎵 Play — clean: just the audio file + one description, no status chatter
+  // 🎵 Play
   play: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play <song name>" }, { quoted: mek });
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play " }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
       const search = await yt.search(text);
@@ -320,6 +321,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
 ${meta.author?.name ? `👤 ${meta.author.name}
 ` : ""}⏱️ ${meta.timestamp || "N/A"} • 🎚️ ${dl.download.quality || "128kbps"}
 📁 ${fileName}
+
 _Powered by ${config.botName}_`
       }, { quoted: mek });
     } catch (err) {
@@ -328,18 +330,38 @@ _Powered by ${config.botName}_`
     }
   },
 
-  // 📸 Profile picture
-  pp: async ({ sock, chatJid, mek, quotedSender }) => {
+  // 📸 Profile picture — reply / @mention / typed number / smart fallback
+  pp: async ({ sock, chatJid, mek, quotedSender, contextInfo, args, isGroup }) => {
     try {
-      const target = quotedSender || mek.message?.extendedTextMessage?.contextInfo?.participant || chatJid;
+      let target =
+        quotedSender ||                                              // 1) replied-to user
+        (contextInfo?.mentionedJid && contextInfo.mentionedJid[0]) || // 2) @mention
+        null;
+
+      // 3) typed number: .pp 2348012345678
+      if (!target && args && args.length) {
+        const num = args[0].replace(/[^0-9]/g, '');
+        if (num.length >= 8) target = num + '@s.whatsapp.net';
+      }
+
+      // 4) fallback: private chat → the chat partner; group → yourself
+      if (!target) target = isGroup ? (sock.user.id.split(':')[0] + '@s.whatsapp.net') : chatJid;
+
       const url = await sock.profilePictureUrl(target, 'image');
-      await sock.sendMessage(chatJid, { image: { url }, caption: "📸 Profile Picture" }, { quoted: mek });
+      await sock.sendMessage(chatJid, {
+        image: { url },
+        caption: `📸 Profile Picture
+@${target.split('@')[0]}`,
+        mentions: [target]
+      }, { quoted: mek });
     } catch {
-      await sock.sendMessage(chatJid, { text: "❌ No profile picture found." }, { quoted: mek });
+      await sock.sendMessage(chatJid, {
+        text: "❌ No profile picture found (or it's hidden by privacy settings)."
+      }, { quoted: mek });
     }
   },
 
-  // 👁️ View-once revealer (uses deep-unwrapped quoted)
+  // 👁️ View-once revealer
   vv: async ({ sock, chatJid, mek }) => {
     const q = getQuoted(mek);
     if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a view once message!" }, { quoted: mek });
