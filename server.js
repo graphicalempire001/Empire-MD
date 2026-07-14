@@ -1,11 +1,10 @@
-const neutralEmojis = ['🗿', '🤖', '💻', '⚙️', '📦', '📁', '🗒️', '🪙', '🔌', '🛸', '🧊', '🫧', '🔔', '✨', '⚡', '☕', '🔎', '🛡️', '🔑', '📟'];
 // Empire MD - Connection Server, Pairing Engine, & Onboarding Portal (PER-BOT OWNER + PER-BOT AUTO SETTINGS + ADMIN)
 const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const { execSync } = require('child_process'); // 🆕 for disk capacity checks
+const { execSync } = require('child_process'); // for disk capacity checks
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -29,21 +28,33 @@ const {
   deleteBot,
   markBotOffline
 } = require('./lib/database');
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 // Serve the compiled React Frontend app instead of static public files!
 app.use(express.static(path.join(__dirname, 'public/Frontend/dist')));
+
 const activeSessions = {};
 const SESSIONS_ROOT = path.join(__dirname, 'sessions');
+
 // 🚦 EMERGENCY SWITCH — when true, /api/connect politely refuses NEW pairings.
-// Existing bots are never affected. Toggled from the admin dashboard.
 let pairingPaused = false;
+
 // Reserve threshold: warn/act when the volume is this % full (keep 10% free).
 const RESERVE_PERCENT = 10;
 const DISK_ALERT_AT = 100 - RESERVE_PERCENT; // 90
+
+// 🎲 Neutral (non-emotional) emoji pool for auto-status reactions.
+const NEUTRAL_STATUS_EMOJIS = ['🗿', '🤖', '💻', '⚙️', '📦', '📁', '🗒️', '🪙', '🔌', '🛸', '🧊', '🫧', '🔔', '✨', '⚡', '☕', '🔎', '🛡️', '🔑', '📟'];
+function randomNeutralEmoji() {
+  return NEUTRAL_STATUS_EMOJIS[Math.floor(Math.random() * NEUTRAL_STATUS_EMOJIS.length)];
+}
+
 // 💾 Disk status for the volume that holds the sessions folder.
 function getDiskStatus() {
   try {
@@ -59,15 +70,18 @@ function getDiskStatus() {
     return { usePercent: 0, availMB: Infinity, totalMB: Infinity };
   }
 }
+
 function generateSessionId(botName) {
   const formattedName = botName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
   return `BOTWAN_${formattedName}_${randomSuffix}`;
 }
+
 // ✅ Validate a full international MSISDN (no + and no leading zero).
 function isValidMsisdn(num) {
   return /^[1-9][0-9]{7,14}$/.test(num);
 }
+
 // 🔐 Owner-only gate — only the repo owner who holds ADMIN_KEY can pass.
 function requireAdmin(req, res, next) {
   const key = req.headers['x-admin-key'] || req.query.adminKey;
@@ -76,6 +90,7 @@ function requireAdmin(req, res, next) {
   }
   next();
 }
+
 // 🧹 Fully terminate a live session (logout + end socket) before removing it.
 async function killSession(sessionId) {
   const s = activeSessions[sessionId];
@@ -84,9 +99,9 @@ async function killSession(sessionId) {
     try { s.sock.end(); } catch (_) {}
   }
   delete activeSessions[sessionId];
-  // best-effort wipe of the auth folder on disk
   try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
+
 // 🖼️ Fetch an image URL as a Buffer so externalAdReply thumbnails always render.
 async function fetchThumb(url) {
   try {
@@ -94,74 +109,95 @@ async function fetchThumb(url) {
     return Buffer.from(r.data, 'binary');
   } catch (e) {
     console.error("Thumbnail fetch failed:", e.message);
-    return undefined; // message still sends without the image
+    return undefined;
   }
 }
-// Reusable connection routine so we can actually reconnect
-async function startSession(sessionId, botName, cleanPhone) {
+
+// 🔁 Robust pairing-code request with retries (fixes phones that previously failed).
+async function requestPairingCodeWithRetry(sock, cleanPhone, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const code = await sock.requestPairingCode(cleanPhone);
+      if (code) return code;
+    } catch (err) {
+      lastErr = err;
+      console.error(`Pairing code attempt ${i + 1} failed:`, err.message);
+    }
+    await new Promise(r => setTimeout(r, 2500 * (i + 1))); // backoff
+  }
+  throw lastErr || new Error("Could not generate pairing code.");
+}
+
+// Reusable connection routine.
+// mode: 'pair' (default) requests a pairing code; 'qr' emits a QR string instead.
+async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
   const sessionFolder = path.join(SESSIONS_ROOT, sessionId);
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
   const { version } = await fetchLatestBaileysVersion();
+
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: Browsers.ubuntu('Chrome'),
+    // 🔧 Robustness tuning so weaker phones/networks connect reliably
     connectTimeoutMs: 60000,
-    defaultQueryTimeoutMs: 60000,
-    keepAliveIntervalMs: 30000,
+    keepAliveIntervalMs: 15000,
     retryRequestDelayMs: 2000,
-    maxMsgRetryCount: 5,
-    fireInitQueries: true
+    defaultQueryTimeoutMs: undefined,
+    markOnlineOnConnect: true,
+    generateHighQualityLinkPreview: true,
+    syncFullHistory: false
   });
+
   sock.sessionId = sessionId;
-  // 🔑 OWNER TAG: on a fresh pairing, the typed phone IS the owner of this bot.
   if (cleanPhone) sock.ownerNumber = [cleanPhone];
-  // 🗂️ Warm the per-bot settings cache so the status handler reads THIS bot's prefs.
+
   try {
     sock.botSettings = (await getSettings(sessionId)) || null;
   } catch (_) {
     sock.botSettings = null;
   }
+
   if (!activeSessions[sessionId]) {
     activeSessions[sessionId] = {
       botName, phoneNumber: cleanPhone, status: 'pairing',
-      pairingCode: null, error: null, expiry: Date.now() + 120000
+      pairingCode: null, qr: null, mode, error: null,
+      codeRequested: false, expiry: Date.now() + 120000
     };
   }
   activeSessions[sessionId].sock = sock;
   activeSessions[sessionId].saveCreds = saveCreds;
+  activeSessions[sessionId].mode = mode;
+
   sock.ev.on('creds.update', saveCreds);
-  sock.ev.on('connection.update', (update) => {
-    if (update.qr) {
-      if (activeSessions[sessionId]) {
-        activeSessions[sessionId].qrCode = update.qr;
-      }
-    }
-  });
-  // 📩 MESSAGE LISTENER — routes incoming messages to the command handler
+
+  // 📩 MESSAGE LISTENER
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const mek of messages) {
       if (!mek.message) continue;
+
       // 🟢 STATUS HANDLING — must run BEFORE the status skip
       if (mek.key && mek.key.remoteJid === 'status@broadcast') {
         try {
           if (!mek.key.fromMe) {
-            // Per-bot settings: live cache → DB → global defaults
             let s = sock.botSettings;
             if (!s && sock.sessionId) {
               try { s = await getSettings(sock.sessionId); sock.botSettings = s; } catch (_) {}
             }
             s = s || config.settings;
+
             // 👁️ Auto-view statuses
             if (s.autostatusview) {
               await sock.readMessages([mek.key]);
             }
-            // 💖 Auto-react to statuses
+
+            // 💠 Auto-react with a RANDOM NEUTRAL emoji
             if (s.autostatusreact && mek.key.participant) {
-              const emoji = s.defaultStatusEmoji && s.defaultStatusEmoji !== "💖" ? s.defaultStatusEmoji : neutralEmojis[Math.floor(Math.random() * neutralEmojis.length)];
+              const emoji = randomNeutralEmoji();
               try {
                 await sock.sendMessage(
                   'status@broadcast',
@@ -176,12 +212,14 @@ async function startSession(sessionId, botName, cleanPhone) {
         } catch (e) {
           console.error("Status auto-handler error:", e.message);
         }
-        continue; // done with status; never pass it to the command handler
+        continue;
       }
-      // 📊 USAGE TRACKING — count every real (non-status) message for this bot.
+
+      // 📊 USAGE TRACKING
       if (sock.sessionId) {
         incrementUsage(sock.sessionId).catch(() => {});
       }
+
       try {
         await handleMessage(sock, mek);
       } catch (err) {
@@ -189,25 +227,40 @@ async function startSession(sessionId, botName, cleanPhone) {
       }
     }
   });
-  // Only request a pairing code when NOT registered AND we have a phone number (fresh pairing)
-  if (!sock.authState.creds.registered && cleanPhone) {
-    setTimeout(async () => {
-      try {
-        const code = await sock.requestPairingCode(cleanPhone);
-        if (activeSessions[sessionId]) {
-          activeSessions[sessionId].pairingCode = code?.match(/.{1,4}/g)?.join('-') || code;
+
+  // 🔑 PAIRING-CODE FLOW — request the code exactly ONCE (fixes double code).
+  if (mode === 'pair' && !sock.authState.creds.registered && cleanPhone) {
+    if (!activeSessions[sessionId].codeRequested) {
+      activeSessions[sessionId].codeRequested = true; // guard against duplicates
+      setTimeout(async () => {
+        try {
+          const code = await requestPairingCodeWithRetry(sock, cleanPhone, 3);
+          if (activeSessions[sessionId]) {
+            activeSessions[sessionId].pairingCode = code?.match(/.{1,4}/g)?.join('-') || code;
+          }
+          console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
+        } catch (err) {
+          console.error("Error requesting pairing code:", err.message);
+          if (activeSessions[sessionId]) {
+            activeSessions[sessionId].error = "Failed to generate code. Try again.";
+            activeSessions[sessionId].codeRequested = false; // allow a fresh retry
+          }
         }
-        console.log(`🔑 Pairing code for ${sessionId}: ${code}`);
-      } catch (err) {
-        console.error("Error requesting pairing code:", err);
-        if (activeSessions[sessionId]) {
-          activeSessions[sessionId].error = "Failed to generate code. Try again.";
-        }
-      }
-    }, 4000);
+      }, 4000);
+    }
   }
+
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+
+    // 📷 QR FLOW — capture the QR string for iPhone/QR users.
+    if (qr && activeSessions[sessionId]) {
+      activeSessions[sessionId].qr = qr;
+      if (activeSessions[sessionId].mode === 'qr') {
+        console.log(`📷 QR generated for ${sessionId}`);
+      }
+    }
+
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
       console.log(`🔌 Closed for ${sessionId}. Reason: ${reason}`);
@@ -218,26 +271,30 @@ async function startSession(sessionId, botName, cleanPhone) {
         console.log(`🚪 Session ${sessionId} logged out and cleared.`);
       } else {
         console.log(`🔄 Reconnecting ${sessionId}...`);
-        setTimeout(() => startSession(sessionId, botName, cleanPhone), 2000);
+        setTimeout(() => startSession(sessionId, botName, cleanPhone, mode), 2000);
       }
     } else if (connection === 'open') {
       console.log(`✅ Session ${sessionId} connected!`);
-      if (activeSessions[sessionId]) activeSessions[sessionId].status = 'connected';
+      if (activeSessions[sessionId]) {
+        activeSessions[sessionId].status = 'connected';
+        activeSessions[sessionId].qr = null; // clear QR once connected
+      }
       const connectedNumber = sock.user.id.split(':')[0];
-      // 🔑 Guarantee this bot always has an owner = the pairing/connected number.
+
       if (!sock.ownerNumber || !sock.ownerNumber.length) {
         sock.ownerNumber = [connectedNumber];
       }
-      // 🗂️ Refresh the per-bot settings cache now that we're connected.
+
       try {
         const latest = await getSettings(sessionId);
         if (latest) sock.botSettings = latest;
       } catch (_) {}
-      // ⚡ Apply always-online presence per-bot if enabled.
+
       try {
         const s = sock.botSettings || config.settings;
         if (s.alwaysOnline) await sock.sendPresenceUpdate('available');
       } catch (_) {}
+
       const ownerForBot = cleanPhone || connectedNumber;
       const ownerJid = ownerForBot + '@s.whatsapp.net';
       const channelUrl = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
@@ -245,19 +302,20 @@ async function startSession(sessionId, botName, cleanPhone) {
       const cardBody = "The future of is NOW.";
       const cardLink = "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
       const thumbUrl = "https://i.ibb.co/8LMKhwqt/download.jpg";
+
       const welcomeDm =
-` *Welcome ${botName}!*
+`  *Welcome ${botName}!*
 BOT-WAN is connected and ready to function. Your WhatsApp bot is connected and registered.
 🆔 *Session ID:* ${sessionId}
 🔮 Enjoy fast downloads, stickers, and smart moderation.
 📢 *Join our official channel:*
 👉 ${channelUrl}
 _Type .help in any chat to view your commands!_`;
-      // Only send the welcome DM + register on a FRESH pairing (when we have the phone number)
-      if (cleanPhone) {
-        // Register FIRST so the bot appears in the directory/admin immediately.
+
+      // Only register + welcome on a FRESH connection (fresh phone pairing OR fresh QR link).
+      if (cleanPhone || activeSessions[sessionId]?.mode === 'qr') {
         try {
-          const result = await registerBot(sessionId, botName, cleanPhone, ownerForBot);
+          const result = await registerBot(sessionId, botName, ownerForBot, ownerForBot);
           if (result && result.ok === false && result.code === '23505') {
             console.warn(`⚠️ Duplicate bot name on register for ${sessionId}; killing session.`);
             try {
@@ -272,7 +330,7 @@ _Type .help in any chat to view your commands!_`;
         } catch (dbErr) {
           console.error("registerBot error:", dbErr.message);
         }
-        // Delay the welcome DM so Baileys finishes session/contact sync.
+
         setTimeout(async () => {
           try {
             const thumb = await fetchThumb(thumbUrl);
@@ -304,9 +362,11 @@ _Type .help in any chat to view your commands!_`;
       }
     }
   });
+
   return sock;
 }
-// 🔁 Global bridge so commands (e.g. .pair) can trigger a new pairing session.
+
+// 🔁 Global bridge for the .pair command (pairing code).
 global.startPairingSession = async function (botName, cleanPhone) {
   if (!isValidMsisdn(cleanPhone)) {
     return { ok: false, error: "Invalid number. Use full international format, no + or leading zero (e.g. 2347012345678)." };
@@ -316,13 +376,13 @@ global.startPairingSession = async function (botName, cleanPhone) {
   }
   const sessionId = generateSessionId(botName);
   try {
-    await startSession(sessionId, botName, cleanPhone);
+    await startSession(sessionId, botName, cleanPhone, 'pair');
   } catch (err) {
     if (err.code === 'ENOSPC') return { ok: false, error: "Server storage is full. Try again shortly." };
     return { ok: false, error: err.message };
   }
   const started = Date.now();
-  while (Date.now() - started < 12000) {
+  while (Date.now() - started < 15000) {
     const s = activeSessions[sessionId];
     if (s?.pairingCode) return { ok: true, sessionId, code: s.pairingCode };
     if (s?.error) return { ok: false, error: s.error };
@@ -330,7 +390,30 @@ global.startPairingSession = async function (botName, cleanPhone) {
   }
   return { ok: false, error: "Timed out generating the pairing code. Please try again." };
 };
-// 🔁 On boot, resume any REAL sessions saved on the volume (so bots survive redeploys)
+
+// 🔁 Global bridge for the .qr command (QR code string).
+global.startQRSession = async function (botName) {
+  if (await isBotNameTaken(botName)) {
+    return { ok: false, error: `The bot name "${botName}" is already taken. Choose another.` };
+  }
+  const sessionId = generateSessionId(botName);
+  try {
+    await startSession(sessionId, botName, null, 'qr');
+  } catch (err) {
+    if (err.code === 'ENOSPC') return { ok: false, error: "Server storage is full. Try again shortly." };
+    return { ok: false, error: err.message };
+  }
+  const started = Date.now();
+  while (Date.now() - started < 20000) {
+    const s = activeSessions[sessionId];
+    if (s?.qr) return { ok: true, sessionId, qr: s.qr };
+    if (s?.error) return { ok: false, error: s.error };
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return { ok: false, error: "Timed out generating the QR code. Please try again." };
+};
+
+// 🔁 On boot, resume any REAL sessions saved on the volume
 async function resumeSavedSessions() {
   try {
     if (!fs.existsSync(SESSIONS_ROOT)) {
@@ -347,16 +430,16 @@ async function resumeSavedSessions() {
     }
     for (const sessionId of folders) {
       console.log(`♻️ Resuming saved session: ${sessionId}`);
-      await startSession(sessionId, config.botName || "Empire MD", null);
+      await startSession(sessionId, config.botName || "Empire MD", null, 'pair');
     }
   } catch (err) {
     console.error("resumeSavedSessions error:", err);
   }
 }
+
 // API 1: Request Pairing Code
 app.post('/api/connect', async (req, res) => {
   try {
-    // 🚦 EMERGENCY CAGE — refuse new pairings when paused (manual or auto).
     const disk = getDiskStatus();
     if (pairingPaused || disk.usePercent >= DISK_ALERT_AT) {
       console.warn(`⛔ Pairing refused — paused:${pairingPaused} disk:${disk.usePercent}%`);
@@ -365,44 +448,82 @@ app.post('/api/connect', async (req, res) => {
         error: "🚧 We're preparing a second server to handle demand. New bot pairing is paused for a few minutes — please try again shortly. Existing bots are unaffected."
       });
     }
+
     const { phoneNumber, botName } = req.body;
     if (!phoneNumber || !botName) {
       return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
     }
-    // 🚫 DUPLICATE-NAME GUARD — block before we ever build a socket.
+
     if (await isBotNameTaken(botName)) {
       return res.status(409).json({
         success: false,
         error: `The bot name "${botName}" is already taken. Please choose another.`
       });
     }
+
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
     console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
-    await startSession(sessionId, botName, cleanPhone);
-    return res.json({ success: true, sessionId, expiryIn: 120 });
+    await startSession(sessionId, botName, cleanPhone, 'pair');
+    return res.json({ success: true, sessionId, method: 'code', expiryIn: 120 });
   } catch (err) {
     console.error("Connect API Error:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-// API 2: Poll Status
+
+// API 1b: Request QR Code (iPhone-friendly path)
+app.post('/api/qr-connect', async (req, res) => {
+  try {
+    const disk = getDiskStatus();
+    if (pairingPaused || disk.usePercent >= DISK_ALERT_AT) {
+      return res.status(503).json({
+        success: false,
+        error: "🚧 New bot connections are paused for a few minutes — please try again shortly."
+      });
+    }
+
+    const { botName } = req.body;
+    if (!botName) {
+      return res.status(400).json({ success: false, error: "Bot name is required!" });
+    }
+
+    if (await isBotNameTaken(botName)) {
+      return res.status(409).json({
+        success: false,
+        error: `The bot name "${botName}" is already taken. Please choose another.`
+      });
+    }
+
+    const sessionId = generateSessionId(botName);
+    console.log(`📷 QR connect for ${botName} → ${sessionId}`);
+    await startSession(sessionId, botName, null, 'qr');
+    return res.json({ success: true, sessionId, method: 'qr', expiryIn: 120 });
+  } catch (err) {
+    console.error("QR Connect API Error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// API 2: Poll Status (now returns qr as well)
 app.get('/api/status/:sessionId', (req, res) => {
   const session = activeSessions[req.params.sessionId];
   if (!session) return res.json({ status: 'expired' });
   if (session.status === 'connected') return res.json({ status: 'connected', sessionId: req.params.sessionId });
   if (session.error) return res.json({ status: 'error', error: session.error });
-  if (Date.now() > session.expiry && !session.pairingCode) {
+  if (Date.now() > session.expiry && !session.pairingCode && !session.qr) {
     delete activeSessions[req.params.sessionId];
     return res.json({ status: 'expired' });
   }
   return res.json({
     status: 'pairing',
+    method: session.mode || 'code',
     pairingCode: session.pairingCode,
-    qrCode: session.qrCode || null,
+    qr: session.qr,
     secondsLeft: Math.max(0, Math.floor((session.expiry - Date.now()) / 1000))
   });
 });
+
 // API 3: Setup
 app.post('/api/setup', async (req, res) => {
   try {
@@ -410,14 +531,18 @@ app.post('/api/setup', async (req, res) => {
       sessionId, botName, ownerNumber, prefix, mode, alwaysOnline, welcome,
       autostatusview, autostatusreact, auttyping, autorecord, defaultStatusEmoji
     } = req.body;
+
     if (!sessionId) return res.status(400).json({ success: false, error: "Session ID is required!" });
+
     const fallbackOwner = activeSessions[sessionId]?.phoneNumber
       ? [activeSessions[sessionId].phoneNumber]
       : [];
     const ownerList = ownerNumber
       ? ownerNumber.split(',').map(n => n.trim().replace(/[^0-9]/g, '')).filter(Boolean)
       : [];
+
     const truthy = (v) => v === 'true' || v === true || v === 'on';
+
     const updatedSettings = {
       botName: botName || "Empire MD",
       prefix: prefix || ".",
@@ -429,19 +554,24 @@ app.post('/api/setup', async (req, res) => {
       autostatusreact: truthy(autostatusreact),
       auttyping: truthy(auttyping),
       autorecord: truthy(autorecord),
-      defaultStatusEmoji: defaultStatusEmoji || "💖"
+      // Kept for backward compat; auto-react now uses a random neutral emoji.
+      defaultStatusEmoji: defaultStatusEmoji || "✨"
     };
+
     await updateSettings(sessionId, updatedSettings);
+
     const liveSock = activeSessions[sessionId]?.sock;
     if (liveSock) {
       if (updatedSettings.ownerNumber.length) liveSock.ownerNumber = updatedSettings.ownerNumber;
       liveSock.botSettings = { ...(liveSock.botSettings || {}), ...updatedSettings };
     }
+
     return res.json({ success: true, message: "Configuration saved!" });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
 // API 4: Public directory - Hide session IDs
 app.get('/api/public-directory', async (req, res) => {
   try {
@@ -457,10 +587,10 @@ app.get('/api/public-directory', async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
 // ──────────────────────────────────────────────────────────────
-// 🔐 ADMIN API — owner-only (requires x-admin-key header / ?adminKey=)
+// 🔐 ADMIN API — owner-only
 // ──────────────────────────────────────────────────────────────
-// 🆕 📊 SERVER CAPACITY STATUS — disk usage + pause state + bot count
 app.get('/api/admin/status', requireAdmin, (req, res) => {
   const disk = getDiskStatus();
   res.json({
@@ -471,13 +601,13 @@ app.get('/api/admin/status', requireAdmin, (req, res) => {
     reserveThreshold: DISK_ALERT_AT
   });
 });
-// 🆕 🚦 TOGGLE emergency pause on/off
+
 app.post('/api/admin/pause', requireAdmin, (req, res) => {
   pairingPaused = req.body?.paused === true || req.body?.paused === 'true';
   console.log(`🚦 Pairing ${pairingPaused ? 'PAUSED (emergency mode)' : 'RESUMED'}`);
   res.json({ success: true, pairingPaused });
 });
-// 📊 High-volume usage leaderboard
+
 app.get('/api/admin/usage', requireAdmin, async (req, res) => {
   try {
     const bots = await getTopUsageBots(Number(req.query.limit) || 20);
@@ -486,7 +616,7 @@ app.get('/api/admin/usage', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-// 💤 List inactive bots (no activity in N days, default 7)
+
 app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
   try {
     const bots = await getInactiveBots(Number(req.query.days) || 7);
@@ -495,7 +625,7 @@ app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-// 🚩 Flag (or unflag) a bot as abusive
+
 app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
   try {
     const value = req.body && req.body.value === false ? false : true;
@@ -507,33 +637,7 @@ app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-// ✉️ 🆕 ADMIN — send a direct WhatsApp message to a bot's owner (owner-only)
-app.post('/api/admin/dm/:sessionId', requireAdmin, async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const { message } = req.body || {};
-    if (!message || !message.trim()) {
-      return res.status(400).json({ success: false, error: "Message text is required." });
-    }
-    const live = activeSessions[sessionId];
-    const sock = live?.sock;
-    if (!sock) {
-      return res.status(409).json({ success: false, error: "Bot is offline — cannot deliver right now." });
-    }
-    // Resolve the owner number: live socket tag → in-memory pairing phone.
-    const owner = (sock.ownerNumber && sock.ownerNumber[0]) || live.phoneNumber;
-    if (!owner) {
-      return res.status(404).json({ success: false, error: "No owner number on record for this bot." });
-    }
-    await sock.sendMessage(owner + '@s.whatsapp.net', { text: message });
-    console.log(`✉️ Admin DM delivered to owner of ${sessionId} (${owner}).`);
-    return res.json({ success: true, message: `Message delivered to ${owner}.` });
-  } catch (err) {
-    console.error("Admin DM error:", err.message);
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-// 🗑️ Delete an inactive / abusive bot (kills live socket, then removes the row)
+
 app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -544,12 +648,15 @@ app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-// SPA Catch-all routing so React router refreshes work gracefully
+
+// SPA Catch-all routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
 });
+
 server.listen(PORT, () => {
   console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
   resumeSavedSessions();
 });
+
 module.exports = { app, server };
