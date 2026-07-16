@@ -706,6 +706,41 @@ app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   }
 });
 
+// 📊 ADMIN API — Get all bots with search and filtering
+app.get('/api/admin/bots', requireAdmin, async (req, res) => {
+  try {
+    const { search, filterBy } = req.query; // filterBy can be 'name', 'number', or 'session'
+    const { getAllBots } = require('./lib/database');
+    
+    let bots = await getAllBots();
+    
+    // Total count of all unique bots in the DB
+    const totalBots = bots.length;
+
+    if (search) {
+      const q = search.toLowerCase();
+      bots = bots.filter(b => {
+        const name = (b.bot_name || "").toLowerCase();
+        const num = (b.phone_number || "").toLowerCase();
+        const sid = (b.session_id || "").toLowerCase();
+
+        if (filterBy === 'number') return num.includes(q);
+        if (filterBy === 'session') return sid.includes(q);
+        return name.includes(q); // default search by bot name
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      totalCount: totalBots, 
+      filteredCount: bots.length, 
+      bots 
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // SPA Catch-all routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
