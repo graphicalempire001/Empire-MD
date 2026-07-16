@@ -674,39 +674,6 @@ app.get('/api/admin/usage', requireAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
-  try {
-    const bots = await getInactiveBots(Number(req.query.days) || 7);
-    return res.json({ success: true, bots });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
-  try {
-    const value = req.body && req.body.value === false ? false : true;
-    await flagAbusive(req.params.sessionId, value);
-    const live = activeSessions[req.params.sessionId]?.sock;
-    if (live) live.isAbusive = value;
-    return res.json({ success: true, message: `Bot ${value ? 'flagged as abusive' : 'unflagged'}.` });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    await killSession(sessionId);
-    await deleteBot(sessionId);
-    return res.json({ success: true, message: `Bot ${sessionId} deleted.` });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// 📊 ADMIN API — Get all bots with search and filtering
 app.get('/api/admin/bots', requireAdmin, async (req, res) => {
   try {
     const { search, filterBy } = req.query; // filterBy can be 'name', 'number', or 'session'
@@ -736,6 +703,39 @@ app.get('/api/admin/bots', requireAdmin, async (req, res) => {
       filteredCount: bots.length, 
       bots 
     });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
+  try {
+    const bots = await getInactiveBots(Number(req.query.days) || 7);
+    return res.json({ success: true, bots });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/flag/:sessionId', requireAdmin, async (req, res) => {
+  try {
+    const value = req.body && req.body.value === false ? false : true;
+    await flagAbusive(req.params.sessionId, value);
+    const live = activeSessions[req.params.sessionId]?.sock;
+    if (live) live.isAbusive = value;
+    return res.json({ success: true, message: `Bot ${value ? 'flagged as abusive' : 'unflagged'}.` });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    await killSession(sessionId);
+    await deleteBot(sessionId);
+    return res.json({ success: true, message: `Bot ${sessionId} deleted.` });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
