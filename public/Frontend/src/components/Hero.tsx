@@ -44,7 +44,7 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
             <span className="text-[#1a1a1a]">Empire</span>{' '}
             <span className="text-[#8e8e8e]">MD</span>
             <br />
-            <span className="text-[#8e8e8e]">Get A Whatsapp</span>
+            <span className="text-[#8e8e8e]">Launch Your Free Whatsapp</span>
             <br />
             <span className="text-[#8e8e8e]">Bot in 30</span>
             <span className="inline-flex items-center justify-center w-[16px] md:w-[42px] lg:w-[62px] h-[16px] md:h-[42px] lg:h-[62px] border-[2px] border-[#1a1a1a] rounded-full mx-1 align-middle">
@@ -133,7 +133,7 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
       </div>
 
       <div className="absolute bottom-6 left-6 md:left-10 z-20">
-        <span className="text-[10px] font-medium text-[#8e8e8e] tracking-wider">2024</span>
+        <span className="text-[10px] font-medium text-[#8e8e8e] tracking-wider">2026</span>
       </div>
       <div className="absolute bottom-6 right-6 md:right-10 z-20">
         <span className="text-[10px] font-medium text-[#8e8e8e] tracking-wider lowercase">whatsapp automation tools</span>
