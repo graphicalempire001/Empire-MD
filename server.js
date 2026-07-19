@@ -1,5 +1,7 @@
-// Empire MD - Connection Server, Pairing Engine, & Onboarding Portal
-// (PER-BOT OWNER + PER-BOT AUTO SETTINGS + ADMIN + QR + ANTIDELETE)
+
+const compression = require('compression');
+const app = express();
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -34,6 +36,7 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
+app.use(compression()); 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // Serve the compiled React Frontend app instead of static public files!
