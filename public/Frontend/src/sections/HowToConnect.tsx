@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 
-const VIDEO_ID = 'bwZOo68U7Ys'
+// Updated to your new Shorts ID
+const VIDEO_ID = 'h3RqbsJbOR8'
 
 export default function HowToConnect() {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -19,8 +20,12 @@ export default function HowToConnect() {
     if (!el) return
     const obs = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && entry.intersectionRatio > 0.6) post('playVideo')
-        else post('pauseVideo')
+        // Auto-play when visible, pause when scrolled away
+        if (entry.isIntersecting && entry.intersectionRatio > 0.6) {
+          post('playVideo')
+        } else {
+          post('pauseVideo')
+        }
       },
       { threshold: [0, 0.6, 1] }
     )
@@ -47,20 +52,28 @@ export default function HowToConnect() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="relative mx-auto w-full max-w-[340px] aspect-[9/16] rounded-3xl overflow-hidden shadow-2xl glass-card"
+          className="relative mx-auto w-full max-w-[340px] aspect-[9/16] rounded-3xl overflow-hidden shadow-2xl glass-card bg-black"
         >
           <iframe
             ref={iframeRef}
             className="absolute inset-0 w-full h-full"
-            src={`https://www.youtube.com/embed/${VIDEO_ID}?enablejsapi=1&mute=1&loop=1&playlist=${VIDEO_ID}&controls=0&modestbranding=1&playsinline=1&rel=0`}
+            /* 
+               CHANGES: 
+               1. Updated VIDEO_ID
+               2. mute=0 to enable sound (Note: browsers may require user interaction first)
+               3. controls=1 so users can adjust volume/scrub
+            */
+            src={`https://www.youtube.com/embed/${VIDEO_ID}?enablejsapi=1&autoplay=1&mute=0&loop=1&playlist=${VIDEO_ID}&controls=1&modestbranding=1&playsinline=1&rel=0`}
             title="How to connect and pair Empire MD"
-            allow="autoplay; encrypted-media"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             frameBorder="0"
+            allowFullScreen
           />
-          {/* Edge-blend masks */}
+          
+          {/* Edge-blend masks for aesthetic integration */}
           <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-black/[0.06]"></div>
-          <div className="pointer-events-none absolute top-0 left-0 w-full h-10 bg-gradient-to-b from-[#EDEEF5] to-transparent"></div>
-          <div className="pointer-events-none absolute bottom-0 left-0 w-full h-10 bg-gradient-to-t from-[#EDEEF5] to-transparent"></div>
+          <div className="pointer-events-none absolute top-0 left-0 w-full h-10 bg-gradient-to-b from-[#EDEEF5] to-transparent opacity-50"></div>
+          <div className="pointer-events-none absolute bottom-0 left-0 w-full h-10 bg-gradient-to-t from-[#EDEEF5] to-transparent opacity-50"></div>
         </motion.div>
       </div>
     </section>
