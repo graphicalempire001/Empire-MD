@@ -3,7 +3,8 @@ const axios = require('axios');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const { updateSettings } = require('../lib/database');
 
-// Format seconds → "1d 2h 3m 4s"
+// --- Helper Functions ---
+
 function formatUptime(sec) {
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
@@ -12,7 +13,6 @@ function formatUptime(sec) {
   return `${d > 0 ? d + "d " : ""}${h}h ${m}m ${s}s`;
 }
 
-// Resolve deep-unwrapped quoted media: prefer handler's mek.quoted, fallback to raw contextInfo.
 function getQuoted(mek) {
   if (mek.quoted && mek.quoted.message) {
     return { message: mek.quoted.message, type: mek.quoted.type };
@@ -37,7 +37,15 @@ async function downloadBuffer(node, type) {
   return buffer;
 }
 
-// Fetch a thumbnail buffer for the channel card
+// Logic to handle DM vs Chat routing for sensitive commands
+async function getDestination(sock, chatJid, settings) {
+  const mode = settings?.privacyMode || 'chat'; // Default to chat
+  if (mode === 'dm') {
+    return (sock.ownerNumber?.[0] || sock.user.id.split(':')[0]) + '@s.whatsapp.net';
+  }
+  return chatJid;
+}
+
 async function getChannelThumb() {
   const thumbUrl = config.channelThumb || config.menuThumb;
   if (!thumbUrl) return null;
@@ -50,7 +58,6 @@ async function getChannelThumb() {
   }
 }
 
-// Build the tappable channel "card" contextInfo.
 async function buildChannelContext() {
   const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
   const thumb = await getChannelThumb();
@@ -122,7 +129,8 @@ const CATALOG = {
     "autostatusreact": { d: "Toggle auto-react to statuses", a: [] },
     "autogreet": { d: "Greet new contacts (on/off or custom text)", a: ["greet", "welcome"] },
     "away": { d: "Away auto-reply for DMs & mentions (on/off or custom)", a: ["awaymode"] },
-    "antidelete": { d: "Recover deleted messages: off/chat/dm", a: ["ad", "antidel"] }
+    "antidelete": { d: "Recover deleted messages: off/chat/dm", a: ["ad", "antidel"] },
+    "privacymode": { d: "Route .pp/.vv/.send results to DM (chat/dm)", a: ["pmode"] }
   },
   "👑 Owner & Self": {
     "setprefix": { d: "Change command prefix", a: ["sp"] },
@@ -272,8 +280,8 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
   },
 
-  // 📥 Save/steal status or media
-  send: async ({ sock, chatJid, mek }) => {
+  // 📥 FIXED SAVE/STEAL (With DM Routing)
+  send: async ({ sock, chatJid, mek, settings }) => {
     try {
       const q = getQuoted(mek);
       if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a status or media message with .send" }, { quoted: mek });
@@ -282,10 +290,14 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
         return sock.sendMessage(chatJid, { text: "❌ This media type is not supported." }, { quoted: mek });
       }
       const buffer = await downloadBuffer(message, type);
+      const dest = await getDestination(sock, chatJid, settings);
       const caption = "📥 *Saved via Empire MD*";
-      if (type === 'imageMessage') await sock.sendMessage(chatJid, { image: buffer, caption }, { quoted: mek });
-      else if (type === 'videoMessage') await sock.sendMessage(chatJid, { video: buffer, caption }, { quoted: mek });
-      else if (type === 'audioMessage') await sock.sendMessage(chatJid, { audio: buffer, mimetype: 'audio/mp4' }, { quoted: mek });
+      
+      if (type === 'imageMessage') await sock.sendMessage(dest, { image: buffer, caption }, { quoted: mek });
+      else if (type === 'videoMessage') await sock.sendMessage(dest, { video: buffer, caption }, { quoted: mek });
+      else if (type === 'audioMessage') await sock.sendMessage(dest, { audio: buffer, mimetype: 'audio/mp4' }, { quoted: mek });
+
+      if (dest !== chatJid) await sock.sendMessage(chatJid, { text: "📥 Media sent to your DM." }, { quoted: mek });
     } catch (err) {
       console.error("Send error:", err);
       await sock.sendMessage(chatJid, { text: "❌ Failed to save media." }, { quoted: mek });
@@ -329,37 +341,33 @@ _Powered by ${config.botName}_`
     }
   },
 
-  // 📸 FIXED PROFILE PICTURE COMMAND
-  pp: async ({ sock, chatJid, mek, quotedSender, contextInfo, args, isGroup }) => {
+  // 📸 FIXED PP COMMAND (Works for others + DM Routing)
+  pp: async ({ sock, chatJid, mek, quotedSender, contextInfo, args, isGroup, settings }) => {
     try {
-      // Priority 1: Quoted message sender (reply)
-      // Priority 2: Mentioned user
+      // 1. Resolve Target correctly
       let target = quotedSender || (contextInfo?.mentionedJid && contextInfo.mentionedJid[0]);
 
-      // Priority 3: Typed number
       if (!target && args && args.length) {
         const num = args[0].replace(/[^0-9]/g, '');
         if (num.length >= 8) target = num + '@s.whatsapp.net';
       }
 
-      // Priority 4: Smart Fallback
-      // In Private Chat: Use the person you are talking to
-      // In Groups: Require a target so it doesn't just pull the bot owner's DP
       if (!target) {
-        if (!isGroup) {
-          target = chatJid;
-        } else {
-          return sock.sendMessage(chatJid, { text: "❌ Please reply to someone or mention them to get their profile picture." }, { quoted: mek });
-        }
+        target = isGroup ? (sock.user.id.split(':')[0] + '@s.whatsapp.net') : chatJid;
       }
 
+      // 2. Determine Destination
+      const dest = await getDestination(sock, chatJid, settings);
+
       const url = await sock.profilePictureUrl(target, 'image');
-      await sock.sendMessage(chatJid, {
+      await sock.sendMessage(dest, {
         image: { url },
         caption: `📸 *Profile Picture*
 Target: @${target.split('@')[0]}`,
         mentions: [target]
       }, { quoted: mek });
+
+      if (dest !== chatJid) await sock.sendMessage(chatJid, { text: "📸 Profile picture sent to your DM." }, { quoted: mek });
     } catch {
       await sock.sendMessage(chatJid, {
         text: "❌ No profile picture found (or it's hidden by privacy settings)."
@@ -367,7 +375,7 @@ Target: @${target.split('@')[0]}`,
     }
   },
 
-  // 🛡️ ANTIDELETE TOGGLE COMMAND
+  // 🛡️ ANTIDELETE TOGGLE
   antidelete: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
     if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
     const mode = (text || "").toLowerCase().trim();
@@ -389,8 +397,21 @@ Current: *${(settings?.antidelete || "off").toUpperCase()}*
   ad: async (args) => module.exports.antidelete(args),
   antidel: async (args) => module.exports.antidelete(args),
 
-  // 👁️ View-once revealer
-  vv: async ({ sock, chatJid, mek }) => {
+  // ⚙️ PRIVACY MODE TOGGLE
+  privacymode: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
+    if (!isOwner) return;
+    const mode = (text || "").toLowerCase().trim();
+    if (!["chat", "dm"].includes(mode)) {
+      return sock.sendMessage(chatJid, { text: "⚙️ *Privacy Mode:* .privacymode [chat|dm]\n(Controls where .pp, .vv, and .send results are sent)" }, { quoted: mek });
+    }
+    await updateSettings(sock.sessionId, { privacyMode: mode });
+    sock.botSettings = { ...settings, privacyMode: mode };
+    await sock.sendMessage(chatJid, { text: `✅ *Privacy Mode* set to *${mode.toUpperCase()}*` }, { quoted: mek });
+  },
+  pmode: async (args) => module.exports.privacymode(args),
+
+  // 👁️ FIXED VIEW-ONCE REVEALER (With DM Routing)
+  vv: async ({ sock, chatJid, mek, settings }) => {
     const q = getQuoted(mek);
     if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a view once message!" }, { quoted: mek });
     try {
@@ -399,8 +420,13 @@ Current: *${(settings?.antidelete || "off").toUpperCase()}*
         return sock.sendMessage(chatJid, { text: "❌ Reply to a view-once *image* or *video*." }, { quoted: mek });
       }
       const buffer = await downloadBuffer(message, type);
-      if (type === 'imageMessage') await sock.sendMessage(chatJid, { image: buffer, caption: "✅ View Once Image Saved" }, { quoted: mek });
-      else await sock.sendMessage(chatJid, { video: buffer, caption: "✅ View Once Video Saved" }, { quoted: mek });
+      const dest = await getDestination(sock, chatJid, settings);
+      const caption = `👁️ *View-Once Revealed* from @${(mek.quotedSender || chatJid).split('@')[0]}`;
+
+      if (type === 'imageMessage') await sock.sendMessage(dest, { image: buffer, caption, mentions: [mek.quotedSender] }, { quoted: mek });
+      else await sock.sendMessage(dest, { video: buffer, caption, mentions: [mek.quotedSender] }, { quoted: mek });
+
+      if (dest !== chatJid) await sock.sendMessage(chatJid, { text: "👁️ View-once content sent to your DM." }, { quoted: mek });
     } catch (err) {
       console.error("vv error:", err);
       await sock.sendMessage(chatJid, { text: "❌ Failed to collect view once." }, { quoted: mek });
