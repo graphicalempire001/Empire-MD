@@ -150,7 +150,7 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
 
       {/* Footer Branding */}
       <div className="absolute bottom-8 left-8 md:left-12 z-20 font-mono text-[10px] text-[#8e8e8e] tracking-[0.2em] uppercase opacity-60">
-        © 2026 Empirendigitals • Mishael Yakubu
+        © 2026 Empiredigitals 
       </div>
       
       <div className="absolute bottom-8 right-8 md:right-12 z-20 hidden sm:block font-mono text-[10px] text-[#8e8e8e] tracking-widest lowercase opacity-60">
