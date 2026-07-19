@@ -1,6 +1,7 @@
 const config = require('../config');
 const axios = require('axios');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { updateSettings } = require('../lib/database');
 
 // Format seconds → "1d 2h 3m 4s"
 function formatUptime(sec) {
@@ -36,7 +37,7 @@ async function downloadBuffer(node, type) {
   return buffer;
 }
 
-// Fetch a thumbnail buffer for the channel card (best-effort; card still works without it)
+// Fetch a thumbnail buffer for the channel card
 async function getChannelThumb() {
   const thumbUrl = config.channelThumb || config.menuThumb;
   if (!thumbUrl) return null;
@@ -271,7 +272,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     await sock.sendMessage(chatJid, { text: out }, { quoted: mek });
   },
 
-  // 📥 Save/steal replied status or media (Alias: get)
+  // 📥 Save/steal status or media
   send: async ({ sock, chatJid, mek }) => {
     try {
       const q = getQuoted(mek);
@@ -294,7 +295,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
 
   // 🎵 Play
   play: async ({ sock, chatJid, mek, text }) => {
-    if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play " }, { quoted: mek });
+    if (!text) return sock.sendMessage(chatJid, { text: "❌ Usage: .play song name" }, { quoted: mek });
     const yt = require('@vreden/youtube_scraper');
     try {
       const search = await yt.search(text);
@@ -304,11 +305,11 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       }
       const dl = await yt.ytmp3(video.url, 128);
       if (!dl?.status || !dl?.download?.url) {
-        return sock.sendMessage(chatJid, { text: "❌ Failed to fetch the audio. Try again in a moment." }, { quoted: mek });
+        return sock.sendMessage(chatJid, { text: "❌ Failed to fetch the audio." }, { quoted: mek });
       }
       const meta = dl.metadata || {};
       const title = meta.title || video.title || text;
-      const fileName = dl.download.filename || `${title}.mp3`;
+      const fileName = `${title}.mp3`;
       const buf = await axios.get(dl.download.url, { responseType: 'arraybuffer', timeout: 60000 });
       await sock.sendMessage(chatJid, {
         audio: Buffer.from(buf.data),
@@ -318,40 +319,45 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       }, { quoted: mek });
       await sock.sendMessage(chatJid, {
         text: `🎵 *${title}*
-${meta.author?.name ? `👤 ${meta.author.name}
-` : ""}⏱️ ${meta.timestamp || "N/A"} • 🎚️ ${dl.download.quality || "128kbps"}
-📁 ${fileName}
-
+👤 ${meta.author?.name || "Unknown"}
+⏱️ ${meta.timestamp || "N/A"}
 _Powered by ${config.botName}_`
       }, { quoted: mek });
     } catch (err) {
       console.error("Play error:", err.message);
-      await sock.sendMessage(chatJid, { text: `❌ Failed to download song: ${err.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: `❌ Failed to download song.` }, { quoted: mek });
     }
   },
 
-  // 📸 Profile picture — reply / @mention / typed number / smart fallback
+  // 📸 FIXED PROFILE PICTURE COMMAND
   pp: async ({ sock, chatJid, mek, quotedSender, contextInfo, args, isGroup }) => {
     try {
-      let target =
-        quotedSender ||                                              // 1) replied-to user
-        (contextInfo?.mentionedJid && contextInfo.mentionedJid[0]) || // 2) @mention
-        null;
+      // Priority 1: Quoted message sender (reply)
+      // Priority 2: Mentioned user
+      let target = quotedSender || (contextInfo?.mentionedJid && contextInfo.mentionedJid[0]);
 
-      // 3) typed number: .pp 2348012345678
+      // Priority 3: Typed number
       if (!target && args && args.length) {
         const num = args[0].replace(/[^0-9]/g, '');
         if (num.length >= 8) target = num + '@s.whatsapp.net';
       }
 
-      // 4) fallback: private chat → the chat partner; group → yourself
-      if (!target) target = isGroup ? (sock.user.id.split(':')[0] + '@s.whatsapp.net') : chatJid;
+      // Priority 4: Smart Fallback
+      // In Private Chat: Use the person you are talking to
+      // In Groups: Require a target so it doesn't just pull the bot owner's DP
+      if (!target) {
+        if (!isGroup) {
+          target = chatJid;
+        } else {
+          return sock.sendMessage(chatJid, { text: "❌ Please reply to someone or mention them to get their profile picture." }, { quoted: mek });
+        }
+      }
 
       const url = await sock.profilePictureUrl(target, 'image');
       await sock.sendMessage(chatJid, {
         image: { url },
-        caption: `📸 Profile Picture
-@${target.split('@')[0]}`,
+        caption: `📸 *Profile Picture*
+Target: @${target.split('@')[0]}`,
         mentions: [target]
       }, { quoted: mek });
     } catch {
@@ -360,6 +366,28 @@ _Powered by ${config.botName}_`
       }, { quoted: mek });
     }
   },
+
+  // 🛡️ ANTIDELETE TOGGLE COMMAND
+  antidelete: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
+    if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
+    const mode = (text || "").toLowerCase().trim();
+    if (!["off", "chat", "dm"].includes(mode)) {
+      return sock.sendMessage(chatJid, { 
+        text: `🛡️ *Antidelete Settings*
+Current: *${(settings?.antidelete || "off").toUpperCase()}*
+
+👉 *.antidelete off*
+👉 *.antidelete chat*
+👉 *.antidelete dm*` 
+      }, { quoted: mek });
+    }
+
+    await updateSettings(sock.sessionId, { antidelete: mode });
+    sock.botSettings = { ...settings, antidelete: mode };
+    await sock.sendMessage(chatJid, { text: `✅ *Antidelete* is now set to *${mode.toUpperCase()}*.` }, { quoted: mek });
+  },
+  ad: async (args) => module.exports.antidelete(args),
+  antidel: async (args) => module.exports.antidelete(args),
 
   // 👁️ View-once revealer
   vv: async ({ sock, chatJid, mek }) => {
