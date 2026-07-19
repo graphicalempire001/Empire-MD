@@ -1,13 +1,10 @@
-
+const express = require('express'); // 🟢 Move imports to the top
 const compression = require('compression');
-const app = express();
-
-const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const { execSync } = require('child_process'); // for disk capacity checks
+const { execSync } = require('child_process'); 
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -32,20 +29,21 @@ const {
   markBotOffline
 } = require('./lib/database');
 
-const app = express();
+const app = express(); // 🟢 Only declare this ONCE
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
-app.use(compression()); 
+app.use(compression()); // 🟢 Gzip compression for mobile speed
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// Serve the compiled React Frontend app instead of static public files!
+
+// Serve the compiled React Frontend app
 app.use(express.static(path.join(__dirname, 'public/Frontend/dist')));
 
 const activeSessions = {};
 const SESSIONS_ROOT = path.join(__dirname, 'sessions');
 
-// 🚦 EMERGENCY SWITCH — when true, /api/connect politely refuses NEW pairings.
+// 🚦 EMERGENCY SWITCH
 let pairingPaused = false;
 
 // Reserve threshold: warn/act when the volume is this % full (keep 10% free).
