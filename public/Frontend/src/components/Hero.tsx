@@ -41,8 +41,8 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
         <div className="absolute bottom-0 left-0 w-full h-48 bg-gradient-to-t from-[#EDEEF5] via-[#EDEEF5]/60 to-transparent"></div>
       </div>
 
-      {/* Hero Content */}
-      <div className="max-w-7xl w-full mx-auto px-6 md:px-16 lg:px-20 relative z-30 pt-24 sm:pt-36">
+      {/* Hero Content - Lower Z-Index than Mascot */}
+      <div className="max-w-7xl w-full mx-auto px-6 md:px-16 lg:px-20 relative z-10 pt-24 sm:pt-36">
         <div className="max-w-4xl">
           <motion.h1
             initial={{ opacity: 0, y: 15 }} 
@@ -61,7 +61,6 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
             seconds.
           </motion.h1>
 
-          {/* 🌟 GLOWING SUBTITLE */}
           <motion.div
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
@@ -104,8 +103,8 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
             </div>
           </motion.div>
 
-          {/* CTA Buttons - High Z-Index to prevent Mascot overlap */}
-          <div className="flex flex-col sm:flex-row gap-4 relative z-40">
+          {/* CTA Buttons */}
+          <div className="flex flex-col sm:flex-row gap-4">
             <motion.button 
               whileHover={{ y: -2 }} 
               whileTap={{ scale: 0.98 }}
@@ -128,12 +127,12 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
         </div>
       </div>
 
-      {/* 🤖 REFINED FLOATING MASCOT - Smaller & Bottom-Right */}
+      {/* 🤖 MASCOT ON TOP - Set to Z-50 */}
       <motion.div
         initial={{ opacity: 0, scale: 0.7, x: 30 }} 
         animate={{ opacity: 1, scale: 1, x: 0 }}
         transition={{ duration: 1, delay: 0.6, type: 'spring', stiffness: 100 }}
-        className="absolute bottom-[4vh] right-[2%] md:right-[5%] z-10 w-32 md:w-48 lg:w-56 floating pointer-events-none"
+        className="absolute bottom-[4vh] right-[2%] md:right-[5%] z-50 w-32 md:w-48 lg:w-56 floating pointer-events-none"
       >
         <img 
           src="/robot-mascot.png" 
@@ -145,7 +144,7 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
 
       {/* Footer Branding */}
       <div className="absolute bottom-8 left-8 md:left-12 z-20 font-mono text-[10px] text-[#8e8e8e] tracking-[0.2em] uppercase opacity-60">
-        © 2026 Empirendigitals • Mishael Yakubu
+        © 2026 Empire Digitals
       </div>
     </section>
   )
