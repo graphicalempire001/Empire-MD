@@ -20,7 +20,7 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
     <section
       className="relative min-h-[100vh] sm:min-h-[140vh] w-full flex flex-col items-center justify-start overflow-hidden bg-[#EDEEF5]"
     >
-      {/* Background Layer - Optimized for Speed */}
+      {/* Background Layer */}
       <div className="absolute top-[10vh] sm:top-[18vh] left-0 w-full h-[85vh] sm:h-[115vh] z-0 pointer-events-none">
         <div
           className="absolute inset-0 bg-cover bg-center opacity-20"
@@ -28,10 +28,8 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
         ></div>
         <div className="absolute inset-0 bg-[#EDEEF5]/60"></div>
 
-        {/* Video Background */}
         <video
-          autoPlay loop muted playsInline
-          preload="metadata"
+          autoPlay loop muted playsInline preload="metadata"
           className="relative w-full h-full object-cover opacity-80"
           poster="/hero-bg.jpg"
         >
@@ -40,12 +38,11 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
             type="video/mp4"
           />
         </video>
-
         <div className="absolute bottom-0 left-0 w-full h-48 bg-gradient-to-t from-[#EDEEF5] via-[#EDEEF5]/60 to-transparent"></div>
       </div>
 
       {/* Hero Content */}
-      <div className="max-w-7xl w-full mx-auto px-6 md:px-16 lg:px-20 relative z-10 pt-24 sm:pt-36">
+      <div className="max-w-7xl w-full mx-auto px-6 md:px-16 lg:px-20 relative z-30 pt-24 sm:pt-36">
         <div className="max-w-4xl">
           <motion.h1
             initial={{ opacity: 0, y: 15 }} 
@@ -64,16 +61,14 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
             seconds.
           </motion.h1>
 
-          {/* 🌟 GLOWING SUBTITLE - Forced Visibility */}
+          {/* 🌟 GLOWING SUBTITLE */}
           <motion.div
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
             transition={{ delay: 0.3 }}
             className="relative mb-10 max-w-xl"
           >
-            {/* Soft Glow Aura */}
             <div className="absolute -inset-4 bg-white/30 blur-2xl rounded-full z-0 pointer-events-none"></div>
-            
             <p className="relative z-10 body-text font-bold text-[#1a1a1a] leading-relaxed drop-shadow-[0_2px_8px_rgba(255,255,255,1)]">
               No code. No servers. No stress. Just connect your number and Empire MD handles everything — 
               <span className="text-green-600"> media downloads</span>, 
@@ -109,8 +104,8 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
             </div>
           </motion.div>
 
-          {/* CTA Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4">
+          {/* CTA Buttons - High Z-Index to prevent Mascot overlap */}
+          <div className="flex flex-col sm:flex-row gap-4 relative z-40">
             <motion.button 
               whileHover={{ y: -2 }} 
               whileTap={{ scale: 0.98 }}
@@ -133,28 +128,24 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
         </div>
       </div>
 
-      {/* 🤖 FLOATING MASCOT - Optimized for Mobile */}
+      {/* 🤖 REFINED FLOATING MASCOT - Smaller & Bottom-Right */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.8, x: 20 }} 
+        initial={{ opacity: 0, scale: 0.7, x: 30 }} 
         animate={{ opacity: 1, scale: 1, x: 0 }}
         transition={{ duration: 1, delay: 0.6, type: 'spring', stiffness: 100 }}
-        className="absolute bottom-[8vh] right-[2%] md:right-[8%] z-20 w-48 md:w-64 lg:w-80 floating pointer-events-none"
+        className="absolute bottom-[4vh] right-[2%] md:right-[5%] z-10 w-32 md:w-48 lg:w-56 floating pointer-events-none"
       >
         <img 
           src="/robot-mascot.png" 
           alt="Empire MD Bot Mascot" 
           loading="lazy"
-          className="w-full h-auto drop-shadow-[0_20px_50px_rgba(0,0,0,0.3)]" 
+          className="w-full h-auto drop-shadow-[0_15px_30px_rgba(0,0,0,0.2)]" 
         />
       </motion.div>
 
       {/* Footer Branding */}
       <div className="absolute bottom-8 left-8 md:left-12 z-20 font-mono text-[10px] text-[#8e8e8e] tracking-[0.2em] uppercase opacity-60">
-        © 2026 Empiredigitals 
-      </div>
-      
-      <div className="absolute bottom-8 right-8 md:right-12 z-20 hidden sm:block font-mono text-[10px] text-[#8e8e8e] tracking-widest lowercase opacity-60">
-        whatsapp automation scaling
+        © 2026 Empirendigitals • Mishael Yakubu
       </div>
     </section>
   )
