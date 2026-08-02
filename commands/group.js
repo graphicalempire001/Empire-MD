@@ -189,7 +189,6 @@ Message: ${mods.greetText || "(default)"}
             text: `✅ *Greet ON* with custom message:\n_${arg}_`
         }, { quoted: mek });
     },
-    welcome: async (args) => module.exports.greet(args),
-    autogreet: async (args) => module.exports.greet(args)
 };
+
 
