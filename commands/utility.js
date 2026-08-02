@@ -100,7 +100,7 @@ const CATALOG = {
     "tiktok": { d: "Download TikTok (no watermark)", a: ["tt"] },
     "fb": { d: "Download Facebook HD video", a: ["fbdl"] },
     "meme": { d: "Fetch a fresh meme", a: [] },
-    "vv": { d: "Reveal a replied view-once media", a: [] },
+    "vv": { d: "Reveal replied view-once image/video/voice note", a: [] },
     "send": { d: "Save/steal replied status or media", a: ["get"] },
     "pp": { d: "Get a user's profile picture (reply/mention/number)", a: [] }
   },
@@ -297,7 +297,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
       else if (type === 'videoMessage') await sock.sendMessage(dest, { video: buffer, caption }, { quoted: mek });
       else if (type === 'audioMessage') await sock.sendMessage(dest, { audio: buffer, mimetype: 'audio/mp4' }, { quoted: mek });
 
-      if (dest !== chatJid) await sock.sendMessage(chatJid, { text: "📥 Media sent to your DM." }, { quoted: mek });
+      // No feedback message — keep process clean
     } catch (err) {
       console.error("Send error:", err);
       await sock.sendMessage(chatJid, { text: "❌ Failed to save media." }, { quoted: mek });
@@ -341,11 +341,15 @@ _Powered by ${config.botName}_`
     }
   },
 
-  // 📸 FIXED PP COMMAND (Works for others + DM Routing)
+  // 📸 PP — profile picture (reply / mention / number). Works in groups AND private chats.
   pp: async ({ sock, chatJid, mek, quotedSender, contextInfo, args, isGroup, settings }) => {
     try {
-      // 1. Resolve Target correctly
-      let target = quotedSender || (contextInfo?.mentionedJid && contextInfo.mentionedJid[0]);
+      // Resolve target: reply → mention → typed number → self (group) / chat partner (DM)
+      let target =
+        quotedSender ||
+        contextInfo?.participant ||
+        (contextInfo?.mentionedJid && contextInfo.mentionedJid[0]) ||
+        null;
 
       if (!target && args && args.length) {
         const num = args[0].replace(/[^0-9]/g, '');
@@ -353,21 +357,28 @@ _Powered by ${config.botName}_`
       }
 
       if (!target) {
-        target = isGroup ? (sock.user.id.split(':')[0] + '@s.whatsapp.net') : chatJid;
+        // Group: default to bot's own PP. Private chat: the other person is chatJid.
+        target = isGroup
+          ? (sock.user.id.split(':')[0] + '@s.whatsapp.net')
+          : chatJid;
       }
 
-      // 2. Determine Destination
-      const dest = await getDestination(sock, chatJid, settings);
+      // Normalize LID → PN if needed (best-effort)
+      if (typeof target === 'string' && target.endsWith('@lid') && sock.signalRepository?.lidMapping?.getPNForLID) {
+        try {
+          const pn = await sock.signalRepository.lidMapping.getPNForLID(target);
+          if (pn) target = pn;
+        } catch (_) {}
+      }
 
+      const dest = await getDestination(sock, chatJid, settings);
       const url = await sock.profilePictureUrl(target, 'image');
       await sock.sendMessage(dest, {
         image: { url },
-        caption: `📸 *Profile Picture*
-Target: @${target.split('@')[0]}`,
+        caption: `📸 *Profile Picture*\nTarget: @${target.split('@')[0]}`,
         mentions: [target]
       }, { quoted: mek });
-
-      if (dest !== chatJid) await sock.sendMessage(chatJid, { text: "📸 Profile picture sent to your DM." }, { quoted: mek });
+      // No feedback message — keep process clean
     } catch {
       await sock.sendMessage(chatJid, {
         text: "❌ No profile picture found (or it's hidden by privacy settings)."
@@ -410,26 +421,42 @@ Current: *${(settings?.antidelete || "off").toUpperCase()}*
   },
   pmode: async (args) => module.exports.privacymode(args),
 
-  // 👁️ FIXED VIEW-ONCE REVEALER (With DM Routing)
+  // 👁️ VV — reveal view-once media (image / video / voice note). Works with DM routing.
   vv: async ({ sock, chatJid, mek, settings }) => {
     const q = getQuoted(mek);
-    if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a view once message!" }, { quoted: mek });
+    if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a view-once message or voice note!" }, { quoted: mek });
     try {
       const { message, type } = q;
-      if (!['imageMessage', 'videoMessage'].includes(type)) {
-        return sock.sendMessage(chatJid, { text: "❌ Reply to a view-once *image* or *video*." }, { quoted: mek });
+      const supported = ['imageMessage', 'videoMessage', 'audioMessage'];
+      if (!supported.includes(type)) {
+        return sock.sendMessage(chatJid, {
+          text: "❌ Reply to a view-once *image*, *video*, or *voice note*."
+        }, { quoted: mek });
       }
       const buffer = await downloadBuffer(message, type);
       const dest = await getDestination(sock, chatJid, settings);
-      const caption = `👁️ *View-Once Revealed* from @${(mek.quotedSender || chatJid).split('@')[0]}`;
+      const who = (mek.quotedSender || chatJid).split('@')[0];
+      const caption = `👁️ *Revealed* from @${who}`;
+      const mentions = mek.quotedSender ? [mek.quotedSender] : [];
 
-      if (type === 'imageMessage') await sock.sendMessage(dest, { image: buffer, caption, mentions: [mek.quotedSender] }, { quoted: mek });
-      else await sock.sendMessage(dest, { video: buffer, caption, mentions: [mek.quotedSender] }, { quoted: mek });
-
-      if (dest !== chatJid) await sock.sendMessage(chatJid, { text: "👁️ View-once content sent to your DM." }, { quoted: mek });
+      if (type === 'imageMessage') {
+        await sock.sendMessage(dest, { image: buffer, caption, mentions }, { quoted: mek });
+      } else if (type === 'videoMessage') {
+        await sock.sendMessage(dest, { video: buffer, caption, mentions }, { quoted: mek });
+      } else if (type === 'audioMessage') {
+        // Voice notes / PTT — send as audio (ptt if original was ptt)
+        const isPtt = !!message.audioMessage?.ptt;
+        await sock.sendMessage(dest, {
+          audio: buffer,
+          mimetype: message.audioMessage?.mimetype || 'audio/ogg; codecs=opus',
+          ptt: isPtt,
+          mentions
+        }, { quoted: mek });
+      }
+      // No feedback message — keep process clean
     } catch (err) {
       console.error("vv error:", err);
-      await sock.sendMessage(chatJid, { text: "❌ Failed to collect view once." }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: "❌ Failed to collect media." }, { quoted: mek });
     }
   }
 };
