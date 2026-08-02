@@ -92,7 +92,8 @@ async function killSession(sessionId) {
 
 // 🚀 Spawn the actual WhatsApp connection in its own child process (lib/botWorker.js).
 // Keeps a crash/leak in one bot's Baileys socket from ever taking down the whole server.
-function spawnBotProcess(sessionId, botName, cleanPhone, mode) {
+// _crashInfo carries the respawn counters forward across an unexpected-exit auto-respawn.
+function spawnBotProcess(sessionId, botName, cleanPhone, mode, _crashInfo = {}) {
   const child = fork(path.join(__dirname, 'lib/botWorker.js'), [], {
     env: {
       ...process.env,
@@ -104,7 +105,9 @@ function spawnBotProcess(sessionId, botName, cleanPhone, mode) {
   activeSessions[sessionId] = {
     process: child, botName, phoneNumber: cleanPhone, mode,
     status: 'pairing', pairingCode: null, qr: null,
-    error: null, codeRequested: true, expiry: Date.now() + 120000
+    error: null, codeRequested: true, expiry: Date.now() + 120000,
+    crashCount: _crashInfo.crashCount || 0,
+    lastCrashAt: _crashInfo.lastCrashAt || null
   };
 
   child.on('message', (msg) => {
@@ -117,10 +120,32 @@ function spawnBotProcess(sessionId, botName, cleanPhone, mode) {
     if (msg.type === 'error') s.error = msg.error;
   });
 
-  child.on('exit', (code) => {
-    console.log(`⚠️ Bot process ${sessionId} exited (code ${code})`);
-    if (activeSessions[sessionId]?.status !== 'connected')
+  child.on('exit', (code, signal) => {
+    console.log(`⚠️ Bot process ${sessionId} exited (code ${code}, signal ${signal})`);
+    const s = activeSessions[sessionId];
+    // Already cleaned up — either killSession() deleted it (manual stop/admin delete)
+    // or the worker sent 'loggedOut' before exiting. Either way: no respawn.
+    if (!s) return;
+
+    // 🔁 Unexpected exit (crash) — auto-respawn with backoff, capped so a bot that
+    // crashes on startup every time doesn't loop forever and hammer the server.
+    const MAX_CRASH_RESPAWNS = 5;
+    const CRASH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+    const now = Date.now();
+    const withinWindow = s.lastCrashAt && (now - s.lastCrashAt) < CRASH_WINDOW_MS;
+    const crashCount = withinWindow ? s.crashCount + 1 : 1;
+
+    if (crashCount > MAX_CRASH_RESPAWNS) {
+      console.error(`🛑 ${sessionId} crashed ${crashCount} times within ${CRASH_WINDOW_MS / 60000}min — giving up auto-respawn. Re-pair manually.`);
       delete activeSessions[sessionId];
+      return;
+    }
+
+    const delay = Math.min(5000 * crashCount, 60000); // 5s, 10s, 15s... capped at 60s
+    console.log(`🔁 Auto-respawning ${sessionId} in ${delay / 1000}s (crash ${crashCount}/${MAX_CRASH_RESPAWNS})...`);
+    setTimeout(() => {
+      spawnBotProcess(sessionId, botName, cleanPhone, mode, { crashCount, lastCrashAt: now });
+    }, delay);
   });
 
   return child;
