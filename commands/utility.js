@@ -113,7 +113,10 @@ const CATALOG = {
     "close": { d: "Mute group (admins only)", a: [] },
     "open": { d: "Unmute group", a: [] },
     "tagall": { d: "Mention every member", a: ["everyone"] },
-    "antilink": { d: "Link protection: off/warn/delete/kick", a: [] }
+    "antilink": { d: "Per-group link protection (silent delete)", a: [] },
+    "antimention": { d: "Per-group: delete status mentions (not chat tags)", a: ["am"] },
+    "tag": { d: "Tag everyone silently (no name list)", a: [] },
+    "greet": { d: "Per-group welcome on join (on/off/custom)", a: [] }
   },
   "🤖 AI & Utility": {
     "ai": { d: "Ask the AI assistant", a: ["chat", "ask"] },
@@ -127,9 +130,9 @@ const CATALOG = {
     "auto": { d: "Toggle typing/recording/online", a: ["presence"] },
     "autostatusview": { d: "Toggle auto-view statuses", a: [] },
     "autostatusreact": { d: "Toggle auto-react to statuses", a: [] },
-    "autogreet": { d: "Greet new contacts (on/off or custom text)", a: ["greet", "welcome"] },
     "away": { d: "Away auto-reply for DMs & mentions (on/off or custom)", a: ["awaymode"] },
     "antidelete": { d: "Recover deleted messages: off/chat/dm", a: ["ad", "antidel"] },
+    "welcome": { d: "DM auto-welcome for new chats (business)", a: ["autogreet"] },
     "privacymode": { d: "Route .pp/.vv/.send results to DM (chat/dm)", a: ["pmode"] }
   },
   "👑 Owner & Self": {
