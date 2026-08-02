@@ -111,7 +111,7 @@ module.exports = {
   // 🎨 Sticker Maker Command (Alias: s, sticker)
   s: async ({ sock, chatJid, mek }) => {
     try {
-      await sock.sendMessage(chatJid, { text: "🎨 *Sticker Maker:* Downloading and processing your media..." }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: "..." }, { quoted: mek });
       let mediaMek = mek;
       let type = Object.keys(mek.message)[0];
       let inner = mek.message[type];
