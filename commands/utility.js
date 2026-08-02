@@ -139,15 +139,12 @@ const CATALOG = {
     "setname": { d: "Update bot display name", a: ["sn"] },
     "setbio": { d: "Update bot bio", a: ["sb"] }
   },
-  "🎭 Fun & Economy": {
+  "🎭 Fun & Faith": {
     "joke": { d: "Random joke", a: [] },
     "fact": { d: "Random fact", a: [] },
     "bored": { d: "Suggest an activity", a: ["act"] },
-    "excuse": { d: "Developer excuse", a: [] },
     "bible": { d: "Random or specific Bible verse", a: ["verse"] },
-    "bal": { d: "Wallet & bank balance", a: ["balance", "wallet"] },
-    "slot": { d: "Slot machine", a: ["slots"] },
-    "daily": { d: "Claim daily coins", a: [] }
+    "quran": { d: "Qur'an ayah (random / 2:255 / surah)", a: ["qur", "ayat"] }
   }
 };
 
