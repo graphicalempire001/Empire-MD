@@ -82,5 +82,62 @@ module.exports = {
       : "OFF";
     await sock.sendMessage(chatJid, { text: `✅ *Auto Status React:* *${modeText}*` }, { quoted: mek });
   },
-  asr: async (args) => module.exports.autostatusreact(args)
+  asr: async (args) => module.exports.autostatusreact(args),
+
+  // 👋 DM Auto-Welcome (business) — greets new private chats only, never groups
+  // .welcome              → status + help
+  // .welcome on|off       → toggle
+  // .welcome Hello! ...   → set custom message + turn ON
+  welcome: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
+    if (!isOwner) {
+      return sock.sendMessage(chatJid, { text: "❌ Owner only command!" }, { quoted: mek });
+    }
+
+    const s = settings || {};
+    const arg = (text || "").trim();
+    const low = arg.toLowerCase();
+
+    if (!arg) {
+      return sock.sendMessage(chatJid, {
+        text: `👋 *DM Auto-Welcome* (business)
+Status: *${s.autogreet ? "ON" : "OFF"}*
+Message:
+_${s.greetMessage || "(default: Hello and welcome! Type .help …)"}_
+
+👉 *.welcome on* — enable for new private chats
+👉 *.welcome off* — disable
+👉 *.welcome Your custom text here* — set message & enable
+
+_Only fires once per new DM contact. Never runs in groups._
+_Tip: mention your channel, hours, or catalog in the message._`
+      }, { quoted: mek });
+    }
+
+    const persist = async (patch) => {
+      const { updateSettings } = require('../lib/database');
+      const merged = { ...(s || {}), ...patch };
+      sock.botSettings = merged;
+      if (sock.sessionId) {
+        try { await updateSettings(sock.sessionId, patch); }
+        catch (e) { console.error("welcome persist:", e.message); }
+      }
+    };
+
+    if (low === "on" || low === "enable") {
+      await persist({ autogreet: true });
+      return sock.sendMessage(chatJid, { text: "✅ *DM Welcome ON* — new private chats will get your welcome message." }, { quoted: mek });
+    }
+    if (low === "off" || low === "disable") {
+      await persist({ autogreet: false });
+      return sock.sendMessage(chatJid, { text: "✅ *DM Welcome OFF*." }, { quoted: mek });
+    }
+
+    // custom message → save + enable
+    await persist({ autogreet: true, greetMessage: arg });
+    await sock.sendMessage(chatJid, {
+      text: `✅ *DM Welcome ON* with custom message:\n\n_${arg}_`
+    }, { quoted: mek });
+  },
+  autogreet: async (args) => module.exports.welcome(args),
+  // keep .greet for groups only (commands/group.js) — do not alias here
 };
