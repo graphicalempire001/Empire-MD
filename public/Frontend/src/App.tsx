@@ -11,8 +11,8 @@ import CustomerCare from './sections/CustomerCare'
 import Footer from './sections/Footer'
 import WhatsAppChat from './components/WhatsAppChat'
 import PairingFlow from './components/PairingFlow'
-import Admin from './pages/Admin'
-import AdminDashboard from './components/AdminDashboard';
+//import Admin from './pages/Admin'
+import Admin from './components/AdminDashboard';
 
 function Landing({ onGetBot, onOpenChat }: { onGetBot: () => void; onOpenChat: () => void }) {
   return (
