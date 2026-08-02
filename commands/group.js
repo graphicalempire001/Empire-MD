@@ -107,7 +107,9 @@ https://chat.whatsapp.com/${code}` }, { quoted: mek });
         }
     },
 
-    // 🚫 Anti-mention — PER GROUP. Silently deletes any message that @tags someone.
+    // 🚫 Anti STATUS-mention — PER GROUP.
+    // Normal @tags in the group stay allowed. Only WhatsApp *status mention*
+    // notifications that appear in the group are silently deleted.
     antimention: async ({ sock, chatJid, mek, text, isOwner, isGroup, settings }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Owner only!" }, { quoted: mek });
         if (!isGroup) {
@@ -125,11 +127,28 @@ https://chat.whatsapp.com/${code}` }, { quoted: mek });
         await setGroupMod(sock, settings, chatJid, { antimention: next });
         await sock.sendMessage(chatJid, {
             text: next
-                ? "✅ *Anti-mention ON* for this group — tagged messages are deleted instantly (no reply)."
-                : "✅ *Anti-mention OFF* for this group."
+                ? "✅ *Anti status-mention ON* for this group.\nStatus mentions are deleted instantly. Normal @tags in chat are still allowed."
+                : "✅ *Anti status-mention OFF* for this group."
         }, { quoted: mek });
     },
     am: async (args) => module.exports.antimention(args),
+    antistatusmention: async (args) => module.exports.antimention(args),
+
+    // 🏷️ .tag — notify everyone WITHOUT listing each @name (hidden mention)
+    // Usage: .tag  or  .tag Please read the rules
+    tag: async ({ sock, chatJid, mek, isGroup, isOwner, text }) => {
+        if (!isGroup) return sock.sendMessage(chatJid, { text: "❌ Group-only command!" }, { quoted: mek });
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Admin/Owner only!" }, { quoted: mek });
+        try {
+            const meta = await sock.groupMetadata(chatJid);
+            const jids = meta.participants.map(p => p.id).filter(Boolean);
+            const msg = (text && text.trim()) ? text.trim() : "📢";
+            // Mentions array notifies all members; body does not print every @number
+            await sock.sendMessage(chatJid, { text: msg, mentions: jids }, { quoted: mek });
+        } catch (err) {
+            await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
+        }
+    },
 
     // 👋 Group greet / welcome — PER GROUP (fires when someone joins)
     greet: async ({ sock, chatJid, mek, text, isOwner, isGroup, settings }) => {
