@@ -50,29 +50,32 @@ module.exports = {
     },
     mode: async (args) => module.exports.setmode(args),
 
-    // 📣 Group Broadcast with Follow Channel button (Alias: bc, broadcast)
-    broadcast: async ({ sock, chatJid, mek, text, isOwner }) => {
+    // 📣 Group Broadcast with channel card (Alias: bc, broadcast)
+    broadcast: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
         if (!text) return sock.sendMessage(chatJid, { text: "❌ Provide text to broadcast!" }, { quoted: mek });
 
-        const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-        const message = `📢 *[EMPIRE-BOTWAN BROADCAST]* 📢
+        const { buildChannelCard, resolveBotName } = require('../lib/channelCard');
+        const botName = resolveBotName(sock, settings);
+        const contextInfo = await buildChannelCard(sock, settings, {
+            title: `✅ ${botName} · Official Channel`,
+            body: 'Tap to view channel'
+        });
+
+        const message = `📢 *[${botName} BROADCAST]* 📢
 
 ${text}
 
-━━━━━━━━━━━━━━━━━━━━
-📢 *Stay Connected! Follow Our Channel:*
-👉 ${channelUrl}
-━━━━━━━━━━━━━━━━━━━━`;
+✅ _Official channel card attached — tap to view_`;
 
         try {
             const groups = await sock.groupFetchAllParticipating();
             const groupJids = Object.keys(groups);
 
-            await sock.sendMessage(chatJid, { text: `🚀 Starting owner broadcast to *${groupJids.length}* groups...` }, { quoted: mek });
+            await sock.sendMessage(chatJid, { text: `🚀 Starting broadcast to *${groupJids.length}* groups...` }, { quoted: mek });
             for (const jid of groupJids) {
                 try {
-                    await sock.sendMessage(jid, { text: message });
+                    await sock.sendMessage(jid, { text: message, contextInfo });
                 } catch (err) {
                     console.error(`Failed to send broadcast to group: ${jid}`, err.message);
                 }
