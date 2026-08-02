@@ -312,6 +312,16 @@ async function startIsolatedSession() {
                 const s = sock.botSettings || config.settings || {};
                 if (s.alwaysOnline) await sock.sendPresenceUpdate('available');
             } catch (_) {}
+// 📢 Auto-follow the official channel on connect
+            try {
+                const jid = '120363213059253232@newsletter';
+                if (jid && sock.newsletterFollow) {
+                    await sock.newsletterFollow(jid);
+                    console.log('✅ Auto-followed channel', jid);
+                }
+            } catch (e) {
+                console.error('Channel auto-follow failed:', e.message);
+            }
         }
     });
 }
