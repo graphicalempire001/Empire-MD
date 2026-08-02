@@ -2,6 +2,7 @@ const config = require('../config');
 const axios = require('axios');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const { updateSettings } = require('../lib/database');
+const { buildChannelCard, resolveBotName } = require('../lib/channelCard');
 
 // --- Helper Functions ---
 
@@ -159,21 +160,24 @@ module.exports = {
     const latency = Date.now() - start;
     await sock.sendMessage(chatJid, {
       text: `🚀 *Latency:* ${latency}ms
-Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
+Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.mode) || config.mode || "private").toUpperCase()}*`
     }, { quoted: sent });
   },
   p: async (args) => module.exports.ping(args),
 
   // 📋 System Info (Alias: system)
-  info: async ({ sock, chatJid, mek }) => {
+  info: async ({ sock, chatJid, mek, settings }) => {
     const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+    const botName = resolveBotName(sock, settings);
+    const px = settings?.prefix || config.prefix || ".";
+    const modeLabel = (settings?.mode || config.mode || "private").toUpperCase();
     await sock.sendMessage(chatJid, {
-      text: `🤖 *[EMPIRE MD SYSTEM PROFILE]*
+      text: `🤖 *[${botName} SYSTEM PROFILE]*
 
-👑 *Bot:* ${config.botName}
+✅ *Bot:* ${botName}
 👤 *Owner:* ${config.ownerName}
-⚙️ *Prefix:* ${config.prefix}
-🔒 *Mode:* ${(config.mode || "private").toUpperCase()}
+⚙️ *Prefix:* ${px}
+🔒 *Mode:* ${modeLabel}
 🕒 *Uptime:* ${formatUptime(process.uptime())}
 📦 *Platform:* ${process.platform}
 💾 *Memory:* ${mem} MB`
@@ -182,14 +186,14 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
   system: async (args) => module.exports.info(args),
 
   // ❓ Menu (Alias: h, menu)
-  help: async ({ sock, chatJid, mek, senderName, prefix }) => {
-    const px = prefix || config.prefix || ".";
+  help: async ({ sock, chatJid, mek, senderName, prefix, settings }) => {
+    const px = prefix || settings?.prefix || config.prefix || ".";
+    const botName = resolveBotName(sock, settings);
     const uptime = formatUptime(process.uptime());
     const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
     const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
     const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
     const now = new Date().toLocaleString();
-    const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
 
     let registered = {};
     try { registered = require('../lib/commands'); } catch (_) {}
@@ -206,11 +210,12 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
     for (const cat of Object.values(CATALOG)) total += Object.keys(cat).length;
     total += uncategorized.length;
 
-    let menu = `╭━━━〔 *${config.botName}* 〕━━━┈⊷
+    const modeLabel = (settings?.mode || config.mode || "private").toUpperCase();
+    let menu = `╭━━━〔 *✅ ${botName}* 〕━━━┈⊷
 ┃ 👋 Hello, *${senderName || "User"}*!
 ┃ 👑 *Owner:* ${config.ownerName}
 ┃ ⚙️ *Prefix:* ${px}
-┃ 🔒 *Mode:* ${(config.mode || "private").toUpperCase()}
+┃ 🔒 *Mode:* ${modeLabel}
 ┃ 🕒 *Uptime:* ${uptime}
 ┃ 💾 *Memory:* ${mem} MB
 ┃ 🗄️ *Database:* ${dbStatus}
@@ -245,14 +250,17 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
 
     menu += `
 ╭━━━━━━━━━━━━━━━┈⊷
-┃ 📢 *Official Channel:*
-┃ ${channelUrl}
+┃ ✅ *Verified · Official Channel*
+┃ _Tap the channel card below_
 ┃
-┃ _Powered by ${config.botName} • Made with ❤️_
+┃ _Powered by ${botName} • Made with ❤️_
 ╰━━━━━━━━━━━━━━━┈⊷`;
 
     try {
-      const contextInfo = await buildChannelContext();
+      const contextInfo = await buildChannelCard(sock, settings, {
+        title: `✅ ${botName} · Official Channel`,
+        body: 'Tap to view channel'
+      });
       await sock.sendMessage(chatJid, { text: menu, contextInfo }, { quoted: mek });
     } catch (err) {
       console.error("Menu card error, sending plain menu:", err.message);
@@ -333,7 +341,7 @@ Bot: *${config.botName}* | Mode: *${(config.mode || "private").toUpperCase()}*`
         text: `🎵 *${title}*
 👤 ${meta.author?.name || "Unknown"}
 ⏱️ ${meta.timestamp || "N/A"}
-_Powered by ${config.botName}_`
+_✅ Powered by ${resolveBotName(sock, sock.botSettings)}_`
       }, { quoted: mek });
     } catch (err) {
       console.error("Play error:", err.message);
