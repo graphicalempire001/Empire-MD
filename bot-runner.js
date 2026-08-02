@@ -29,6 +29,104 @@ const SESSIONS_ROOT = path.join(__dirname, 'sessions');
 const messageCache = new Map();
 const MSG_CACHE_LIMIT = 400;
 
+
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+
+async function downloadMediaBuffer(node, mediaType) {
+    const stream = await downloadContentFromMessage(node, mediaType);
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+    return buffer;
+}
+
+/** Unwrap view-once / ephemeral wrappers and re-send media so deleted view-once + voice notes are recovered. */
+async function recoverDeletedContent(sock, destination, originalMek, senderJid) {
+    try {
+        let msg = originalMek.message;
+        if (!msg) return false;
+
+        // Unwrap common wrappers
+        while (
+            msg.ephemeralMessage ||
+            msg.viewOnceMessage ||
+            msg.viewOnceMessageV2 ||
+            msg.viewOnceMessageV2Extension
+        ) {
+            msg =
+                msg.ephemeralMessage?.message ||
+                msg.viewOnceMessage?.message ||
+                msg.viewOnceMessageV2?.message ||
+                msg.viewOnceMessageV2Extension?.message;
+            if (!msg) return false;
+        }
+
+        const type = Object.keys(msg).find(k =>
+            ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage', 'conversation', 'extendedTextMessage'].includes(k)
+        );
+        if (!type) return false;
+
+        const node = msg[type];
+        const captionTag = `_(recovered from @${(senderJid || '').split('@')[0]})_`;
+
+        if (type === 'imageMessage') {
+            const buf = await downloadMediaBuffer(node, 'image');
+            await sock.sendMessage(destination, {
+                image: buf,
+                caption: (node.caption ? node.caption + '\n' : '') + captionTag,
+                mentions: senderJid ? [senderJid] : []
+            });
+            return true;
+        }
+        if (type === 'videoMessage') {
+            const buf = await downloadMediaBuffer(node, 'video');
+            await sock.sendMessage(destination, {
+                video: buf,
+                caption: (node.caption ? node.caption + '\n' : '') + captionTag,
+                mentions: senderJid ? [senderJid] : []
+            });
+            return true;
+        }
+        if (type === 'audioMessage') {
+            const buf = await downloadMediaBuffer(node, 'audio');
+            await sock.sendMessage(destination, {
+                audio: buf,
+                mimetype: node.mimetype || 'audio/ogg; codecs=opus',
+                ptt: !!node.ptt
+            });
+            return true;
+        }
+        if (type === 'stickerMessage') {
+            const buf = await downloadMediaBuffer(node, 'sticker');
+            await sock.sendMessage(destination, { sticker: buf });
+            return true;
+        }
+        if (type === 'documentMessage') {
+            const buf = await downloadMediaBuffer(node, 'document');
+            await sock.sendMessage(destination, {
+                document: buf,
+                mimetype: node.mimetype,
+                fileName: node.fileName || 'recovered'
+            });
+            return true;
+        }
+        if (type === 'conversation' || type === 'extendedTextMessage') {
+            const body = type === 'conversation' ? msg.conversation : (node.text || '');
+            if (body) {
+                await sock.sendMessage(destination, {
+                    text: body + '\n' + captionTag,
+                    mentions: senderJid ? [senderJid] : []
+                });
+                return true;
+            }
+        }
+        return false;
+    } catch (e) {
+        console.error("recoverDeletedContent failed:", e.message);
+        return false;
+    }
+}
+
+
 function cacheMessage(mek) {
     if (!mek?.key?.id) return;
     messageCache.set(mek.key.id, {
@@ -103,9 +201,15 @@ async function startIsolatedSession() {
                             const header = `🗑️ *Antidelete - recovered message*
 👤 *From:* @${who}
 💬 *Chat:* ${cached.chatJid.endsWith('@g.us') ? 'Group' : 'Private'}`;
-                            
+
                             await sock.sendMessage(destination, { text: header, mentions: [cached.sender] });
-                            await sock.sendMessage(destination, { forward: cached.mek });
+
+                            // Prefer re-sending unwrapped content so view-once + voice notes are fully recovered
+                            const recovered = await recoverDeletedContent(sock, destination, cached.mek, cached.sender);
+                            if (!recovered) {
+                                // Fallback: plain forward
+                                await sock.sendMessage(destination, { forward: cached.mek });
+                            }
                         }
                     }
                 } catch (e) {
