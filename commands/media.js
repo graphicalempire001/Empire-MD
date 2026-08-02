@@ -22,34 +22,45 @@ async function downloadMedia(mek, type) {
   return buffer;
 }
 
-// Helper to send media with "leads to channel" button/link
+// Helper to send media with channel card (no raw URL spam) + verified badge
 async function sendGroupMedia(sock, chatJid, mediaObj, caption = "", mek = null) {
   const isGroup = chatJid.endsWith('@g.us');
-  const channelUrl = config.channelUrl || "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15";
-  const formattedCaption = isGroup
-    ? `${caption}
-━━━━━━━━━━━━━━━━━━━━
-📢 *Join Our Official BOT-WAN Channel:*
-👉 ${channelUrl}
-━━━━━━━━━━━━━━━━━━━━`
-    : caption;
+  let contextInfo = undefined;
+  let formattedCaption = caption || '';
+  if (isGroup) {
+    try {
+      const { buildChannelCard, resolveBotName, verifiedFooter } = require('../lib/channelCard');
+      const botName = resolveBotName(sock, sock.botSettings);
+      contextInfo = await buildChannelCard(sock, sock.botSettings, {
+        title: `✅ ${botName} · Official Channel`,
+        body: 'Tap to view channel'
+      });
+      formattedCaption = (caption || '') + verifiedFooter(botName);
+    } catch (e) {
+      console.error('channel card media:', e.message);
+    }
+  }
+  const opts = { quoted: mek };
   if (mediaObj.video) {
     return sock.sendMessage(chatJid, {
       video: mediaObj.video,
       caption: formattedCaption,
-      mimetype: 'video/mp4'
-    }, { quoted: mek });
+      mimetype: 'video/mp4',
+      ...(contextInfo ? { contextInfo } : {})
+    }, opts);
   } else if (mediaObj.audio) {
     return sock.sendMessage(chatJid, {
       audio: mediaObj.audio,
       mimetype: 'audio/mp4',
-      ptt: mediaObj.ptt || false
-    }, { quoted: mek });
+      ptt: mediaObj.ptt || false,
+      ...(contextInfo ? { contextInfo } : {})
+    }, opts);
   } else if (mediaObj.image) {
     return sock.sendMessage(chatJid, {
       image: mediaObj.image,
-      caption: formattedCaption
-    }, { quoted: mek });
+      caption: formattedCaption,
+      ...(contextInfo ? { contextInfo } : {})
+    }, opts);
   }
 }
 
