@@ -243,6 +243,25 @@ async function startIsolatedSession() {
     });
 
 
+
+    // 🚫 Anti status-mention event (when supported by Baileys build)
+    try {
+        sock.ev.on('status.mention', async (payload) => {
+            try {
+                const msg = payload?.message || payload;
+                const key = msg?.key;
+                if (!key?.remoteJid || !key.remoteJid.endsWith('@g.us')) return;
+                const s = sock.botSettings || config.settings || {};
+                const gMods = (s.groupMods && s.groupMods[key.remoteJid]) || {};
+                if (!gMods.antimention) return;
+                if (key.fromMe) return;
+                await sock.sendMessage(key.remoteJid, { delete: key });
+            } catch (e) {
+                console.error('status.mention delete failed:', e.message);
+            }
+        });
+    } catch (_) {}
+
     // 👋 Per-group greet on join
     sock.ev.on('group-participants.update', async (update) => {
         try {
