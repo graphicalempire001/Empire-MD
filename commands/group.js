@@ -1,5 +1,6 @@
 const config = require('../config');
 const { updateSettings } = require('../lib/database');
+const { getGroupMods, setGroupMod } = require('../lib/groupMods');
 
 // Resolve a target participant JID from: swipe-reply → mention → typed number.
 function resolveTarget({ quotedSender, contextInfo, mek, args }) {
@@ -104,5 +105,72 @@ https://chat.whatsapp.com/${code}` }, { quoted: mek });
         } catch (err) {
             await sock.sendMessage(chatJid, { text: `❌ Failed: ${err.message}` }, { quoted: mek });
         }
-    }
+    },
+
+    // 🚫 Anti-mention — PER GROUP. Silently deletes any message that @tags someone.
+    antimention: async ({ sock, chatJid, mek, text, isOwner, isGroup, settings }) => {
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Owner only!" }, { quoted: mek });
+        if (!isGroup) {
+            return sock.sendMessage(chatJid, {
+                text: "❌ Run *.antimention* inside the group you want to protect."
+            }, { quoted: mek });
+        }
+        const mods = getGroupMods(settings, chatJid);
+        const arg = (text || "").toLowerCase().trim();
+        let next;
+        if (arg === "on" || arg === "enable") next = true;
+        else if (arg === "off" || arg === "disable") next = false;
+        else next = !mods.antimention;
+
+        await setGroupMod(sock, settings, chatJid, { antimention: next });
+        await sock.sendMessage(chatJid, {
+            text: next
+                ? "✅ *Anti-mention ON* for this group — tagged messages are deleted instantly (no reply)."
+                : "✅ *Anti-mention OFF* for this group."
+        }, { quoted: mek });
+    },
+    am: async (args) => module.exports.antimention(args),
+
+    // 👋 Group greet / welcome — PER GROUP (fires when someone joins)
+    greet: async ({ sock, chatJid, mek, text, isOwner, isGroup, settings }) => {
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Owner only!" }, { quoted: mek });
+        if (!isGroup) {
+            return sock.sendMessage(chatJid, {
+                text: "❌ Run *.greet* inside the group where you want welcome messages.\nIt will not leak to other groups."
+            }, { quoted: mek });
+        }
+        const mods = getGroupMods(settings, chatJid);
+        const arg = (text || "").trim();
+        const low = arg.toLowerCase();
+
+        if (!arg) {
+            return sock.sendMessage(chatJid, {
+                text: `👋 *Group Greet* (this group only)
+Status: *${mods.greet ? "ON" : "OFF"}*
+Message: ${mods.greetText || "(default)"}
+
+👉 *.greet on* / *.greet off*
+👉 *.greet Hello @user welcome!* — set custom text
+   Use *@user* where the new member should be mentioned.`
+            }, { quoted: mek });
+        }
+
+        if (low === "on" || low === "enable") {
+            await setGroupMod(sock, settings, chatJid, { greet: true });
+            return sock.sendMessage(chatJid, { text: "✅ *Greet ON* for this group only." }, { quoted: mek });
+        }
+        if (low === "off" || low === "disable") {
+            await setGroupMod(sock, settings, chatJid, { greet: false });
+            return sock.sendMessage(chatJid, { text: "✅ *Greet OFF* for this group." }, { quoted: mek });
+        }
+
+        // custom text
+        await setGroupMod(sock, settings, chatJid, { greet: true, greetText: arg });
+        await sock.sendMessage(chatJid, {
+            text: `✅ *Greet ON* with custom message:\n_${arg}_`
+        }, { quoted: mek });
+    },
+    welcome: async (args) => module.exports.greet(args),
+    autogreet: async (args) => module.exports.greet(args)
 };
+
