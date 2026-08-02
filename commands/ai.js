@@ -2,11 +2,11 @@ const axios = require('axios');
 const { getAiMemory, saveAiMemory, updateSettings } = require('../lib/database');
 
 const MAX_TURNS = 14;
-const REQUEST_TIMEOUT = 40000;
+const REQUEST_TIMEOUT = 35000;
 
 // 🔒 Hardcoded, model-proof identity answer.
 const IDENTITY_ANSWER =
-  "I am Empire AI — an artificial intelligence programmed and engineered by the software engineers at Empire Digital.";
+  "I am Empire AI — an artificial intelligence programmed and engineered by the software engineers at Empire Digitals.";
 
 const IDENTITY_REGEX = new RegExp(
   "(who|what|whose|which company)\\s+(are|is|made|built|created|programmed|developed|designed|owns|invented)\\s+(you|u|your(?:\\s+(?:creator|developer|maker|owner|company))?)" +
@@ -22,11 +22,11 @@ const IDENTITY_REGEX = new RegExp(
 );
 
 const BASE_IDENTITY =
-  "You are Empire AI, an artificial intelligence programmed and engineered by the software engineers at Empire Digital. " +
-  "If asked who you are, who built you, what you are, or who made you, clearly and proudly state that you are an AI built by the software engineering team at Empire Digital. " +
+  "You are Empire AI, an artificial intelligence programmed and engineered by the software engineers at Empire Digitals. " +
+  "If asked who you are, who built you, what you are, or who made you, clearly and proudly state that you are an AI built by the software engineering team at Empire Digitals. " +
   "You are intelligent, articulate, witty and genuinely helpful. You are strong at problem solving, reasoning, coding, explanations and natural conversation. " +
   "You remember the user's name and prior context. Adapt automatically to the user's language and dialect — always reply in the SAME language the user wrote in. " +
-  "Keep replies chat-friendly (usually under 130 words) unless the user asks for depth. Never pretend to be a human.";
+  "Keep replies chat-friendly (usually under 130 words) unless the user asks for depth. try to be a human as human as possible..";
 
 function buildSystemPrompt(name, persona) {
   let sys = BASE_IDENTITY;
@@ -45,40 +45,32 @@ function detectName(text) {
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// ── Provider 1: Pollinations (OpenAI-compatible, keyless) ──
-async function providerPollinationsChat(messages) {
-  const res = await axios.post(
-    'https://text.pollinations.ai/openai',
-    { model: 'openai', messages, temperature: 0.75 },
-    { timeout: REQUEST_TIMEOUT, headers: { 'Content-Type': 'application/json' } }
-  );
-  const out = res.data?.choices?.[0]?.message?.content;
-  if (out && out.trim()) return out.trim();
-  throw new Error("Pollinations chat empty");
+function extractContent(data) {
+  if (!data) return null;
+  if (typeof data === 'string' && data.trim()) return data.trim();
+  const c = data?.choices?.[0]?.message?.content
+    || data?.choices?.[0]?.text
+    || data?.message?.content
+    || data?.result
+    || data?.response
+    || data?.reply
+    || data?.data?.response
+    || data?.data?.message
+    || data?.data?.content
+    || data?.output
+    || data?.text;
+  if (typeof c === 'string' && c.trim()) return c.trim();
+  return null;
 }
 
-// ── Provider 2: Pollinations simple prompt GET ──
-async function providerPollinationsGet(messages) {
-  const prompt = messages.map(m =>
-    m.role === 'system' ? m.content
-      : (m.role === 'user' ? `User: ${m.content}` : `Empire AI: ${m.content}`)
-  ).join('\n') + '\nEmpire AI:';
-  const res = await axios.get(
-    `https://text.pollinations.ai/${encodeURIComponent(prompt)}`,
-    { timeout: REQUEST_TIMEOUT }
-  );
-  if (typeof res.data === 'string' && res.data.trim()) return res.data.trim();
-  throw new Error("Pollinations GET empty");
-}
-
-// ── Provider 3: OpenAI-compatible key (optional, if set in .env) ──
+// ── Provider 1: Optional OpenAI-compatible key (Groq / OpenRouter / etc.) ──
 async function providerOpenAiCompat(messages) {
-  if (!process.env.AI_API_KEY) throw new Error("No AI_API_KEY configured");
-  const base = process.env.AI_API_BASE || 'https://api.groq.com/openai/v1';
+  if (!process.env.AI_API_KEY) throw new Error("No AI_API_KEY");
+  const base = (process.env.AI_API_BASE || 'https://api.groq.com/openai/v1').replace(/\/$/, '');
   const model = process.env.AI_MODEL || 'llama-3.1-8b-instant';
   const res = await axios.post(
     `${base}/chat/completions`,
-    { model, messages, temperature: 0.75 },
+    { model, messages, temperature: 0.75, max_tokens: 800 },
     {
       timeout: REQUEST_TIMEOUT,
       headers: {
@@ -87,26 +79,84 @@ async function providerOpenAiCompat(messages) {
       }
     }
   );
-  const out = res.data?.choices?.[0]?.message?.content;
-  if (out && out.trim()) return out.trim();
+  const out = extractContent(res.data);
+  if (out) return out;
   throw new Error("OpenAI-compat empty");
 }
 
-// 🔁 Try each provider in order, with one retry each, before giving up.
+// ── Provider 2: Pollinations chat (keyless, anonymous still works) ──
+async function providerPollinationsChat(messages, model = 'openai') {
+  const res = await axios.post(
+    'https://text.pollinations.ai/openai',
+    { model, messages, temperature: 0.75 },
+    {
+      timeout: REQUEST_TIMEOUT,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 EmpireMD/1.0'
+      },
+      validateStatus: (s) => s < 500
+    }
+  );
+  if (res.status === 402 || res.status === 429) {
+    throw new Error(`Pollinations ${res.status}`);
+  }
+  const out = extractContent(res.data);
+  if (out) return out;
+  throw new Error("Pollinations chat empty");
+}
+
+// ── Provider 3: Pollinations simple GET (no auth) ──
+async function providerPollinationsGet(messages) {
+  // Keep prompt short so URL stays under limits
+  const lastUser = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+  const sys = messages.find(m => m.role === 'system')?.content || '';
+  const shortSys = sys.slice(0, 280);
+  const prompt = `${shortSys}\n\nUser: ${lastUser}\nEmpire AI:`;
+  const res = await axios.get(
+    `https://text.pollinations.ai/${encodeURIComponent(prompt)}`,
+    {
+      timeout: REQUEST_TIMEOUT,
+      headers: { 'User-Agent': 'Mozilla/5.0 EmpireMD/1.0' },
+      responseType: 'text',
+      transformResponse: [(d) => d]
+    }
+  );
+  const raw = typeof res.data === 'string' ? res.data : String(res.data || '');
+  if (raw.trim()) return raw.trim();
+  throw new Error("Pollinations GET empty");
+}
+
+// ── Provider 4: Pollinations with alternate model name ──
+async function providerPollinationsAlt(messages) {
+  return providerPollinationsChat(messages, 'openai-fast');
+}
+
+// 🔁 Cascade providers. Optional paid key first, then keyless chain.
 async function askAI(messages) {
   const providers = [
-    providerOpenAiCompat,      // used first ONLY if AI_API_KEY is set
-    providerPollinationsChat,
-    providerPollinationsGet
+    { name: 'openai-compat', fn: providerOpenAiCompat },
+    { name: 'pollinations-chat', fn: () => providerPollinationsChat(messages, 'openai') },
+    { name: 'pollinations-alt', fn: () => providerPollinationsAlt(messages) },
+    { name: 'pollinations-get', fn: () => providerPollinationsGet(messages) }
   ];
+
   let lastErr;
-  for (const provider of providers) {
+  for (const { name, fn } of providers) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return await provider(messages);
+        const out = await fn(messages);
+        if (out && out.trim()) return out.trim();
+        throw new Error(`${name} empty`);
       } catch (e) {
         lastErr = e;
-        if (attempt === 0) await sleep(700); // brief backoff, then retry same provider
+        const msg = (e.response?.status ? `${e.response.status} ` : '') + (e.message || '');
+        console.error(`[AI] ${name} attempt ${attempt + 1} failed:`, msg);
+        // Don't retry hard auth / budget errors on same provider
+        const status = e.response?.status;
+        if (status === 401 || status === 402 || status === 403) break;
+        if (attempt === 0) await sleep(600 + Math.random() * 400);
       }
     }
   }
@@ -119,7 +169,6 @@ async function runAi({ sock, chatJid, mek, text, senderName, sender, settings })
   const userJid = sender || mek.key.participant || chatJid;
   const persona = settings?.aipersona || sock.botSettings?.aipersona || "";
 
-  // Natural "typing…" indicator instead of a filler message.
   try { await sock.sendPresenceUpdate('composing', chatJid); } catch (_) {}
 
   const mem = await getAiMemory(sessionId, userJid);
@@ -231,7 +280,10 @@ ${p}` }, { quoted: mek });
       await runAi({ sock, chatJid, mek, text: arg, senderName, sender, settings });
     } catch (err) {
       console.error("AI error:", err.message);
-      await sock.sendMessage(chatJid, { text: "🤖 *Empire AI:* I couldn't reach my reasoning engine just now — please resend that in a moment." }, { quoted: mek });
+      await sock.sendMessage(chatJid, {
+        text: "🤖 *Empire AI:* My free reasoning engine is busy right now. Try again in a few seconds" +
+          (process.env.AI_API_KEY ? "." : " — or set *AI_API_KEY* (e.g. free Groq key) for a more stable engine.")
+      }, { quoted: mek });
     }
   },
   chat: async (args) => module.exports.ai(args),
