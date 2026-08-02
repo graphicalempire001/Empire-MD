@@ -87,6 +87,23 @@ ${text}
     },
     bc: async (args) => module.exports.broadcast(args),
 
+    //ADDING CHANEL JID
+
+    getchannel: async ({ sock, chatJid, mek, isOwner }) => {
+  if (!isOwner) return;
+  try {
+    const code = "0029VaI3OXiF6smuq5LxxN15"; // your channel invite code
+    const meta = await sock.newsletterMetadata("invite", code);
+    const jid = meta?.id || meta?.jid || JSON.stringify(meta);
+    await sock.sendMessage(chatJid, {
+      text: `✅ *Channel newsletterJid:*\n\`\`\`${jid}\`\`\`\n\nPut this in config.js as newsletterJid`
+    }, { quoted: mek });
+    console.log("CHANNEL META:", meta);
+  } catch (e) {
+    await sock.sendMessage(chatJid, { text: `❌ ${e.message}` }, { quoted: mek });
+  }
+},
+    
     // 📲 Pair a new bot for another number (reply / mention / typed number)
     pair: async ({ sock, chatJid, mek, text, isOwner, quotedSender, contextInfo }) => {
         if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
