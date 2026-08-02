@@ -242,6 +242,26 @@ async function startIsolatedSession() {
         }
     });
 
+
+    // 👋 Per-group greet on join
+    sock.ev.on('group-participants.update', async (update) => {
+        try {
+            if (!update || update.action !== 'add') return;
+            const chatJid = update.id;
+            const s = sock.botSettings || config.settings || {};
+            const gMods = (s.groupMods && s.groupMods[chatJid]) || {};
+            if (!gMods.greet) return;
+            const template = gMods.greetText || '👋 Welcome @user to the group!';
+            for (const jid of (update.participants || [])) {
+                const mention = '@' + String(jid).split('@')[0];
+                const text = template.replace(/@user/gi, mention);
+                await sock.sendMessage(chatJid, { text, mentions: [jid] });
+            }
+        } catch (e) {
+            console.error('Group greet error:', e.message);
+        }
+    });
+
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
