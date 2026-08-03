@@ -144,5 +144,48 @@ _Tip: mention your channel, hours, or catalog in the message._`
     }, { quoted: mek });
   },
   autogreet: async (args) => module.exports.welcome(args),
-  // keep .greet for groups only (commands/group.js) — do not alias here
+
+  // 👁️ Hide Presence — delayed blue ticks (Alias: hp, hidepresence)
+  // Bot session never sends read receipts until it replies.
+  // NOTE: Opening the chat on the PHONE app can still blue-tick unless
+  // WhatsApp → Settings → Privacy → Read receipts is OFF on that phone.
+  hp: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
+    if (!isOwner) {
+      return sock.sendMessage(chatJid, { text: "❌ Owner only command!" }, { quoted: mek });
+    }
+    const s = settings || {};
+    const arg = (text || "").toLowerCase().trim();
+    let next;
+    if (arg === "on" || arg === "enable") next = true;
+    else if (arg === "off" || arg === "disable") next = false;
+    else next = !s.hidePresence;
+
+    const patch = {
+      hidePresence: next,
+      autoread: false
+    };
+    if (next) {
+      patch.alwaysOnline = false;
+      patch.auttyping = false;
+      patch.autorecord = false;
+    }
+    await persist(sock, s, patch);
+
+    if (next) {
+      try { await sock.sendPresenceUpdate("unavailable"); } catch (_) {}
+    }
+
+    await sock.sendMessage(chatJid, {
+      text: next
+        ? `✅ *Hide Presence ON*
+• Linked bot will not send blue ticks on receive
+• Blue tick is sent only after this bot replies
+• Online / typing indicators disabled for this session
+
+⚠️ *Phone tip:* If you open the chat on your phone, WhatsApp itself may still blue-tick.
+To block that too: *WhatsApp → Settings → Privacy → Read receipts → OFF*`
+        : "✅ *Hide Presence OFF* — normal behaviour restored."
+    }, { quoted: mek });
+  },
+  hidepresence: async (args) => module.exports.hp(args),
 };
