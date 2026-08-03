@@ -166,7 +166,7 @@ async function startIsolatedSession() {
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 15000,
         retryRequestDelayMs: 2000,
-        markOnlineOnConnect: true,
+        markOnlineOnConnect: false,
         generateHighQualityLinkPreview: true,
         syncFullHistory: false
     });
@@ -310,7 +310,11 @@ async function startIsolatedSession() {
             }
             try {
                 const s = sock.botSettings || config.settings || {};
-                if (s.alwaysOnline) await sock.sendPresenceUpdate('available');
+                if (s.hidePresence) {
+                    await sock.sendPresenceUpdate('unavailable');
+                } else if (s.alwaysOnline) {
+                    await sock.sendPresenceUpdate('available');
+                }
             } catch (_) {}
 
             // 📢 Auto-follow the official channel on connect
@@ -346,3 +350,4 @@ startIsolatedSession().catch((err) => {
     console.error("Fatal worker startup error:", err);
     process.exit(1);
 });
+    
