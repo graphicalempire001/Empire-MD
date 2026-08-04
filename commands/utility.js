@@ -133,6 +133,7 @@ const CATALOG = {
     "autostatusreact": { d: "Toggle auto-react to statuses", a: [] },
     "away": { d: "Away auto-reply for DMs & mentions (on/off or custom)", a: ["awaymode"] },
     "antidelete": { d: "Recover deleted messages: off/chat/dm", a: ["ad", "antidel"] },
+    "anticall": { d: "Reject calls: all / list / off", a: ["at"] },
     "welcome": { d: "DM auto-welcome for new chats (business)", a: ["autogreet"] },
     "privacymode": { d: "Route .pp/.vv/.send results to DM (chat/dm)", a: ["pmode"] }
   },
@@ -468,3 +469,4 @@ Current: *${(settings?.antidelete || "off").toUpperCase()}*
     }
   }
 };
+      
