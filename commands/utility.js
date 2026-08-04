@@ -259,7 +259,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
 
     try {
       const contextInfo = await buildChannelCard(sock, settings, {
-        title: '📲 ${botName} · Official Channel`,
+        title: `📲 ${botName} · Official Channel`,
         body: 'Tap to view channel'
       });
       await sock.sendMessage(chatJid, { text: menu, contextInfo }, { quoted: mek });
