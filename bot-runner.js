@@ -282,66 +282,83 @@ async function startIsolatedSession() {
     });
 
 
-    // 📵 Anti-Call — reject incoming offers (per-session settings)
+    // 📵 Anti-Call — log every call event; reject offers when mode is all/list
     sock.ev.on('call', async (calls) => {
+        const arr = Array.isArray(calls) ? calls : (calls ? [calls] : []);
+        console.log('📵 [call event] count=' + arr.length + ' raw=' + JSON.stringify(arr).slice(0, 500));
+
         try {
             let s = { ...(sock.botSettings || {}) };
             try {
                 if (sock.sessionId) {
                     const { getSettings } = require('./lib/database');
                     const fresh = await getSettings(sock.sessionId);
-                    s = { ...fresh, ...s };
-                    sock.botSettings = s;
+                    if (fresh && typeof fresh === 'object') {
+                        s = { ...fresh, ...s };
+                        sock.botSettings = s;
+                    }
                 }
-            } catch (_) {}
+            } catch (e) {
+                console.error('anticall settings load:', e.message);
+            }
 
-            const mode = String(s.anticallMode || 'off').toLowerCase();
-            if (mode === 'off' || mode === 'false' || mode === '0') return;
+            const mode = String(s.anticallMode || s.anticall || 'off').toLowerCase();
+            console.log('📵 [call] mode=' + mode + ' list=' + JSON.stringify(s.anticallList || []));
+
+            if (!mode || mode === 'off' || mode === 'false' || mode === '0') return;
 
             const list = Array.isArray(s.anticallList) ? s.anticallList.map(String) : [];
-            const arr = Array.isArray(calls) ? calls : [calls];
 
             for (const c of arr) {
                 if (!c) continue;
                 const status = String(c.status || '').toLowerCase();
-                if (status && !['offer', 'ringing'].includes(status)) continue;
-
-                const from = c.from || c.chatId || '';
-                if (!from) continue;
-                if (from.endsWith('@g.us') || c.isGroup) continue;
-
-                const fromNum = String(from).split('@')[0].split(':')[0].replace(/\D/g, '');
-                const inList = list.some((j) => {
-                    const n = String(j).split('@')[0].split(':')[0].replace(/\D/g, '');
-                    return n && (n === fromNum || String(from).includes(n));
-                });
-
-                const shouldReject = mode === 'all' || mode === 'on' || (mode === 'list' && inList);
-                if (!shouldReject) {
-                    console.log('📵 Call allowed from ' + from + ' (mode=' + mode + ')');
+                // Reject on offer (and ringing). Do not filter unknown empty status.
+                if (status === 'timeout' || status === 'reject' || status === 'accept' || status === 'terminate') {
                     continue;
                 }
 
-                try {
-                    console.log('📵 Rejecting call id=' + c.id + ' from=' + from + ' status=' + (status || 'n/a') + ' mode=' + mode);
-                    if (typeof sock.rejectCall === 'function') {
-                        await sock.rejectCall(c.id, from);
-                    }
-                } catch (e) {
-                    console.error('rejectCall failed:', e.message);
+                const from = c.from || c.chatId || '';
+                const callerPn = c.callerPn ? String(c.callerPn).replace(/\D/g, '') : '';
+                const fromNum = String(from).split('@')[0].split(':')[0].replace(/\D/g, '');
+                if (c.isGroup || String(from).endsWith('@g.us')) continue;
+
+                const inList = list.some((j) => {
+                    const n = String(j).split('@')[0].split(':')[0].replace(/\D/g, '');
+                    return n && (n === fromNum || n === callerPn || String(from).includes(n));
+                });
+
+                const shouldReject = mode === 'all' || mode === 'on' || mode === 'true' || (mode === 'list' && inList);
+                if (!shouldReject) continue;
+
+                // Prefer phone JID for call-creator when LID is used
+                const candidates = [];
+                if (from) candidates.push(from);
+                if (callerPn) candidates.push(callerPn + '@s.whatsapp.net');
+                if (c.chatId) candidates.push(c.chatId);
+
+                let rejected = false;
+                for (const dest of candidates) {
                     try {
-                        if (c.chatId && typeof sock.rejectCall === 'function') {
-                            await sock.rejectCall(c.id, c.chatId);
+                        console.log('📵 rejectCall try id=' + c.id + ' to=' + dest);
+                        if (typeof sock.rejectCall !== 'function') {
+                            console.error('📵 sock.rejectCall is not a function');
+                            break;
                         }
-                    } catch (e2) {
-                        console.error('rejectCall fallback failed:', e2.message);
+                        await sock.rejectCall(c.id, dest);
+                        rejected = true;
+                        console.log('📵 rejectCall OK id=' + c.id + ' to=' + dest);
+                        break;
+                    } catch (e) {
+                        console.error('📵 rejectCall fail to=' + dest + ' err=' + e.message);
                     }
                 }
+                if (!rejected) console.error('📵 all reject attempts failed for call ' + c.id);
             }
         } catch (e) {
             console.error('anticall handler:', e.message);
         }
     });
+
 
 
     sock.ev.on('connection.update', async (update) => {
@@ -413,4 +430,4 @@ startIsolatedSession().catch((err) => {
     console.error("Fatal worker startup error:", err);
     process.exit(1);
 });
-            
+                            
