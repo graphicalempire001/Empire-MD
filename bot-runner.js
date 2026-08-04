@@ -282,82 +282,90 @@ async function startIsolatedSession() {
     });
 
 
-    // 📵 Anti-Call — log every call event; reject offers when mode is all/list
-    sock.ev.on('call', async (calls) => {
-        const arr = Array.isArray(calls) ? calls : (calls ? [calls] : []);
-        console.log('📵 [call event] count=' + arr.length + ' raw=' + JSON.stringify(arr).slice(0, 500));
+// 📵 Anti-Call — reject offers when mode is all/list
+console.log('📵 [anticall] listener registered for session=' + sessionId);
 
+sock.ev.on('call', async (calls) => {
+    const arr = Array.isArray(calls) ? calls : (calls ? [calls] : []);
+    console.log('📵 [call event] session=' + sessionId + ' count=' + arr.length +
+        ' raw=' + JSON.stringify(arr).slice(0, 500));
+
+    try {
+       
+        let s = sock.botSettings || {};
         try {
-            let s = { ...(sock.botSettings || {}) };
-            try {
-                if (sock.sessionId) {
-                    const { getSettings } = require('./lib/database');
-                    const fresh = await getSettings(sock.sessionId);
-                    if (fresh && typeof fresh === 'object') {
-                        s = { ...fresh, ...s };
-                        sock.botSettings = s;
-                    }
-                }
-            } catch (e) {
-                console.error('anticall settings load:', e.message);
-            }
-
-            const mode = String(s.anticallMode || s.anticall || 'off').toLowerCase();
-            console.log('📵 [call] mode=' + mode + ' list=' + JSON.stringify(s.anticallList || []));
-
-            if (!mode || mode === 'off' || mode === 'false' || mode === '0') return;
-
-            const list = Array.isArray(s.anticallList) ? s.anticallList.map(String) : [];
-
-            for (const c of arr) {
-                if (!c) continue;
-                const status = String(c.status || '').toLowerCase();
-                // Reject on offer (and ringing). Do not filter unknown empty status.
-                if (status === 'timeout' || status === 'reject' || status === 'accept' || status === 'terminate') {
-                    continue;
-                }
-
-                const from = c.from || c.chatId || '';
-                const callerPn = c.callerPn ? String(c.callerPn).replace(/\D/g, '') : '';
-                const fromNum = String(from).split('@')[0].split(':')[0].replace(/\D/g, '');
-                if (c.isGroup || String(from).endsWith('@g.us')) continue;
-
-                const inList = list.some((j) => {
-                    const n = String(j).split('@')[0].split(':')[0].replace(/\D/g, '');
-                    return n && (n === fromNum || n === callerPn || String(from).includes(n));
-                });
-
-                const shouldReject = mode === 'all' || mode === 'on' || mode === 'true' || (mode === 'list' && inList);
-                if (!shouldReject) continue;
-
-                // Prefer phone JID for call-creator when LID is used
-                const candidates = [];
-                if (from) candidates.push(from);
-                if (callerPn) candidates.push(callerPn + '@s.whatsapp.net');
-                if (c.chatId) candidates.push(c.chatId);
-
-                let rejected = false;
-                for (const dest of candidates) {
-                    try {
-                        console.log('📵 rejectCall try id=' + c.id + ' to=' + dest);
-                        if (typeof sock.rejectCall !== 'function') {
-                            console.error('📵 sock.rejectCall is not a function');
-                            break;
-                        }
-                        await sock.rejectCall(c.id, dest);
-                        rejected = true;
-                        console.log('📵 rejectCall OK id=' + c.id + ' to=' + dest);
-                        break;
-                    } catch (e) {
-                        console.error('📵 rejectCall fail to=' + dest + ' err=' + e.message);
-                    }
-                }
-                if (!rejected) console.error('📵 all reject attempts failed for call ' + c.id);
+            const { getSettings } = require('./lib/database');
+            const fresh = await getSettings(sock.sessionId);
+            if (fresh && typeof fresh === 'object') {
+                s = { ...s, ...fresh };       // fresh DB values win, not memory
+                sock.botSettings = s;
             }
         } catch (e) {
-            console.error('anticall handler:', e.message);
+            console.error('📵 [anticall] settings load failed, using cached:', e.message);
         }
-    });
+
+        const mode = String(s.anticallMode || s.anticall || 'off').toLowerCase();
+        const list = Array.isArray(s.anticallList) ? s.anticallList.map(String) : [];
+        console.log('📵 [anticall] mode=' + mode + ' list=' + JSON.stringify(list));
+
+        if (!mode || mode === 'off' || mode === 'false' || mode === '0') return;
+
+        for (const c of arr) {
+            if (!c) continue;
+
+            const status = String(c.status || '').toLowerCase();
+            if (['timeout', 'reject', 'accept', 'terminate'].includes(status)) continue;
+
+            const from = c.from || c.chatId || '';
+            if (c.isGroup || String(from).endsWith('@g.us')) continue;
+
+            const callerPn = c.callerPn ? String(c.callerPn).replace(/\D/g, '') : '';
+            const fromNum = String(from).split('@')[0].split(':')[0].replace(/\D/g, '');
+
+            const inList = list.some((j) => {
+                const n = String(j).split('@')[0].split(':')[0].replace(/\D/g, '');
+                return n && (n === fromNum || n === callerPn || String(from).includes(n));
+            });
+
+            const shouldReject = mode === 'all' || mode === 'on' || mode === 'true' ||
+                (mode === 'list' && inList);
+            if (!shouldReject) continue;
+
+    
+            const isLid = String(from).endsWith('@lid');
+            const candidates = [from];
+            if (!isLid && callerPn) candidates.push(callerPn + '@s.whatsapp.net');
+            if (c.chatId && c.chatId !== from) candidates.push(c.chatId);
+
+            let rejected = false;
+            let lastErr = null;
+            for (const dest of candidates) {
+                if (typeof sock.rejectCall !== 'function') {
+                    console.error('📵 [anticall] sock.rejectCall is not a function on this baileys build');
+                    break;
+                }
+                try {
+                    console.log('📵 [anticall] rejectCall attempt id=' + c.id + ' to=' + dest +
+                        ' (lid=' + isLid + ')');
+                    await sock.rejectCall(c.id, dest);
+                    rejected = true;
+                    console.log('📵 [anticall] rejectCall confirmed sent id=' + c.id + ' to=' + dest);
+                    break; // stop after first non-throwing attempt — don't double-send
+                } catch (e) {
+                    lastErr = e;
+                    console.error('📵 [anticall] rejectCall threw for dest=' + dest + ': ' + e.message);
+                }
+            }
+
+            if (!rejected) {
+                console.error('📵 [anticall] ALL reject attempts failed for call ' + c.id +
+                    (lastErr ? (' last error: ' + lastErr.message) : ''));
+            }
+        }
+    } catch (e) {
+        console.error('📵 [anticall] handler crashed:', e.message);
+    }
+});
 
 
 
