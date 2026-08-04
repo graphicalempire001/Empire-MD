@@ -67,21 +67,21 @@ _Alias: .at_`
     }
 
     if (low === "all" || low === "on") {
-      await persist(sock, s, { anticallMode: "all" });
+      await persist(sock, s, { anticallMode: "all", anticall: true });
       return sock.sendMessage(chatJid, {
         text: "✅ *Anti-Call: ALL*\nEvery incoming call will be rejected (no ring)."
       }, { quoted: mek });
     }
 
     if (low === "off" || low === "disable") {
-      await persist(sock, s, { anticallMode: "off" });
+      await persist(sock, s, { anticallMode: "off", anticall: false });
       return sock.sendMessage(chatJid, {
         text: "✅ *Anti-Call: OFF*\nCalls are allowed again."
       }, { quoted: mek });
     }
 
     if (low === "list" || low === "blocklist") {
-      await persist(sock, s, { anticallMode: "list" });
+      await persist(sock, s, { anticallMode: "list", anticall: true });
       const preview = list.length
         ? list.map((j, i) => `${i + 1}. ${j.replace("@s.whatsapp.net", "")}`).join("\n")
         : "_empty — use .anticall add_";
@@ -116,7 +116,7 @@ _Alias: .at_`
       let nextList = getList(s);
       if (cmd === "add") {
         if (!nextList.includes(target)) nextList.push(target);
-        await persist(sock, s, { anticallList: nextList, anticallMode: "list" });
+        await persist(sock, s, { anticallList: nextList, anticallMode: "list", anticall: true });
         return sock.sendMessage(chatJid, {
           text: `✅ Added *${target.replace("@s.whatsapp.net", "")}* to anti-call list.\nMode: *LIST* (${nextList.length} numbers)`
         }, { quoted: mek });
@@ -135,4 +135,3 @@ _Alias: .at_`
   },
   at: async (args) => module.exports.anticall(args),
 };
-
