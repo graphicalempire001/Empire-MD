@@ -35,6 +35,63 @@ app.use(express.static(path.join(__dirname, 'public/Frontend/dist')));
 const activeSessions = {}; // { [sessionId]: { process, botName, phoneNumber, mode, status, pairingCode, qr, error, codeRequested, expiry } }
 const SESSIONS_ROOT = path.join(__dirname, 'sessions');
 
+// 🔒 Per-session lock file helpers — prevents spawning a duplicate worker for a
+// session whose old process is still alive (e.g. after an ungraceful master
+// restart/crash that didn't get a chance to SIGTERM its children). This is a
+// safety net on top of the graceful shutdown handler further down.
+const LOCK_FILE_NAME = '.worker.lock';
+
+function lockPath(sessionId) {
+  return path.join(SESSIONS_ROOT, sessionId, LOCK_FILE_NAME);
+}
+
+function writeLock(sessionId, pid) {
+  try {
+    fs.writeFileSync(lockPath(sessionId), JSON.stringify({ pid, startedAt: Date.now() }));
+  } catch (e) {
+    console.error(`⚠️ Failed to write lock for ${sessionId}:`, e.message);
+  }
+}
+
+function removeLock(sessionId) {
+  try { fs.rmSync(lockPath(sessionId), { force: true }); } catch (_) {}
+}
+
+// process.kill(pid, 0) sends no actual signal — it just checks whether the
+// PID exists and is reachable. Throws if it doesn't.
+function isProcessAlive(pid) {
+  if (!pid || typeof pid !== 'number') return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM'; // exists but owned by another user — still treat as alive
+  }
+}
+
+// Returns true if a live process already holds the lock for this session.
+// Cleans up the lock file automatically if it's stale (holder is dead).
+function isSessionLockedByLiveProcess(sessionId) {
+  const lp = lockPath(sessionId);
+  if (!fs.existsSync(lp)) return false;
+
+  let lock;
+  try {
+    lock = JSON.parse(fs.readFileSync(lp, 'utf8'));
+  } catch (_) {
+    removeLock(sessionId); // corrupt lock file — treat as stale
+    return false;
+  }
+
+  if (isProcessAlive(lock.pid)) {
+    return true;
+  }
+
+  console.log(`🧹 Removing stale lock for ${sessionId} (pid ${lock.pid} is no longer running)`);
+  removeLock(sessionId);
+  return false;
+}
+
 // 🚦 EMERGENCY SWITCH
 let pairingPaused = false;
 
@@ -134,6 +191,10 @@ function spawnBotProcess(sessionId, botName, cleanPhone, mode, _crashInfo = {}) 
     lastCrashAt: _crashInfo.lastCrashAt || null
   };
 
+  // Session folder may not exist yet on very first pair — create it so the lock has somewhere to live
+  try { fs.mkdirSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true }); } catch (_) {}
+  writeLock(sessionId, child.pid);
+
   child.on('message', (msg) => {
     const s = activeSessions[sessionId];
     if (!s) return;
@@ -146,6 +207,8 @@ function spawnBotProcess(sessionId, botName, cleanPhone, mode, _crashInfo = {}) 
 
   child.on('exit', (code, signal) => {
     console.log(`⚠️ Bot process ${sessionId} exited (code ${code}, signal ${signal})`);
+    removeLock(sessionId); // release the lock regardless of why it exited
+
     const s = activeSessions[sessionId];
     // Already cleaned up — either killSession() deleted it (manual stop/admin delete)
     // or the worker sent 'loggedOut' before exiting. Either way: no respawn.
@@ -243,6 +306,15 @@ async function resumeSavedSessions() {
       return;
     }
     for (const sessionId of folders) {
+      // 🔒 Safety check — skip if a live process already holds this session's lock.
+      // This catches the case where the master process was killed/crashed without
+      // getting to SIGTERM its children (e.g. OOM kill, force restart), leaving an
+      // orphaned worker still connected to WhatsApp under this same auth session.
+      // Spawning a second one here would trigger a conflict/replaced disconnect.
+      if (isSessionLockedByLiveProcess(sessionId)) {
+        console.log(`⏭️ Skipping resume for ${sessionId} — a live process already holds its lock.`);
+        continue;
+      }
       console.log(`♻️ Resuming saved session: ${sessionId}`);
       await startSession(sessionId, config.botName || "Empire MD", null, 'pair');
     }
@@ -638,5 +710,28 @@ server.listen(PORT, () => {
   console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
   resumeSavedSessions();
 });
+
+// 🧹 Graceful shutdown — kill all live bot child processes (and release their
+// locks) before the master exits. Without this, restarting the server (PM2,
+// systemd, crash, redeploy) leaves old botWorker.js processes running in the
+// background. On boot, resumeSavedSessions() would then spawn NEW workers for
+// the same sessions, creating duplicate WhatsApp sockets on the same auth
+// credentials — WhatsApp kills one with a conflict/replaced disconnect, which
+// shows up as "connects briefly, delivers pending messages, then disconnects."
+function shutdownAllSessions(signal) {
+  console.log(`\n🛑 Received ${signal} — shutting down ${Object.keys(activeSessions).length} active bot session(s)...`);
+  for (const sessionId of Object.keys(activeSessions)) {
+    const s = activeSessions[sessionId];
+    if (s?.process) {
+      try { s.process.kill('SIGTERM'); } catch (_) {}
+    }
+    removeLock(sessionId);
+  }
+  // Give children a moment to exit cleanly, then force-exit the master
+  setTimeout(() => process.exit(0), 3000);
+}
+
+process.on('SIGTERM', () => shutdownAllSessions('SIGTERM'));
+process.on('SIGINT', () => shutdownAllSessions('SIGINT'));
 
 module.exports = { app, server };
