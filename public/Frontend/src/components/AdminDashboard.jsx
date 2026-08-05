@@ -1,636 +1,554 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BOT-WAN Admin Dashboard · Empire MD</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <style>
-        * { font-family: 'Inter', sans-serif; }
-        .gradient-text { background: linear-gradient(135deg, #f43f5e, #ec4899, #d946ef); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-    </style>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen">
+import React, { useState, useEffect, useCallback } from 'react';
 
-<!-- NAVBAR -->
-<nav class="fixed top-0 inset-x-0 z-50 border-b border-slate-900/70 bg-slate-950/80 backdrop-blur-xl">
-    <div class="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
-        <a href="/" class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
-                <i class="fa-solid fa-robot text-white text-sm"></i>
-            </div>
-            <span class="font-black text-base tracking-tight">BOT<span class="text-indigo-400">-WAN</span> <span class="text-xs text-rose-500 font-bold ml-1">Admin</span></span>
-        </a>
-        <div class="flex items-center gap-3">
-            <a href="/setup.html" class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 hover:text-slate-200">
-                Setup Portal
-            </a>
-            <button id="liveBtn" onclick="toggleLive()" class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-green-400 bg-green-500/10 border border-green-500/20">
-                <span class="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1 animate-pulse"></span> Live
-            </button>
-            <button id="lockBtn" onclick="lockOut()" class="hidden text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 hover:text-slate-200">
-                <i class="fa-solid fa-lock mr-1"></i> Lock
-            </button>
-            <button onclick="loadAdminBots()" class="text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-rose-400 bg-rose-500/10 border border-rose-500/20">
-                <i class="fa-solid fa-arrows-rotate mr-1"></i> Refresh
-            </button>
-        </div>
-    </div>
-</nav>
+/**
+ * Empire MD Admin Dashboard (React)
+ * Route: /admin  — imported from App.tsx as AdminDashboard
+ */
+export default function AdminDashboard() {
+  const [bots, setBots] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // all | online | offline
+  const [pairingPaused, setPairingPaused] = useState(false);
+  const [systemStats, setSystemStats] = useState({
+    activeBots: 0,
+    disk: { usePercent: 0, availMB: 0, totalMB: 0 },
+    ram: { usePercent: 0, freeMB: 0, usedMB: 0, totalMB: 0 },
+    reserveThreshold: 90
+  });
+  const [adminKey, setAdminKey] = useState(
+    () => localStorage.getItem('admin_key') || localStorage.getItem('adminKey') || ''
+  );
+  const [keyInput, setKeyInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState(() => new Set());
+  const [vcfFrom, setVcfFrom] = useState('');
+  const [vcfTo, setVcfTo] = useState('');
+  const [vcfOnlineOnly, setVcfOnlineOnly] = useState(false);
+  const [vcfPreview, setVcfPreview] = useState('');
+  const [toast, setToast] = useState('');
 
-<!-- 🔐 KEY GATE -->
-<div id="keyGate" class="fixed inset-0 z-40 bg-slate-950 flex items-center justify-center px-5">
-    <div class="w-full max-w-sm bg-slate-900/40 border border-slate-900 rounded-2xl p-7 space-y-5 shadow-2xl">
-        <div class="text-center space-y-2">
-            <div class="w-12 h-12 mx-auto rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
-                <i class="fa-solid fa-shield-halved text-rose-400 text-xl"></i>
-            </div>
-            <h2 class="text-xl font-black">Owner Access Only</h2>
-            <p class="text-slate-400 text-xs">Enter the admin key to manage the bot registry.</p>
-        </div>
-        <input type="password" id="keyInput" placeholder="ADMIN_KEY"
-            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-rose-500 transition">
-        <label class="flex items-center gap-2 text-[11px] text-slate-400">
-            <input type="checkbox" id="rememberKey" class="accent-rose-500"> Remember on this device
-        </label>
-        <button onclick="submitKey()" class="w-full bg-gradient-to-br from-rose-500 to-pink-600 hover:opacity-90 text-white font-bold text-sm py-3 rounded-xl transition">
-            Unlock Dashboard
-        </button>
-        <p id="keyError" class="hidden text-center text-rose-400 text-xs"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Invalid admin key.</p>
-    </div>
-</div>
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-admin-key': adminKey
+  };
 
-<div class="pt-20 max-w-6xl mx-auto px-5 pb-16 space-y-8">
-    <!-- Header -->
-    <div class="space-y-2">
-        <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-400 tracking-wide uppercase">Admin Registry Control</span>
-        <h1 class="text-3xl font-black">All Registered Bots</h1>
-        <p class="text-slate-400 text-sm">Monitor, audit, and moderate every WhatsApp bot instance on the BOT-WAN network in real time.</p>
-    </div>
+  const flash = (m) => {
+    setToast(m);
+    setTimeout(() => setToast(''), 2800);
+  };
 
-    <!-- Stats Panel -->
-    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-            <div id="totalCount" class="text-3xl font-black text-indigo-400">—</div>
-            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Registrations</div>
-        </div>
-        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-            <div id="onlineCount" class="text-3xl font-black text-green-400">—</div>
-            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Online</div>
-        </div>
-        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-            <div id="abusiveCount" class="text-3xl font-black text-rose-400">—</div>
-            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Flagged Abusive</div>
-        </div>
-        <div class="bg-slate-900/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-            <div id="usageTotal" class="text-3xl font-black text-amber-400">—</div>
-            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Messages</div>
-        </div>
-    </div>
-
-    <!-- Toolbar: view toggle + search -->
-    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-slate-900/30 border border-slate-900 rounded-2xl p-4">
-        <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl p-1">
-            <button id="viewAllBtn" onclick="setView('all')" class="text-[11px] font-bold px-3 py-2 rounded-lg transition bg-rose-500/10 text-rose-400">All</button>
-            <button id="viewInactiveBtn" onclick="setView('inactive')" class="text-[11px] font-bold px-3 py-2 rounded-lg transition text-slate-400 hover:text-slate-200">Inactive</button>
-            <button id="viewAbusiveBtn" onclick="setView('abusive')" class="text-[11px] font-bold px-3 py-2 rounded-lg transition text-slate-400 hover:text-slate-200">Abusive</button>
-        </div>
-        <div class="relative flex-1">
-            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
-            <input type="text" id="adminSearch" oninput="filterBots()" placeholder="Search by Session ID, Bot Name, or Phone Number..."
-                class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-sm text-slate-200 outline-none focus:border-rose-500 transition">
-        </div>
-        <select id="inactiveDays" onchange="if(currentView==='inactive') loadAdminBots()"
-            class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-3 text-xs text-slate-300 outline-none focus:border-rose-500">
-            <option value="3">Inactive ≥ 3 days</option>
-            <option value="7" selected>Inactive ≥ 7 days</option>
-            <option value="14">Inactive ≥ 14 days</option>
-            <option value="30">Inactive ≥ 30 days</option>
-        </select>
-    </div>
-
-    <!-- Bulk Actions Panel (Hidden by default) -->
-    <div id="bulkActionsPanel" class="hidden flex items-center justify-between gap-4 bg-indigo-950/40 border border-indigo-900/50 rounded-2xl p-4 transition-all animate-fadeIn">
-        <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
-            <span class="text-xs font-semibold text-indigo-300"><span id="selectedCount">0</span> Bots Selected</span>
-        </div>
-        <div class="flex items-center gap-2.5">
-            <button onclick="bulkFlag(true)" class="text-[11px] font-bold px-3 py-2 rounded-xl transition bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20">
-                <i class="fa-solid fa-flag mr-1"></i> Flag Abusive
-            </button>
-            <button onclick="bulkFlag(false)" class="text-[11px] font-bold px-3 py-2 rounded-xl transition bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500/20">
-                <i class="fa-solid fa-flag-checkered mr-1"></i> Unflag
-            </button>
-            <button onclick="bulkDelete()" class="text-[11px] font-bold px-3 py-2 rounded-xl transition bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20">
-                <i class="fa-solid fa-trash-can mr-1"></i> Permanent Delete
-            </button>
-        </div>
-    </div>
-
-    <script>
-        function toggleSelectAll(master) {
-            const checkboxes = document.querySelectorAll('input[name="botSelect"]');
-            checkboxes.forEach(cb => cb.checked = master.checked);
-            updateBulkPanel();
-        }
-
-        function updateBulkPanel() {
-            const checkboxes = document.querySelectorAll('input[name="botSelect"]:checked');
-            const panel = document.getElementById('bulkActionsPanel');
-            const countSpan = document.getElementById('selectedCount');
-            countSpan.textContent = checkboxes.length;
-            if (checkboxes.length > 0) {
-                panel.classList.remove('hidden');
-            } else {
-                panel.classList.add('hidden');
-                document.getElementById('selectAllCheckbox').checked = false;
-            }
-        }
-
-        async function bulkFlag(flagValue) {
-            const checkboxes = document.querySelectorAll('input[name="botSelect"]:checked');
-            const sids = Array.from(checkboxes).map(cb => cb.value);
-            if (!confirm(`Are you sure you want to ${flagValue ? 'flag' : 'unflag'} ${sids.length} selected bots?`)) return;
-            
-            let successCount = 0;
-            for (const sid of sids) {
-                try {
-                    const res = await fetch(`${API_BASE}/api/admin/flag/${encodeURIComponent(sid)}`, {
-                        method: 'POST',
-                        headers: authHeaders(),
-                        body: JSON.stringify({ value: flagValue })
-                    });
-                    const data = await res.json();
-                    if (data.success) successCount++;
-                } catch (e) { console.error(e); }
-            }
-            alert(`Processed ${successCount}/${sids.length} bots successfully.`);
-            document.getElementById('selectAllCheckbox').checked = false;
-            loadAdminBots();
-        }
-
-        async function bulkDelete() {
-            const checkboxes = document.querySelectorAll('input[name="botSelect"]:checked');
-            const sids = Array.from(checkboxes).map(cb => cb.value);
-            if (!confirm(`🚨 DANGER: Permanently delete ${sids.length} selected bots? This will wipe their local session files and completely delete their Supabase database entries.`)) return;
-            
-            let successCount = 0;
-            for (const sid of sids) {
-                try {
-                    const res = await fetch(`${API_BASE}/api/admin/bot/${encodeURIComponent(sid)}`, {
-                        method: 'DELETE',
-                        headers: authHeaders()
-                    });
-                    const data = await res.json();
-                    if (data.success) successCount++;
-                } catch (e) { console.error(e); }
-            }
-            alert(`Successfully deleted ${successCount}/${sids.length} bots.`);
-            document.getElementById('selectAllCheckbox').checked = false;
-            loadAdminBots();
-        }
-    </script>
-
-    <!-- Admin Registry Table -->
-    <div class="bg-slate-900/20 border border-slate-900 rounded-2xl overflow-hidden shadow-2xl">
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
-                <thead>
-                    <tr class="border-b border-slate-900 bg-slate-900/40 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        <th class="px-6 py-4 w-12 text-center">
-                            <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll(this)" class="accent-rose-500 rounded">
-                        </th>
-                        <th class="px-6 py-4">Bot Details</th>
-                        <th class="px-6 py-4">Phone</th>
-                        <th class="px-6 py-4">Session ID</th>
-                        <th class="px-6 py-4">Usage</th>
-                        <th class="px-6 py-4">Status</th>
-                        <th class="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="adminBotTableBody" class="divide-y divide-slate-900 text-sm">
-                    <tr class="animate-pulse">
-                        <td class="px-6 py-8" colspan="6">
-                            <div class="flex items-center justify-center gap-2 text-slate-500">
-                                <i class="fa-solid fa-circle-notch fa-spin text-lg"></i>
-                                <span>Loading system registry...</span>
-                            </div>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="px-6 py-3 border-t border-slate-900 text-[10px] text-slate-500 flex items-center justify-between">
-            <span><i class="fa-solid fa-database mr-1"></i> Live from Supabase registry</span>
-            <span id="lastUpdated">—</span>
-        </div>
-    </div>
-</div>
-
-<script>
-    const API_BASE = ""; // same origin
-    let allBots = [];
-    let currentView = 'all';
-
-    // ---- Admin key handling -------------------------------------
-    function getKey() {
-        return sessionStorage.getItem('adminKey') || localStorage.getItem('adminKey') || "";
-    }
-    function authHeaders() {
-        return { 'Content-Type': 'application/json', 'x-admin-key': getKey() };
-    }
-    function showGate() {
-        document.getElementById('keyGate').classList.remove('hidden');
-        document.getElementById('lockBtn').classList.add('hidden');
-        stopLive();
-    }
-    function hideGate() {
-        document.getElementById('keyGate').classList.add('hidden');
-        document.getElementById('lockBtn').classList.remove('hidden');
-    }
-    function lockOut() {
-        sessionStorage.removeItem('adminKey');
-        localStorage.removeItem('adminKey');
-        stopLive();
-        showGate();
-    }
-    async function submitKey() {
-        const key = document.getElementById('keyInput').value.trim();
-        if (!key) return;
-        const store = document.getElementById('rememberKey').checked ? localStorage : sessionStorage;
-        store.setItem('adminKey', key);
-        const ok = await loadAdminBots();
-        if (ok) {
-            startLive();
-        } else {
-            sessionStorage.removeItem('adminKey');
-            localStorage.removeItem('adminKey');
-            document.getElementById('keyError').classList.remove('hidden');
-        }
-    }
-
-    // ---- Data loading -------------------------------------------
-    async function loadAdminBots() {
-        if (!getKey()) { showGate(); return false; }
-
-        // Full unlimited list from registry (server paginates past Supabase caps)
-        let url = `${API_BASE}/api/admin/bots`;
-        if (currentView === 'inactive') {
-            const days = document.getElementById('inactiveDays').value || 7;
-            url = `${API_BASE}/api/admin/inactive?days=${days}`;
-        } else if (currentView === 'online' || currentView === 'active') {
-            url = `${API_BASE}/api/admin/bots?status=online`;
-        } else if (currentView === 'offline') {
-            url = `${API_BASE}/api/admin/bots?status=offline`;
-        }
-
-        try {
-            const res = await fetch(url, { headers: authHeaders() });
-            if (res.status === 403) { showGate(); return false; }
-            const data = await res.json();
-            if (!data.success) throw new Error(data.error || 'Request failed');
-
-            allBots = data.bots || [];
-            hideGate();
-            document.getElementById('keyError').classList.add('hidden');
-            updateStats();
-            filterBots();
-            document.getElementById('lastUpdated').textContent =
-                'Updated ' + new Date().toLocaleTimeString();
-            return true;
-        } catch (e) {
-            document.getElementById('adminBotTableBody').innerHTML = `
-                <tr><td class="px-6 py-8 text-center text-rose-400" colspan="6">
-                    <i class="fa-solid fa-triangle-exclamation mr-2"></i> ${e.message || 'Failed to connect to admin registry.'}
-                </td></tr>`;
-            return false;
-        }
-    }
-
-    function updateStats() {
-        document.getElementById('totalCount').textContent = allBots.length;
-        const online = allBots.filter(b => b.status === 'online').length;
-        const abusive = allBots.filter(b => b.is_abusive).length;
-        const usage = allBots.reduce((sum, b) => sum + (Number(b.message_count) || 0), 0);
-        document.getElementById('onlineCount').textContent = online;
-        document.getElementById('abusiveCount').textContent = abusive;
-        document.getElementById('usageTotal').textContent = usage.toLocaleString();
-    }
-
-    // ---- View switching -----------------------------------------
-    function setView(view) {
-        currentView = view;
-        ['All', 'Inactive', 'Abusive'].forEach(v => {
-            const btn = document.getElementById('view' + v + 'Btn');
-            const active = v.toLowerCase() === view;
-            btn.className = 'text-[11px] font-bold px-3 py-2 rounded-lg transition ' +
-                (active ? 'bg-rose-500/10 text-rose-400' : 'text-slate-400 hover:text-slate-200');
+  const fetchAdminData = useCallback(async () => {
+    if (!adminKey) return;
+    setLoading(true);
+    setError('');
+    try {
+      const statusRes = await fetch(`/api/admin/status?adminKey=${encodeURIComponent(adminKey)}`, {
+        headers: { 'x-admin-key': adminKey }
+      });
+      if (statusRes.status === 403) throw new Error('Forbidden: Invalid Admin Key');
+      const statusData = await statusRes.json();
+      if (statusData.success) {
+        setSystemStats({
+          activeBots: statusData.activeBots || 0,
+          disk: statusData.disk || { usePercent: 0, availMB: 0 },
+          ram: statusData.ram || { usePercent: 0, freeMB: 0, usedMB: 0, totalMB: 0 },
+          reserveThreshold: statusData.reserveThreshold || 90
         });
-        loadAdminBots();
+        setPairingPaused(!!statusData.pairingPaused);
+      }
+
+      let botsUrl = '/api/admin/bots';
+      if (statusFilter === 'online') botsUrl += '?status=online';
+      if (statusFilter === 'offline') botsUrl += '?status=offline';
+
+      const botsRes = await fetch(botsUrl, { headers: { 'x-admin-key': adminKey } });
+      if (botsRes.status === 403) throw new Error('Forbidden: Invalid Admin Key');
+      const botsData = await botsRes.json();
+      if (botsData.success) setBots(botsData.bots || []);
+      else setError(botsData.error || 'Failed to load bots');
+    } catch (err) {
+      setError(err.message || 'Failed to load admin data');
+      if (String(err.message || '').includes('Forbidden')) {
+        setAdminKey('');
+        localStorage.removeItem('admin_key');
+        localStorage.removeItem('adminKey');
+      }
+    } finally {
+      setLoading(false);
     }
+  }, [adminKey, statusFilter]);
 
-    // ---- Rendering ----------------------------------------------
-    function renderTable(bots) {
-        const tbody = document.getElementById('adminBotTableBody');
-        if (!bots.length) {
-            tbody.innerHTML = `<tr><td class="px-6 py-8 text-center text-slate-500" colspan="6">No bots found.</td></tr>`;
-            return;
-        }
-    tbody.innerHTML = bots.map(bot => {
-        const sid = bot.session_id || 'N/A';
-        const abusive = !!bot.is_abusive;
-        const msgs = Number(bot.message_count) || 0;
-        const hot = msgs >= 1000;
-        const lastActive = bot.last_active ? new Date(bot.last_active).toLocaleString() : '—';
-        return `
-        <tr class="hover:bg-slate-900/20 transition ${abusive ? 'bg-rose-500/5' : ''}">
-            <td class="px-6 py-4 text-center">
-                <input type="checkbox" name="botSelect" value="${sid}" onchange="updateBulkPanel()" class="accent-rose-500 rounded">
-            </td>
-            <td class="px-6 py-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-xl ${abusive ? 'bg-rose-500/10 border-rose-500/20' : 'bg-indigo-500/10 border-indigo-500/20'} flex items-center justify-center border">
-                        <i class="fa-solid fa-robot ${abusive ? 'text-rose-400' : 'text-indigo-400'} text-sm"></i>
-                    </div>
-                    <div>
-                        <div class="font-bold text-slate-200 flex items-center gap-2">
-                            ${bot.bot_name || 'Empire Bot'}
-                            ${abusive ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 uppercase">Abusive</span>' : ''}
-                            ${hot ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 uppercase">High Volume</span>' : ''}
-                        </div>
-                        <div class="text-[10px] text-slate-500 tracking-wide">Last active: ${lastActive}</div>
-                    </div>
-                </div>
-            </td>
-                <td class="px-6 py-4 font-mono text-slate-300">${bot.phone_number || 'N/A'}</td>
-                <td class="px-6 py-4 font-mono text-indigo-300">
-                    <span class="bg-indigo-500/5 px-2.5 py-1 rounded-lg border border-indigo-500/10">${sid}</span>
-                </td>
-                <td class="px-6 py-4">
-                    <span class="font-bold ${hot ? 'text-amber-400' : 'text-slate-300'}">${msgs.toLocaleString()}</span>
-                    <span class="text-[10px] text-slate-500"> msgs</span>
-                </td>
-                <td class="px-6 py-4">
-                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${bot.status === 'online' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'}">
-                        <span class="w-1.5 h-1.5 rounded-full ${bot.status === 'online' ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}"></span>
-                        ${bot.status === 'online' ? 'Online' : 'Inactive'}
-                    </span>
-                </td>
-                <td class="px-6 py-4 text-right whitespace-nowrap">
-                    <button onclick="copySessionId('${sid}')" class="text-slate-400 hover:text-indigo-400 p-1.5 transition" title="Copy Session ID">
-                        <i class="fa-regular fa-copy"></i>
-                    </button>
-                    <button onclick="toggleAbusive('${sid}', ${abusive})" class="${abusive ? 'text-green-400 hover:text-green-300' : 'text-amber-400 hover:text-amber-300'} p-1.5 transition" title="${abusive ? 'Unflag' : 'Flag as abusive'}">
-                        <i class="fa-solid ${abusive ? 'fa-flag-checkered' : 'fa-flag'}"></i>
-                    </button>
-                    <button onclick="deleteBot('${sid}', '${(bot.bot_name||'').replace(/'/g,'')}')" class="text-rose-400 hover:text-rose-300 p-1.5 transition" title="Delete bot">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </td>
-            </tr>`;
-        }).join('');
+  useEffect(() => {
+    if (!adminKey) return;
+    localStorage.setItem('admin_key', adminKey);
+    localStorage.setItem('adminKey', adminKey);
+    fetchAdminData();
+    const t = setInterval(fetchAdminData, 15000);
+    return () => clearInterval(t);
+  }, [adminKey, fetchAdminData]);
+
+  useEffect(() => {
+    const to = new Date();
+    const from = new Date(Date.now() - 7 * 864e5);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    setVcfTo(iso(to));
+    setVcfFrom(iso(from));
+  }, []);
+
+  const unlock = () => {
+    const k = keyInput.trim();
+    if (!k) return setError('Enter admin key');
+    setAdminKey(k);
+  };
+
+  const togglePairing = async () => {
+    try {
+      const res = await fetch('/api/admin/pause', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ paused: !pairingPaused })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPairingPaused(data.pairingPaused);
+        flash(data.pairingPaused ? 'Pairing paused' : 'Pairing resumed');
+      }
+    } catch (err) {
+      flash('Toggle failed: ' + err.message);
     }
+  };
 
-    function currentList() {
-        if (currentView === 'abusive') return allBots.filter(b => b.is_abusive);
-        return allBots;
+  const setBotStatus = async (sessionId, status) => {
+    try {
+      const res = await fetch(`/api/admin/bot/${encodeURIComponent(sessionId)}/status`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (data.success) {
+        flash(`Marked ${status}`);
+        fetchAdminData();
+      } else flash(data.error || 'Failed');
+    } catch (e) {
+      flash(e.message);
     }
+  };
 
-    function filterBots() {
-        const query = document.getElementById('adminSearch').value.toLowerCase().trim();
-        let list = currentList();
-        if (query) {
-            list = list.filter(bot =>
-                (bot.bot_name && bot.bot_name.toLowerCase().includes(query)) ||
-                (bot.session_id && bot.session_id.toLowerCase().includes(query)) ||
-                (bot.phone_number && String(bot.phone_number).includes(query))
-            );
-        }
-        renderTable(list);
+  const deleteBot = async (sessionId) => {
+    if (!confirm(`Permanently delete ${sessionId} from DB + sessions?`)) return;
+    try {
+      const res = await fetch(`/api/admin/bot/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+        headers
+      });
+      const data = await res.json();
+      if (data.success) {
+        flash('Deleted');
+        fetchAdminData();
+      } else flash(data.error || 'Failed');
+    } catch (e) {
+      flash(e.message);
     }
+  };
 
-    // ---- Actions -------------------------------------------------
-    function copySessionId(sid) {
-        navigator.clipboard.writeText(sid).then(() => alert(`✅ Session ID copied: ${sid}`));
-    }
+  const selectedIds = () => Array.from(selected);
 
-    async function toggleAbusive(sid, isAbusive) {
-        try {
-            const res = await fetch(`${API_BASE}/api/admin/flag/${encodeURIComponent(sid)}`, {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ value: !isAbusive })
-            });
-            const data = await res.json();
-            if (!data.success) throw new Error(data.error);
-            loadAdminBots();
-        } catch (e) { alert('⚠️ ' + (e.message || 'Action failed')); }
-    }
-
-    async function deleteBot(sid, name) {
-        if (!confirm(`Delete bot "${name || sid}"?\n\nThis logs it out, ends its socket, and removes it from the registry. This cannot be undone.`)) return;
-        try {
-            const res = await fetch(`${API_BASE}/api/admin/bot/${encodeURIComponent(sid)}`, {
-                method: 'DELETE',
-                headers: authHeaders()
-            });
-            const data = await res.json();
-            if (!data.success) throw new Error(data.error);
-            loadAdminBots();
-        } catch (e) { alert('⚠️ ' + (e.message || 'Delete failed')); }
-    }
-
-    // ---- Real-time auto-refresh ---------------------------------
-    let liveOn = true;
-    let liveTimer = null;
-    const LIVE_INTERVAL = 10000; // 10s
-
-    function startLive() {
-        stopLive();
-        if (!liveOn) return;
-        liveTimer = setInterval(() => {
-            if (!getKey()) return;                 // not unlocked
-            if (document.hidden) return;           // tab in background
-            if (document.activeElement === document.getElementById('adminSearch')) return; // mid-search
-            loadAdminBots();
-        }, LIVE_INTERVAL);
-    }
-    function stopLive() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
-
-    function toggleLive() {
-        liveOn = !liveOn;
-        const btn = document.getElementById('liveBtn');
-        if (liveOn) {
-            startLive();
-            btn.className = 'text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-green-400 bg-green-500/10 border border-green-500/20';
-            btn.innerHTML = '<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1 animate-pulse"></span> Live';
-        } else {
-            stopLive();
-            btn.className = 'text-[11px] font-bold px-3 py-1.5 rounded-full transition-all text-slate-400 bg-slate-500/10 border border-slate-500/20';
-            btn.innerHTML = '<span class="inline-block w-1.5 h-1.5 rounded-full bg-slate-500 mr-1"></span> Paused';
-        }
-    }
-
-    // pause/resume when tab visibility changes
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && liveOn && getKey()) loadAdminBots();
+  const bulkStatus = async (status) => {
+    const sessionIds = selectedIds();
+    if (!sessionIds.length) return;
+    if (!confirm(`${status} ${sessionIds.length} bots?`)) return;
+    const res = await fetch('/api/admin/bots/status', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sessionIds, status })
     });
+    const data = await res.json();
+    flash(data.success ? `Updated ${data.updated}` : data.error || 'Fail');
+    setSelected(new Set());
+    fetchAdminData();
+  };
 
-    // ---- Boot ----------------------------------------------------
-    window.addEventListener('load', () => {
-        document.getElementById('keyInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
-           if (getKey()) { loadAdminBots(); startLive(); } else { showGate(); }
+  const bulkDelete = async () => {
+    const sessionIds = selectedIds();
+    if (!sessionIds.length) return;
+    if (!confirm(`DELETE ${sessionIds.length} bots from Supabase + disk?`)) return;
+    const res = await fetch('/api/admin/bots/delete', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sessionIds })
+    });
+    const data = await res.json();
+    flash(data.success ? `Deleted ${data.deleted}` : data.error || 'Fail');
+    setSelected(new Set());
+    fetchAdminData();
+  };
+
+  const deleteAllInactive = async () => {
+    const ids = bots
+      .filter((b) => String(b.status || '').toLowerCase() !== 'online')
+      .map((b) => b.session_id)
+      .filter(Boolean);
+    if (!ids.length) return flash('No inactive bots');
+    if (!confirm(`Delete ALL ${ids.length} inactive bots?`)) return;
+    const res = await fetch('/api/admin/bots/delete', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sessionIds: ids })
+    });
+    const data = await res.json();
+    flash(data.success ? `Deleted ${data.deleted}` : data.error || 'Fail');
+    fetchAdminData();
+  };
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
+
+  const filteredBots = bots.filter((b) => {
+    const q = searchQuery.toLowerCase();
+    if (!q) return true;
+    return [b.bot_name, b.phone_number, b.session_id].join(' ').toLowerCase().includes(q);
   });
-  </script>
 
-<div id="cap-panel" style="max-width:560px;margin:20px auto;font-family:system-ui,-apple-system,sans-serif;
-     background:#111827;color:#e5e7eb;border:1px solid #1f2937;border-radius:16px;
-     padding:22px;box-shadow:0 8px 30px rgba(0,0,0,.35)">
+  const previewVcf = async () => {
+    if (!vcfFrom || !vcfTo) return flash('Pick from & to dates');
+    const res = await fetch(
+      `/api/admin/export-vcf-preview?from=${vcfFrom}&to=${vcfTo}&connectedOnly=${vcfOnlineOnly ? '1' : '0'}`,
+      { headers: { 'x-admin-key': adminKey } }
+    );
+    const data = await res.json();
+    setVcfPreview(data.success ? `${data.count} contacts in range` : data.error || 'error');
+  };
 
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-    <h2 style="margin:0;font-size:17px;font-weight:700">🗄️ Server Capacity Control</h2>
-    <span id="cap-bots" style="font-size:12px;color:#9ca3af">— bots</span>
-  </div>
+  const downloadVcf = async () => {
+    if (!vcfFrom || !vcfTo) return flash('Pick from & to dates');
+    const res = await fetch(
+      `/api/admin/export-vcf?from=${vcfFrom}&to=${vcfTo}&connectedOnly=${vcfOnlineOnly ? '1' : '0'}`,
+      { headers: { 'x-admin-key': adminKey } }
+    );
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `empire-bots_${vcfFrom}_to_${vcfTo}.vcf`;
+    a.click();
+  };
 
-  <div id="cap-warning" style="display:none;background:#7f1d1d;color:#fecaca;
-       padding:10px 14px;border-radius:10px;font-weight:600;margin-bottom:14px;font-size:13px">
-    ⚠️ Disk reached the reserve limit (10% left). Prepare the second server and pause new pairing.
-  </div>
+  const diskPct = systemStats.disk?.usePercent || 0;
+  const ramPct = systemStats.ram?.usePercent || 0;
+  const thr = systemStats.reserveThreshold || 90;
 
-  <div style="background:#1f2937;border-radius:999px;height:18px;overflow:hidden;margin-bottom:8px">
-    
-<!-- VCF date-range export (master phone contacts) -->
-<div class="max-w-6xl mx-auto px-4 mb-6">
-  <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
-    <div class="font-bold text-sm text-white">Export bot numbers → VCF</div>
-    <p class="text-[11px] text-slate-500">Pick the date range bots were <b>created</b>. Import on the <b>master phone</b>. Names: Empire Bot – {name}. Only numbers in range (no full re-merge).</p>
-    <div class="flex flex-wrap gap-2 items-end">
-      <label class="text-[11px] text-slate-400">From<br/><input id="vcfFrom" type="date" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200" /></label>
-      <label class="text-[11px] text-slate-400">To<br/><input id="vcfTo" type="date" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200" /></label>
-      <label class="text-[11px] text-slate-400 flex items-center gap-1 pb-2"><input id="vcfOnlineOnly" type="checkbox" /> Online only</label>
-      <button type="button" onclick="previewVcf()" class="text-[11px] px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">Preview</button>
-      <button type="button" onclick="downloadVcf()" class="text-[11px] px-3 py-2 rounded-lg bg-emerald-700/80 font-bold">Download VCF</button>
-      <span id="vcfPreview" class="text-[11px] text-slate-400"></span>
+  // ── Login gate ──
+  if (!adminKey) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+          <h1 className="text-xl font-bold text-white">Empire Admin</h1>
+          <p className="text-xs text-slate-500">Enter ADMIN_KEY</p>
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && unlock()}
+            placeholder="Admin key"
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-rose-500"
+          />
+          <button
+            type="button"
+            onClick={unlock}
+            className="w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 text-sm font-bold"
+          >
+            Enter
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200">
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-white">Empire Admin</h1>
+            <p className="text-xs text-slate-500">
+              {loading ? 'Refreshing…' : `${filteredBots.length} bots shown · ${bots.length} loaded`}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={fetchAdminData}
+              className="text-xs px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAdminKey('');
+                localStorage.removeItem('admin_key');
+                localStorage.removeItem('adminKey');
+              }}
+              className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400"
+            >
+              Lock
+            </button>
+          </div>
+        </header>
+
+        {error && (
+          <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-2">
+            {error}
+          </div>
+        )}
+
+        {/* Capacity: disk + RAM */}
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+          <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-400">
+            <span>
+              Disk {diskPct}% used · {systemStats.disk?.availMB ?? '—'} MB free
+            </span>
+            <span>
+              RAM {ramPct}% · {systemStats.ram?.usedMB ?? '—'}/{systemStats.ram?.totalMB ?? '—'} MB
+              (free {systemStats.ram?.freeMB ?? '—'} MB)
+            </span>
+            <span>{systemStats.activeBots} live processes</span>
+          </div>
+          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.min(diskPct, 100)}%`,
+                background: diskPct >= thr ? '#ef4444' : diskPct >= 75 ? '#f59e0b' : '#22c55e'
+              }}
+            />
+          </div>
+          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.min(ramPct, 100)}%`,
+                background: ramPct >= 90 ? '#ef4444' : ramPct >= 75 ? '#f59e0b' : '#38bdf8'
+              }}
+            />
+          </div>
+          {diskPct >= thr && (
+            <p className="text-xs text-rose-400">⚠️ Disk near limit — consider pausing pairing.</p>
+          )}
+          <button
+            type="button"
+            onClick={togglePairing}
+            className={`text-xs px-4 py-2 rounded-lg font-bold ${
+              pairingPaused ? 'bg-emerald-600' : 'bg-rose-600'
+            }`}
+          >
+            {pairingPaused ? 'Resume New Pairing' : 'Pause New Pairing (Emergency)'}
+          </button>
+          <p className="text-[11px] text-slate-500">
+            {pairingPaused
+              ? 'Status: PAUSED — new pairing blocked'
+              : 'Status: active — accepting new bots'}
+          </p>
+        </section>
+
+        {/* VCF export */}
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+          <h2 className="font-bold text-sm text-white">Export bot numbers → VCF</h2>
+          <p className="text-[11px] text-slate-500">
+            Date range = bots created in window. Import on master phone. Names: Empire Bot – {'{name}'}
+          </p>
+          <div className="flex flex-wrap gap-2 items-end">
+            <label className="text-[11px] text-slate-400">
+              From
+              <input
+                type="date"
+                value={vcfFrom}
+                onChange={(e) => setVcfFrom(e.target.value)}
+                className="block bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="text-[11px] text-slate-400">
+              To
+              <input
+                type="date"
+                value={vcfTo}
+                onChange={(e) => setVcfTo(e.target.value)}
+                className="block bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="text-[11px] flex items-center gap-1 pb-2 text-slate-400">
+              <input
+                type="checkbox"
+                checked={vcfOnlineOnly}
+                onChange={(e) => setVcfOnlineOnly(e.target.checked)}
+              />{' '}
+              Online only
+            </label>
+            <button
+              type="button"
+              onClick={previewVcf}
+              className="text-[11px] px-3 py-2 rounded-lg bg-slate-800 border border-slate-700"
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              onClick={downloadVcf}
+              className="text-[11px] px-3 py-2 rounded-lg bg-emerald-700/80 font-bold"
+            >
+              Download VCF
+            </button>
+            <span className="text-[11px] text-slate-400">{vcfPreview}</span>
+          </div>
+        </section>
+
+        {/* Filters + bulk */}
+        <section className="flex flex-wrap gap-2 items-center">
+          {['all', 'online', 'offline'].map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setStatusFilter(v)}
+              className={`text-xs px-3 py-2 rounded-lg ${
+                statusFilter === v ? 'bg-rose-500/20 text-rose-300' : 'bg-slate-800'
+              }`}
+            >
+              {v === 'all' ? 'All' : v === 'online' ? 'Active' : 'Inactive'}
+            </button>
+          ))}
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search name / number / session"
+            className="flex-1 min-w-[160px] bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm"
+          />
+        </section>
+
+        {selected.size > 0 && (
+          <section className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-slate-400">{selected.size} selected</span>
+            <button
+              type="button"
+              onClick={() => bulkStatus('online')}
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-700/50"
+            >
+              Mark active
+            </button>
+            <button
+              type="button"
+              onClick={() => bulkStatus('offline')}
+              className="text-xs px-3 py-1.5 rounded-lg bg-amber-700/50"
+            >
+              Mark inactive
+            </button>
+            <button
+              type="button"
+              onClick={bulkDelete}
+              className="text-xs px-3 py-1.5 rounded-lg bg-rose-700/60 font-bold"
+            >
+              Delete selected
+            </button>
+            <button
+              type="button"
+              onClick={deleteAllInactive}
+              className="text-xs px-3 py-1.5 rounded-lg bg-rose-900/80 border border-rose-700"
+            >
+              Delete all inactive
+            </button>
+          </section>
+        )}
+
+        <div className="overflow-x-auto border border-slate-800 rounded-2xl">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-900 text-left text-xs text-slate-500">
+              <tr>
+                <th className="p-3" />
+                <th className="p-3">Bot</th>
+                <th className="p-3">Phone</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Created</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredBots.map((b) => {
+                const sid = b.session_id || '';
+                const active = String(b.status || '').toLowerCase() === 'online';
+                return (
+                  <tr key={sid} className="border-t border-slate-800/80 hover:bg-slate-900/50">
+                    <td className="p-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(sid)}
+                        onChange={() => toggleSelect(sid)}
+                      />
+                    </td>
+                    <td className="p-3">
+                      <div className="font-medium text-slate-100">{b.bot_name || 'Bot'}</div>
+                      <div className="text-[10px] text-slate-600 font-mono">{sid}</div>
+                    </td>
+                    <td className="p-3 font-mono text-xs">{b.phone_number || '—'}</td>
+                    <td className="p-3">
+                      <span
+                        className={`text-[11px] px-2 py-0.5 rounded-full ${
+                          active
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-slate-700 text-slate-400'
+                        }`}
+                      >
+                        {active ? 'active' : 'inactive'}
+                      </span>
+                    </td>
+                    <td className="p-3 text-xs text-slate-500">
+                      {b.created_at ? new Date(b.created_at).toLocaleString() : '—'}
+                    </td>
+                    <td className="p-3 space-x-1 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => setBotStatus(sid, 'online')}
+                        className="text-[10px] px-2 py-1 rounded bg-emerald-900/40"
+                      >
+                        Active
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBotStatus(sid, 'offline')}
+                        className="text-[10px] px-2 py-1 rounded bg-amber-900/40"
+                      >
+                        Inactive
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteBot(sid)}
+                        className="text-[10px] px-2 py-1 rounded bg-rose-900/50"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {!filteredBots.length && (
+            <p className="text-center text-slate-500 text-sm py-8">No bots match.</p>
+          )}
+        </div>
+      </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800 border border-slate-700 rounded-full px-5 py-2 text-sm">
+          {toast}
+        </div>
+      )}
     </div>
-  </div>
-</div>
-<script>
-(function(){
-  function iso(d){ return d.toISOString().slice(0,10); }
-  var to = new Date(), from = new Date(Date.now()-7*864e5);
-  var a=document.getElementById('vcfFrom'), b=document.getElementById('vcfTo');
-  if(a) a.value=iso(from); if(b) b.value=iso(to);
-})();
-async function previewVcf(){
-  var from=document.getElementById('vcfFrom').value, to=document.getElementById('vcfTo').value;
-  if(!from||!to) return alert('Select from & to');
-  var online=document.getElementById('vcfOnlineOnly').checked;
-  var key=sessionStorage.getItem('adminKey')||localStorage.getItem('adminKey')||'';
-  var res=await fetch('/api/admin/export-vcf-preview?from='+from+'&to='+to+'&connectedOnly='+(online?'1':'0'),{headers:{'x-admin-key':key}});
-  var d=await res.json();
-  document.getElementById('vcfPreview').textContent=d.success?(d.count+' contacts'):(d.error||'error');
+  );
 }
-async function downloadVcf(){
-  var from=document.getElementById('vcfFrom').value, to=document.getElementById('vcfTo').value;
-  if(!from||!to) return alert('Select from & to');
-  var online=document.getElementById('vcfOnlineOnly').checked;
-  var key=sessionStorage.getItem('adminKey')||localStorage.getItem('adminKey')||'';
-  var res=await fetch('/api/admin/export-vcf?from='+from+'&to='+to+'&connectedOnly='+(online?'1':'0'),{headers:{'x-admin-key':key}});
-  var blob=await res.blob();
-  var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='empire-bots_'+from+'_to_'+to+'.vcf'; a.click();
-}
-</script>
-<div id="cap-bar" style="height:100%;width:0%;background:#22c55e;transition:width .4s ease,background .4s ease"></div>
-  </div>
-  <div style="display:flex;justify-content:space-between;font-size:12px;color:#9ca3af;margin-bottom:18px">
-    <span id="cap-pct">— % used</span>
-    <span id="cap-free">— MB free</span>
-  </div>
-
-  <div style="display:flex;align-items:center;gap:12px">
-    <button id="cap-btn" style="flex:1;padding:13px;border:none;border-radius:11px;
-            font-weight:700;font-size:14px;cursor:pointer;background:#ef4444;color:#fff;transition:background .2s">
-      Pause New Pairing (Emergency)
-    </button>
-  </div>
-  <div id="cap-ram" style="margin-top:6px;font-size:12px;color:#9ca3af;text-align:center">RAM —</div>
-<div id="cap-state" style="margin-top:10px;font-size:12px;color:#9ca3af;text-align:center">Status: active — accepting new bots</div>
-</div>
-</script>
-    <script>
-(function () {
-  // Reuse the same admin key your dashboard already uses.
-  // If your page stores it under a different name, change ONLY this line.
-  var CAP_KEY = localStorage.getItem('adminKey') ||
-                localStorage.getItem('admin_key') ||
-                sessionStorage.getItem('adminKey') || '';
-
-  var H = { 'Content-Type': 'application/json', 'x-admin-key': CAP_KEY };
-  var paused = false;
-
-  function el(id) { return document.getElementById(id); }
-
-  function paint(pct, freeMB, bots, isPaused, threshold, ram) {
-    var bar = el('cap-bar');
-    bar.style.width = Math.min(pct, 100) + '%';
-    bar.style.background = pct >= threshold ? '#ef4444' : (pct >= 75 ? '#f59e0b' : '#22c55e');
-    el('cap-pct').textContent  = pct + '% used';
-    el('cap-free').textContent = (freeMB === null ? '—' : freeMB + ' MB free');
-    el('cap-bots').textContent = bots + ' bots';
-    if (el('cap-ram') && ram) {
-      el('cap-ram').textContent = 'RAM ' + ram.usePercent + '% · ' + ram.usedMB + '/' + ram.totalMB + ' MB (free ' + ram.freeMB + ' MB)';
-      el('cap-ram').style.color = ram.usePercent >= 90 ? '#ef4444' : (ram.usePercent >= 75 ? '#f59e0b' : '#9ca3af');
-    }
-    el('cap-warning').style.display = pct >= threshold ? 'block' : 'none';
-    paused = isPaused;
-    paintBtn();
-  }
-
-  function paintBtn() {
-    var btn = el('cap-btn'), st = el('cap-state');
-    if (paused) {
-      btn.textContent = 'Resume New Pairing';
-      btn.style.background = '#22c55e';
-      st.textContent = 'Status: PAUSED — new pairing blocked (existing bots safe)';
-    } else {
-      btn.textContent = 'Pause New Pairing (Emergency)';
-      btn.style.background = '#ef4444';
-      st.textContent = 'Status: active — accepting new bots';
-    }
-  }
-
-  function refresh() {
-    fetch('/api/admin/status', { headers: H })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (!d || !d.success) return;
-        var free = (d.disk.availMB === null || d.disk.availMB === undefined) ? null : d.disk.availMB;
-        paint(d.disk.usePercent, free, d.activeBots, d.pairingPaused, d.reserveThreshold || 90, d.ram || null);
-      })
-      .catch(function (e) { console.error('capacity status error', e); });
-  }
-
-  el('cap-btn').addEventListener('click', function () {
-    fetch('/api/admin/pause', {
-      method: 'POST', headers: H, body: JSON.stringify({ paused: !paused })
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (d) { if (d && d.success) { paused = d.pairingPaused; paintBtn(); } })
-      .catch(function (e) { console.error('pause toggle error', e); });
-  });
-
-  refresh();
-  setInterval(refresh, 15000);
-})();
-        </script>
-     </script>
-</body>
-</html>
