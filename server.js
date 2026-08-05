@@ -3,6 +3,7 @@ const compression = require('compression');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { execSync, fork } = require('child_process');
 const config = require('./config');
 const {
@@ -12,7 +13,12 @@ const {
   getTopUsageBots,
   getInactiveBots,
   flagAbusive,
-  deleteBot
+  deleteBot,
+  getAllBots,
+  getBotsByDateRange,
+  buildBotsVcf,
+  setBotStatus,
+  deleteBots
 } = require('./lib/database');
 
 const app = express(); // 🟢 Only declare this ONCE
@@ -55,10 +61,28 @@ function getDiskStatus() {
       totalMB: Number(cols[1])
     };
   } catch (_) {
-    // Fail-open: if the check errors, don't block the whole service.
     return { usePercent: 0, availMB: Infinity, totalMB: Infinity };
   }
 }
+
+// 🧠 VPS memory (RAM)
+function getRamStatus() {
+  try {
+    const total = os.totalmem();
+    const free = os.freemem();
+    const used = total - free;
+    const usePercent = total ? Math.round((used / total) * 100) : 0;
+    return {
+      usePercent,
+      totalMB: Math.round(total / 1024 / 1024),
+      freeMB: Math.round(free / 1024 / 1024),
+      usedMB: Math.round(used / 1024 / 1024)
+    };
+  } catch (_) {
+    return { usePercent: 0, totalMB: 0, freeMB: 0, usedMB: 0 };
+  }
+}
+
 
 function generateSessionId(botName) {
   const formattedName = botName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
@@ -377,9 +401,11 @@ app.get('/api/public-directory', async (req, res) => {
 // ──────────────────────────────────────────────────────────────
 app.get('/api/admin/status', requireAdmin, (req, res) => {
   const disk = getDiskStatus();
+  const ram = typeof getRamStatus === 'function' ? getRamStatus() : null;
   res.json({
     success: true,
     disk,
+    ram,
     pairingPaused,
     activeBots: Object.keys(activeSessions).length,
     reserveThreshold: DISK_ALERT_AT
@@ -401,40 +427,41 @@ app.get('/api/admin/usage', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Admin: full bot list (unlimited / paginated server-side) ─────────
 app.get('/api/admin/bots', requireAdmin, async (req, res) => {
   try {
-    const { search, filterBy } = req.query; // filterBy can be 'name', 'number', or 'session'
-    const { getAllBots } = require('./lib/database');
-    
+    const { search, filterBy, status } = req.query;
     let bots = await getAllBots();
-    
-    // Total count of all unique bots in the DB
     const totalBots = bots.length;
 
-    if (search) {
-      const q = search.toLowerCase();
-      bots = bots.filter(b => {
-        const name = (b.bot_name || "").toLowerCase();
-        const num = (b.phone_number || "").toLowerCase();
-        const sid = (b.session_id || "").toLowerCase();
+    if (status === 'online' || status === 'active') {
+      bots = bots.filter(b => String(b.status || '').toLowerCase() === 'online');
+    } else if (status === 'offline' || status === 'inactive') {
+      bots = bots.filter(b => String(b.status || '').toLowerCase() !== 'online');
+    }
 
+    if (search) {
+      const q = String(search).toLowerCase();
+      bots = bots.filter(b => {
+        const name = (b.bot_name || '').toLowerCase();
+        const num = (b.phone_number || '').toLowerCase();
+        const sid = (b.session_id || '').toLowerCase();
         if (filterBy === 'number') return num.includes(q);
         if (filterBy === 'session') return sid.includes(q);
-        return name.includes(q); // default search by bot name
+        return name.includes(q) || num.includes(q) || sid.includes(q);
       });
     }
 
-    return res.json({ 
-      success: true, 
-      totalCount: totalBots, 
-      filteredCount: bots.length, 
-      bots 
+    return res.json({
+      success: true,
+      totalCount: totalBots,
+      filteredCount: bots.length,
+      bots
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 
 app.get('/api/admin/inactive', requireAdmin, async (req, res) => {
   try {
@@ -466,6 +493,140 @@ app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+
+// ── Admin: full bot list (unlimited / paginated server-side) ─────────
+app.get('/api/admin/bots', requireAdmin, async (req, res) => {
+  try {
+    const { search, filterBy, status } = req.query;
+    let bots = await getAllBots();
+    const totalBots = bots.length;
+
+    if (status === 'online' || status === 'active') {
+      bots = bots.filter(b => String(b.status || '').toLowerCase() === 'online');
+    } else if (status === 'offline' || status === 'inactive') {
+      bots = bots.filter(b => String(b.status || '').toLowerCase() !== 'online');
+    }
+
+    if (search) {
+      const q = String(search).toLowerCase();
+      bots = bots.filter(b => {
+        const name = (b.bot_name || '').toLowerCase();
+        const num = (b.phone_number || '').toLowerCase();
+        const sid = (b.session_id || '').toLowerCase();
+        if (filterBy === 'number') return num.includes(q);
+        if (filterBy === 'session') return sid.includes(q);
+        return name.includes(q) || num.includes(q) || sid.includes(q);
+      });
+    }
+
+    return res.json({
+      success: true,
+      totalCount: totalBots,
+      filteredCount: bots.length,
+      bots
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Admin: set active (online) / inactive (offline) ──────────────────
+app.post('/api/admin/bot/:sessionId/status', requireAdmin, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const status = req.body?.status || req.body?.value || 'offline';
+    const st = await setBotStatus(sessionId, status);
+    // If marking inactive, kill live process so socket dies
+    if (st === 'offline') {
+      try { await killSession(sessionId); } catch (_) {}
+    }
+    return res.json({ success: true, sessionId, status: st });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Admin: bulk status ───────────────────────────────────────────────
+app.post('/api/admin/bots/status', requireAdmin, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.sessionIds) ? req.body.sessionIds : [];
+    const status = req.body?.status || 'offline';
+    let n = 0;
+    for (const id of ids) {
+      await setBotStatus(id, status);
+      if (status === 'offline' || status === 'inactive') {
+        try { await killSession(id); } catch (_) {}
+      }
+      n++;
+    }
+    return res.json({ success: true, updated: n });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Admin: bulk delete (DB + session files) ───────────────────────────
+app.post('/api/admin/bots/delete', requireAdmin, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.sessionIds) ? req.body.sessionIds : [];
+    for (const id of ids) {
+      try { await killSession(id); } catch (_) {}
+      await deleteBot(id);
+    }
+    return res.json({ success: true, deleted: ids.length });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Admin: VCF export by date range ──────────────────────────────────
+app.get('/api/admin/export-vcf', requireAdmin, async (req, res) => {
+  try {
+    const from = req.query.from || '';
+    const to = req.query.to || '';
+    const connectedOnly = req.query.connectedOnly === '1' || req.query.connectedOnly === 'true';
+    if (!from || !to) {
+      return res.status(400).json({ success: false, error: 'Query params from & to required (YYYY-MM-DD)' });
+    }
+    const bots = await getBotsByDateRange(from, to, { connectedOnly });
+    const vcf = buildBotsVcf(bots);
+    const filename = `empire-bots_${from}_to_${to}.vcf`;
+    res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(vcf || 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Empty\r\nEND:VCARD\r\n');
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Admin: VCF preview JSON (count before download) ──────────────────
+app.get('/api/admin/export-vcf-preview', requireAdmin, async (req, res) => {
+  try {
+    const from = req.query.from || '';
+    const to = req.query.to || '';
+    const connectedOnly = req.query.connectedOnly === '1' || req.query.connectedOnly === 'true';
+    const bots = await getBotsByDateRange(from, to, { connectedOnly });
+    return res.json({
+      success: true,
+      count: bots.length,
+      bots: bots.map(b => ({
+        session_id: b.session_id,
+        bot_name: b.bot_name,
+        phone_number: b.phone_number,
+        status: b.status,
+        created_at: b.created_at
+      }))
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+app.get(['/admin', '/admin.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/admin.html'));
 });
 
 // SPA Catch-all routing
