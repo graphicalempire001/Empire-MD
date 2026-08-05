@@ -131,7 +131,7 @@ const CATALOG = {
     "auto": { d: "Toggle typing/recording/online", a: ["presence"] },
     "autostatusview": { d: "Toggle auto-view statuses", a: [] },
     "autostatusreact": { d: "Toggle auto-react to statuses", a: [] },
-    "away": { d: "Away auto-reply for DMs & mentions (on/off or custom)", a: ["awaymode"] },
+    "schedulestatus": { d: "Schedule a text/image/video status for a set time", a: ["ss"] },
     "antidelete": { d: "Recover deleted messages: off/chat/dm", a: ["ad", "antidel"] },
     "anticall": { d: "Reject calls: all / list / off", a: ["at"] },
     "welcome": { d: "DM auto-welcome for new chats (business)", a: ["autogreet"] },
@@ -149,16 +149,17 @@ const CATALOG = {
     "fact": { d: "Random fact", a: [] },
     "bored": { d: "Suggest an activity", a: ["act"] },
     "bible": { d: "Random or specific Bible verse", a: ["verse"] },
-    "quran": { d: "Qur'an ayah (random / 2:255 / surah)", a: ["qur", "ayat"] },
-  "Business": {
+    "quran": { d: "Qur'an ayah (random / 2:255 / surah)", a: ["qur", "ayat"] }
+  },
+  "🧾 Business": {
     "bank": { d: "Show/set payment account details", a: ["pay"] },
+    "header": { d: "Set company/brand header for invoices, PDF & Word docs", a: [] },
     "away": { d: "Away/busy auto-reply message", a: ["busy"] },
     "invoice": { d: "Styled invoice (text/PDF + header)", a: ["inv"] },
     "receipt": { d: "Payment receipt (text/PDF)", a: ["rcpt"] },
     "ocr": { d: "Image/handwriting to text, PDF or Word", a: [] },
     "pdf": { d: "Make PDF from pasted text", a: [] },
     "doc": { d: "Make Word .docx from pasted text", a: ["word", "docx"] }
-  }
   }
 };
 
@@ -184,7 +185,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
     await sock.sendMessage(chatJid, {
       text: `🤖 *[${botName} SYSTEM PROFILE]*
 
-✅ *Bot:* ${botName}
+🧑‍💻 *Bot:* ${botName}
 👤 *Owner:* ${config.ownerName}
 ⚙️ *Prefix:* ${px}
 🔒 *Mode:* ${modeLabel}
@@ -202,7 +203,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
     const uptime = formatUptime(process.uptime());
     const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
     const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
-    const dbStatus = dbConnected ? "🟢 Connected (Supabase)" : "🟡 Local Cache";
+    const dbStatus = dbConnected ? "🟢 Connected (EmpireDB)" : "🟡 Local Cache";
     const now = new Date().toLocaleString();
 
     let registered = {};
@@ -221,7 +222,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
     total += uncategorized.length;
 
     const modeLabel = (settings?.mode || config.mode || "private").toUpperCase();
-    let menu = `╭━━━〔 *✅ ${botName}* 〕━━━┈⊷
+    let menu = `╭━━━〔 *🧑‍💻 ${botName}* 〕━━━┈⊷
 ┃ 👋 Hello, *${senderName || "User"}*!
 ┃ 👑 *Owner:* ${config.ownerName}
 ┃ ⚙️ *Prefix:* ${px}
@@ -260,7 +261,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
 
     menu += `
 ╭━━━━━━━━━━━━━━━┈⊷
-┃ ✅ *Verified · Official Channel*
+┃ 👍 *Verified · Official Channel*
 ┃ _Tap the channel card below_
 ┃
 ┃ _Powered by ${botName} • Made with ❤️_
@@ -268,7 +269,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
 
     try {
       const contextInfo = await buildChannelCard(sock, settings, {
-        title: `✅ ${botName} · Official Channel`,
+        title: `🧑‍💻 ${botName} · Official Channel`,
         body: 'Tap to view channel'
       });
       await sock.sendMessage(chatJid, { text: menu, contextInfo }, { quoted: mek });
@@ -351,7 +352,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
         text: `🎵 *${title}*
 👤 ${meta.author?.name || "Unknown"}
 ⏱️ ${meta.timestamp || "N/A"}
-_✅ Powered by ${resolveBotName(sock, sock.botSettings)}_`
+_🦾 Powered by ${resolveBotName(sock, sock.botSettings)}_`
       }, { quoted: mek });
     } catch (err) {
       console.error("Play error:", err.message);
