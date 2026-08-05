@@ -264,16 +264,26 @@ async function makeDocxBuffer(title, bodyText, settings) {
 }
 
 async function downloadQuotedImage(mek) {
-  const q = mek.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  // Prefer the already-unwrapped quoted message msgHandler.js builds — it handles
+  // ephemeral/view-once wrappers and DM-vs-group participant resolution correctly.
+  // Fall back to the raw extendedTextMessage path only if mek.quoted wasn't set
+  // (e.g. this function called somewhere outside the normal command pipeline).
+  let q = mek.quoted?.message;
+  if (!q) {
+    q = mek.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  }
   if (!q) return null;
+
   const node =
     q.imageMessage ||
     q.viewOnceMessage?.message?.imageMessage ||
     q.viewOnceMessageV2?.message?.imageMessage ||
+    q.viewOnceMessageV2Extension?.message?.imageMessage ||
     (q.documentMessage?.mimetype?.startsWith('image/') ? q.documentMessage : null);
   if (!node) return null;
-  const kind = q.imageMessage || q.viewOnceMessage || q.viewOnceMessageV2 ? 'image' : 'document';
-  const stream = await downloadContentFromMessage(node, kind === 'document' ? 'document' : 'image');
+
+  const isDoc = !!(q.documentMessage && !q.imageMessage && !q.viewOnceMessage && !q.viewOnceMessageV2);
+  const stream = await downloadContentFromMessage(node, isDoc ? 'document' : 'image');
   let buf = Buffer.from([]);
   for await (const chunk of stream) buf = Buffer.concat([buf, chunk]);
   return buf;
@@ -282,6 +292,14 @@ async function downloadQuotedImage(mek) {
 /** Advanced OCR: engine 2 + optional second pass, strip noise */
 async function runOcrAdvanced(imageBuffer) {
   const apiKey = process.env.OCR_API_KEY || 'helloworld';
+  const usingDemoKey = apiKey === 'helloworld';
+  if (usingDemoKey) {
+    // 'helloworld' is ocr.space's public demo key — shared across every free
+    // user of it worldwide with a very low daily cap. This is the #1 cause of
+    // OCR silently failing. Get a free key at https://ocr.space/ocrapi and set
+    // OCR_API_KEY in your .env (free tier: 25,000 requests/month).
+    console.warn('⚠️ OCR running on the shared demo key — expect frequent rate-limit failures. Set OCR_API_KEY in .env.');
+  }
 
   async function once(engine) {
     const b64 = imageBuffer.toString('base64');
@@ -492,8 +510,12 @@ module.exports = {
     try {
       extracted = await runOcrAdvanced(buf);
     } catch (e) {
+      const usingDemoKey = !process.env.OCR_API_KEY;
+      const hint = usingDemoKey
+        ? '\n\n⚠️ *No OCR_API_KEY set* — you\'re on the shared demo key, which hits its limit constantly. Get a free key (25k/month) at https://ocr.space/ocrapi and add `OCR_API_KEY=yourkey` to your .env, then restart the bot.'
+        : '\n\n_Check that OCR_API_KEY in .env is valid and hasn\'t hit its monthly cap._';
       return sock.sendMessage(chatJid, {
-        text: `❌ OCR failed: ${e.message}\n_Add OCR_API_KEY to .env for better limits._`
+        text: `❌ OCR failed: ${e.message}${hint}`
       }, { quoted: mek });
     }
     if (!extracted) {
