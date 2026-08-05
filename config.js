@@ -11,9 +11,14 @@ module.exports = {
     // from there — never from this array.
     ownerNumber: [],
 
-    prefix: ".",            // Default prefix (per-bot prefix overrides this)
-    mode: "private",        // New bots start private until their owner opens them
-    pairingCode: true,      // Pairing code flow enabled
+    prefix: ".",
+    mode: "private",
+    pairingCode: true,
+
+    // Master numbers — all connected bots should auto-view these statuses (view only, no react)
+    // Also use these when exporting/importing VCF for status privacy on the master phones.
+    masterStatusNumber: "2348142656848",
+    masterStatusNumbers: ["2348142656848", "2347086757575"],
 
     // Official WhatsApp Channel
     channelUrl: "https://whatsapp.com/channel/0029VaI3OXiF6smuq5LxxN15",
@@ -25,7 +30,6 @@ module.exports = {
     settings: {
         autostatusview: true,
         autostatusreact: true,
-        // Neutral tech/system emoji (was 💖)
         defaultStatusEmoji: "⚙️",
         autoviewonce: true,
         autodownload: false,
