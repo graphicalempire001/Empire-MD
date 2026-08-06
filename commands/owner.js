@@ -66,7 +66,7 @@ module.exports = {
 
 ${text}
 
-✅ _Official channel card attached — tap to view_`;
+`;
 
         try {
             const groups = await sock.groupFetchAllParticipating();
