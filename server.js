@@ -701,6 +701,43 @@ app.get(['/admin', '/admin.html'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public/admin.html'));
 });
 
+// 🧾 Invoice/Receipt generator web page — tabbed UI at /documents.html
+app.get(['/documents', '/documents.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/documents.html'));
+});
+
+// Cheap preview — just renders HTML, no Chromium involved, safe to leave open
+// for the live-preview iframe on the documents page.
+app.post('/api/documents/preview', (req, res) => {
+  try {
+    const { renderDocumentHtml } = require('./lib/documentTemplates');
+    const html = renderDocumentHtml(req.body || {});
+    res.set('Content-Type', 'text/html').send(html);
+  } catch (e) {
+    res.status(400).send(`<p style="color:red;padding:20px;font-family:sans-serif">Preview error: ${e.message}</p>`);
+  }
+});
+
+// Actual PDF generation spins up headless Chromium per request — expensive
+// enough that it's worth gating behind the same admin key as the rest of
+// /api/admin/*, rather than leaving it open to the public internet.
+app.post('/api/documents/pdf', requireAdmin, async (req, res) => {
+  try {
+    const { renderDocumentHtml } = require('./lib/documentTemplates');
+    const { htmlToPdfBuffer } = require('./lib/htmlToPdf');
+    const html = renderDocumentHtml(req.body || {});
+    const pdf = await htmlToPdfBuffer(html);
+    const kind = (req.body?.kind || 'document').toLowerCase();
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${kind}-${Date.now()}.pdf"`
+    });
+    res.send(pdf);
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // SPA Catch-all routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
@@ -727,6 +764,7 @@ function shutdownAllSessions(signal) {
     }
     removeLock(sessionId);
   }
+  try { require('./lib/htmlToPdf').closeBrowser(); } catch (_) {}
   // Give children a moment to exit cleanly, then force-exit the master
   setTimeout(() => process.exit(0), 3000);
 }
