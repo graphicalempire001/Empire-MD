@@ -6,6 +6,8 @@
 const axios = require('axios');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const { updateSettings } = require('../lib/database');
+const { renderDocumentHtml } = require('../lib/documentTemplates');
+const { htmlToPdfBuffer } = require('../lib/htmlToPdf');
 
 async function persist(sock, settings, patch) {
   const merged = { ...(settings || {}), ...patch };
@@ -77,147 +79,6 @@ function invoiceText(botName, rows, total, s, kind = 'INVOICE') {
   const card = bankCard(s);
   if (card) body += `\n${card}`;
   return body;
-}
-
-/**
- * Styled PDF (CSS-like layout via pdfkit):
- * brand bar, header block, table grid, total box, bank footer
- */
-async function makeStyledInvoicePdf({ kind, rows, total, settings, receiptMeta }) {
-  let PDFDocument;
-  try {
-    PDFDocument = require('pdfkit');
-  } catch (_) {
-    return null;
-  }
-
-  const h = getHeader(settings);
-  const brand = '#0f766e'; // teal
-  const muted = '#64748b';
-  const line = '#e2e8f0';
-
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ size: 'A4', margin: 48 });
-      const chunks = [];
-      doc.on('data', (c) => chunks.push(c));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
-
-      const pageW = doc.page.width;
-      const left = 48;
-      const right = pageW - 48;
-      const contentW = right - left;
-
-      // Top brand bar
-      doc.rect(0, 0, pageW, 8).fill(brand);
-
-      // Header company block
-      doc.fillColor('#0f172a').fontSize(20).font('Helvetica-Bold')
-        .text(h.title, left, 28, { width: contentW * 0.62 });
-      doc.font('Helvetica').fontSize(9).fillColor(muted);
-      let y = 52;
-      if (h.subtitle) { doc.text(h.subtitle, left, y, { width: contentW * 0.62 }); y += 12; }
-      if (h.address) { doc.text(h.address, left, y, { width: contentW * 0.62 }); y += 12; }
-      if (h.phone || h.email) {
-        doc.text([h.phone, h.email].filter(Boolean).join('  ·  '), left, y, { width: contentW * 0.62 });
-        y += 12;
-      }
-
-      // Document type badge (right)
-      doc.font('Helvetica-Bold').fontSize(16).fillColor(brand)
-        .text(kind, left, 28, { width: contentW, align: 'right' });
-      doc.font('Helvetica').fontSize(9).fillColor(muted)
-        .text(new Date().toLocaleString(), left, 50, { width: contentW, align: 'right' });
-      if (receiptMeta?.payer) {
-        doc.text('From: ' + receiptMeta.payer, left, 64, { width: contentW, align: 'right' });
-      }
-
-      // Divider
-      y = Math.max(y, 88) + 8;
-      doc.moveTo(left, y).lineTo(right, y).strokeColor(line).lineWidth(1).stroke();
-      y += 16;
-
-      if (kind === 'RECEIPT' && receiptMeta) {
-        doc.fillColor('#0f172a').fontSize(11)
-          .text('Description: ' + (receiptMeta.desc || 'Payment'), left, y);
-        y += 18;
-        doc.font('Helvetica-Bold').fontSize(14).fillColor(brand)
-          .text('Amount paid: ' + naira(receiptMeta.amount), left, y);
-        y += 28;
-        doc.font('Helvetica').fontSize(10).fillColor('#15803d')
-          .text('Status: PAID / RECORDED', left, y);
-        y += 24;
-      } else {
-        // Table header
-        doc.rect(left, y, contentW, 22).fill('#f1f5f9');
-        doc.fillColor('#334155').font('Helvetica-Bold').fontSize(9);
-        const colItem = left + 8;
-        const colQty = left + contentW * 0.52;
-        const colPrice = left + contentW * 0.68;
-        const colSub = left + contentW * 0.84;
-        doc.text('#', colItem, y + 6, { width: 20 });
-        doc.text('ITEM', colItem + 18, y + 6, { width: contentW * 0.4 });
-        doc.text('QTY', colQty, y + 6, { width: 40 });
-        doc.text('PRICE', colPrice, y + 6, { width: 70 });
-        doc.text('AMOUNT', colSub, y + 6, { width: 70, align: 'right' });
-        y += 26;
-
-        doc.font('Helvetica').fontSize(9).fillColor('#0f172a');
-        rows.forEach((r, i) => {
-          if (y > 700) {
-            doc.addPage();
-            y = 48;
-          }
-          if (i % 2 === 1) {
-            doc.rect(left, y - 2, contentW, 18).fill('#f8fafc');
-            doc.fillColor('#0f172a');
-          }
-          doc.text(String(i + 1), colItem, y, { width: 20 });
-          doc.text(r.item, colItem + 18, y, { width: contentW * 0.38 });
-          doc.text(String(r.qty), colQty, y, { width: 40 });
-          doc.text(naira(r.price), colPrice, y, { width: 70 });
-          doc.text(naira(r.sub), colSub, y, { width: right - colSub - 4, align: 'right' });
-          y += 18;
-        });
-
-        y += 10;
-        doc.moveTo(left, y).lineTo(right, y).strokeColor(line).stroke();
-        y += 12;
-        // Total box
-        doc.roundedRect(right - 180, y, 180, 36, 4).fill('#ecfdf5');
-        doc.fillColor(brand).font('Helvetica-Bold').fontSize(12)
-          .text('TOTAL  ' + naira(total), right - 172, y + 12, { width: 164, align: 'right' });
-        y += 50;
-      }
-
-      // Bank footer
-      const b = settings?.bankDetails;
-      if (b && (b.accountNumber || b.bankName)) {
-        doc.roundedRect(left, y, contentW, 70, 6).lineWidth(1).strokeColor(line).stroke();
-        doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10)
-          .text('Payment details', left + 12, y + 10);
-        doc.font('Helvetica').fontSize(9).fillColor('#334155')
-          .text(
-            `Bank: ${b.bankName || '—'}\nAccount: ${b.accountNumber || '—'}\nName: ${b.accountName || '—'}`,
-            left + 12,
-            y + 26,
-            { width: contentW - 24 }
-          );
-        y += 80;
-      }
-
-      doc.fontSize(8).fillColor(muted)
-        .text('Generated by Empire MD · Thank you for your business', left, 780, {
-          width: contentW,
-          align: 'center'
-        });
-
-      doc.end();
-    } catch (e) {
-      reject(e);
-    }
-  });
 }
 
 async function makePlainPdf(title, bodyText, settings) {
@@ -457,9 +318,13 @@ module.exports = {
     const body = invoiceText(s.botName || 'Empire MD', rows, total, s, 'INVOICE');
     await sock.sendMessage(chatJid, { text: body }, { quoted: mek });
     if (wantPdf) {
-      const pdf = await makeStyledInvoicePdf({ kind: 'INVOICE', rows, total, settings: s });
-      if (pdf) await sendDoc(sock, chatJid, mek, pdf, `invoice-${Date.now()}.pdf`, 'application/pdf');
-      else await sock.sendMessage(chatJid, { text: '_Install: npm i pdfkit_' }, { quoted: mek });
+      try {
+        const html = renderDocumentHtml({ kind: 'INVOICE', header: getHeader(s), rows, total, bankDetails: s.bankDetails });
+        const pdf = await htmlToPdfBuffer(html);
+        await sendDoc(sock, chatJid, mek, pdf, `invoice-${Date.now()}.pdf`, 'application/pdf');
+      } catch (e) {
+        await sock.sendMessage(chatJid, { text: `❌ PDF generation failed: ${e.message}\n_Run: npm install puppeteer_` }, { quoted: mek });
+      }
     }
   },
   inv: async (a) => module.exports.invoice(a),
@@ -484,15 +349,20 @@ module.exports = {
     const extra = payer ? body.replace('📅', `*From:* ${payer}\n📅`) : body;
     await sock.sendMessage(chatJid, { text: extra }, { quoted: mek });
     if (wantPdf) {
-      const pdf = await makeStyledInvoicePdf({
-        kind: 'RECEIPT',
-        rows,
-        total: amount,
-        settings: s,
-        receiptMeta: { amount, desc, payer }
-      });
-      if (pdf) await sendDoc(sock, chatJid, mek, pdf, `receipt-${Date.now()}.pdf`, 'application/pdf');
-      else await sock.sendMessage(chatJid, { text: '_Install: npm i pdfkit_' }, { quoted: mek });
+      try {
+        const html = renderDocumentHtml({
+          kind: 'RECEIPT',
+          header: getHeader(s),
+          rows,
+          total: amount,
+          receiptMeta: { amount, desc, payer },
+          bankDetails: s.bankDetails
+        });
+        const pdf = await htmlToPdfBuffer(html);
+        await sendDoc(sock, chatJid, mek, pdf, `receipt-${Date.now()}.pdf`, 'application/pdf');
+      } catch (e) {
+        await sock.sendMessage(chatJid, { text: `❌ PDF generation failed: ${e.message}\n_Run: npm install puppeteer_` }, { quoted: mek });
+      }
     }
   },
   rcpt: async (a) => module.exports.receipt(a),
