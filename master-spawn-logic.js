@@ -46,6 +46,9 @@ async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
         if (activeSessions[sessionId]) {
             if (type === 'qr') {
                 activeSessions[sessionId].qr = data.qr;
+            } else if (type === 'pairingCode') {
+                // botWorker.js sends { type: 'pairingCode', code } — no `data` wrapper
+                activeSessions[sessionId].pairingCode = msg.code || (data && data.code) || null;
             } else if (type === 'status') {
                 activeSessions[sessionId].status = data.status;
                 if (data.status === 'connected') {
@@ -68,6 +71,28 @@ async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
     });
 }
 
+// --- 🧹 Expired-session cleanup ---
+// Any session that never got claimed (still 'pairing' or 'error' past its
+// expiry) is a dead child process + memory-resident entry doing nothing.
+// Sweep periodically instead of relying on callers to clean up after themselves.
+const CLEANUP_INTERVAL_MS = 30 * 1000;
+
+function sweepExpiredSessions() {
+    const now = Date.now();
+    for (const [sessionId, session] of Object.entries(activeSessions)) {
+        const isUnclaimed = session.status === 'pairing' || session.status === 'error';
+        if (isUnclaimed && session.expiry && now > session.expiry) {
+            console.log(`🧹 Reaping expired/unclaimed session: ${sessionId} (status: ${session.status})`);
+            killSession(sessionId).catch(err =>
+                console.error(`Cleanup failed for ${sessionId}:`, err.message)
+            );
+        }
+    }
+}
+
+const cleanupTimer = setInterval(sweepExpiredSessions, CLEANUP_INTERVAL_MS);
+cleanupTimer.unref(); // don't keep the process alive just for this timer
+
 // Function to stop and clean up an active session safely from the Admin Controller
 async function killSession(sessionId) {
     const session = activeSessions[sessionId];
@@ -85,3 +110,10 @@ async function killSession(sessionId) {
     delete activeSessions[sessionId];
     try { fs.rmSync(path.join(SESSIONS_ROOT, sessionId), { recursive: true, force: true }); } catch (_) {}
 }
+
+module.exports = {
+    startSession,
+    killSession,
+    sweepExpiredSessions,
+    activeSessions
+};
