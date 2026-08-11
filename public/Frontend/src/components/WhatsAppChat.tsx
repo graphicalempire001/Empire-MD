@@ -10,8 +10,6 @@ import {
   PREMIUM_PERIOD,
   CHANNEL_URL,
   findCommand,
-  formatCommandReply,
-  listCommandsByCategory,
   randomTestimonials,
 } from './siteChatKnowledge'
 
@@ -19,6 +17,7 @@ import {
 const BOT_NAME = 'BOT-WAN'
 const BOT_ROLE = 'Empire MD Customer Support'
 const BRAND_LINE = `Built by ${COMPANY}`
+const BOT_AVATAR = 'https://i.ibb.co/1YLKVVSy/FB-IMG-1786428497914.jpg'
 
 type Role = 'bot' | 'user' | 'system'
 
@@ -27,14 +26,40 @@ interface Msg {
   role: Role
   text: string
   ts: number
+  /** Optional extra action (e.g. open WhatsApp link) */
+  waLink?: string
 }
 
 function uid() {
   return Math.random().toString(36).slice(2, 10)
 }
 
-function nowTime() {
-  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+/* ─── Free AI supplement (server /api/botwan/chat) ───────────── */
+async function askAI(
+  message: string,
+  history: Msg[]
+): Promise<{ reply: string; provider?: string } | null> {
+  try {
+    const res = await fetch('/api/botwan/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        history: history.slice(-8).map((m) => ({
+          role: m.role === 'bot' ? 'assistant' : 'user',
+          content: m.text.slice(0, 400),
+        })),
+      }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    if (data?.success && data.reply) {
+      return { reply: String(data.reply), provider: data.provider }
+    }
+  } catch (_) {
+    /* offline / no key — local rules */
+  }
+  return null
 }
 
 /* ─── Typo helper ────────────────────────────────────────────── */
@@ -68,7 +93,7 @@ function hasWord(hay: string, needles: string[], maxDist = 1): boolean {
   return false
 }
 
-/* ─── Intent detection (short → natural) ─────────────────────── */
+/* ─── Intent detection ───────────────────────────────────────── */
 type Intent =
   | 'greeting'
   | 'thanks'
@@ -91,7 +116,6 @@ function detectIntent(raw: string): { intent: Intent; commandName?: string } {
   const t = raw.toLowerCase().trim()
   if (!t) return { intent: 'fallback' }
 
-  // Greetings first — never dump commands on "hi"
   if (
     /^(hi|hii+|hello|hey|heyy+|good\s*(morning|afternoon|evening|day)|sup|yo|howdy|what's up|whats up)\b/.test(t) ||
     t === 'hi' ||
@@ -109,20 +133,60 @@ function detectIntent(raw: string): { intent: Intent; commandName?: string } {
     return { intent: 'bye' }
   }
 
+  // Human — also match the FAQ chip text
   if (
-    hasWord(t, ['human', 'agent', 'support', 'staff', 'person', 'real person', 'talk to someone', 'customer care']) ||
-    /speak to (a )?(human|person|agent)/.test(t)
+    hasWord(t, [
+      'human',
+      'agent',
+      'staff',
+      'person',
+      'real person',
+      'talk to someone',
+      'customer care',
+      'talk to a human',
+      'speak to human',
+      'live support',
+      'real support',
+    ]) ||
+    /speak to (a )?(human|person|agent)/.test(t) ||
+    /talk to (a )?(human|person|agent)/.test(t)
   ) {
     return { intent: 'human' }
   }
 
   if (
-    hasWord(t, ['who created', 'who built', 'who made', 'creator', 'founder', 'mishael', 'yakubu', 'empire digitals', 'who is behind', 'built by', 'who own', 'who owns'])
+    hasWord(t, [
+      'who created',
+      'who built',
+      'who made',
+      'creator',
+      'founder',
+      'mishael',
+      'yakubu',
+      'empire digitals',
+      'who is behind',
+      'built by',
+      'who own',
+      'who owns',
+    ])
   ) {
     return { intent: 'who' }
   }
 
-  if (hasWord(t, ['price', 'pricing', 'how much', 'cost', 'naira', '₦', 'payment', 'pay', 'subscribe', 'subscription'])) {
+  if (
+    hasWord(t, [
+      'price',
+      'pricing',
+      'how much',
+      'cost',
+      'naira',
+      '₦',
+      'payment',
+      'pay',
+      'subscribe',
+      'subscription',
+    ])
+  ) {
     return { intent: 'price' }
   }
 
@@ -131,7 +195,18 @@ function detectIntent(raw: string): { intent: Intent; commandName?: string } {
   }
 
   if (
-    hasWord(t, ['pair', 'pairing', 'connect', 'link number', 'how to start', 'get bot', 'deploy', 'setup', 'set up', 'how do i connect'])
+    hasWord(t, [
+      'pair',
+      'pairing',
+      'connect',
+      'link number',
+      'how to start',
+      'get bot',
+      'deploy',
+      'setup',
+      'set up',
+      'how do i connect',
+    ])
   ) {
     return { intent: 'pair' }
   }
@@ -145,15 +220,26 @@ function detectIntent(raw: string): { intent: Intent; commandName?: string } {
   }
 
   if (
-    hasWord(t, ['not working', 'broken', 'error', 'failed', 'problem', 'issue', 'bug', 'down', 'offline', 'can\'t', 'cannot', 'help me'])
+    hasWord(t, [
+      'not working',
+      'broken',
+      'error',
+      'failed',
+      'problem',
+      'issue',
+      'bug',
+      'down',
+      'offline',
+      "can't",
+      'cannot',
+      'help me',
+    ])
   ) {
     return { intent: 'problem' }
   }
 
-  // Specific command?
   const cmd = findCommand(t)
   if (cmd) {
-    // User asking "what commands" vs "how does .vv work"
     if (
       hasWord(t, ['all commands', 'command list', 'list commands', 'what can', 'features', 'menu', 'help']) &&
       !hasWord(t, ['.' + cmd.name, cmd.name, ...cmd.aliases])
@@ -163,7 +249,19 @@ function detectIntent(raw: string): { intent: Intent; commandName?: string } {
     return { intent: 'command_detail', commandName: cmd.name }
   }
 
-  if (hasWord(t, ['command', 'commands', 'feature', 'features', 'what can it do', 'capabilities', 'menu', 'help', 'list'])) {
+  if (
+    hasWord(t, [
+      'command',
+      'commands',
+      'feature',
+      'features',
+      'what can it do',
+      'capabilities',
+      'menu',
+      'help',
+      'list',
+    ])
+  ) {
     return { intent: 'commands_list' }
   }
 
@@ -200,17 +298,18 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
-function replyFor(intent: Intent, raw: string, commandName?: string): { text: string; offerHuman?: boolean; handoff?: boolean } {
+function replyFor(
+  intent: Intent,
+  raw: string,
+  commandName?: string
+): { text: string; offerHuman?: boolean; handoff?: boolean } {
   switch (intent) {
     case 'greeting':
       return { text: pick(GREETINGS) }
-
     case 'thanks':
       return { text: pick(THANKS) }
-
     case 'bye':
       return { text: pick(BYE) }
-
     case 'who':
       return {
         text:
@@ -219,7 +318,6 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
           `More about him → ${CEO_PAGE}\n\n` +
           `I'm ${BOT_NAME}, the support assistant on this site.`,
       }
-
     case 'price':
       return {
         text:
@@ -228,7 +326,6 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
           `You can choose Free or Premium when you pair, or upgrade later with *.upgrade* on WhatsApp.`,
         offerHuman: true,
       }
-
     case 'premium_why':
       return {
         text:
@@ -236,7 +333,6 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
           `Premium keeps the servers stable and unlocks privacy + business tools (ghost mode, anti-delete, docs, antibot).\n\n` +
           `Only pay if you need those — no pressure.`,
       }
-
     case 'pair':
       return {
         text:
@@ -248,14 +344,12 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
           `Usually under 2 minutes. Stuck? Say *human* and I'll connect you.`,
         offerHuman: true,
       }
-
     case 'how_use':
       return {
         text:
           `After pairing, open WhatsApp and type *.help* (or *.menu*).\n\n` +
           `That's the full menu. Or ask me about a specific command — e.g. "how does .play work".`,
       }
-
     case 'command_detail': {
       const cmd = commandName ? findCommand(commandName) : findCommand(raw)
       if (!cmd) {
@@ -263,7 +357,6 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
           text: `I couldn't match that to a command. Try the exact name (e.g. *.vv* or *play*) or type *commands* for a short list.`,
         }
       }
-      // Keep it tight — not a wall of text
       const planTag = cmd.plan === 'premium' ? ' · *Premium*' : cmd.plan === 'owner' ? ' · *Owner*' : ''
       let out =
         `*${cmd.name}*${cmd.aliases.length ? ` (${cmd.aliases.map((a) => '.' + a).join(', ')})` : ''}${planTag}\n\n` +
@@ -272,7 +365,6 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
       if (cmd.tips) out += `\n\n💡 ${cmd.tips}`
       return { text: out }
     }
-
     case 'commands_list':
       return {
         text:
@@ -285,12 +377,10 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
           `🧾 Business — .invoice .receipt .pdf .ocr (Premium)\n\n` +
           `Ask me about any one (e.g. "explain .vv") and I'll show usage only for that.`,
       }
-
     case 'testimonial':
       return {
         text: `What people say:\n\n${randomTestimonials(2)}\n\nWant more? Or ask about a feature.`,
       }
-
     case 'problem':
       return {
         text:
@@ -302,25 +392,21 @@ function replyFor(intent: Intent, raw: string, commandName?: string): { text: st
           `Tell me what exactly failed, or say *human* and I'll pass you to the team with a summary.`,
         offerHuman: true,
       }
-
     case 'human':
       return {
         text:
-          `Got it — connecting you to a human on WhatsApp.\n\n` +
-          `I'll open a chat with a short note of what we talked about so they don't start from zero.`,
+          `Got it — I'll connect you to a human on WhatsApp.\n\n` +
+          `Tap the green button below to open the chat. Your conversation summary is ready for them.`,
         handoff: true,
       }
-
     case 'status':
       return {
         text: `I'm online and ready 🟢\n\nEmpire MD support via *${BOT_NAME}*. What do you need?`,
       }
-
     case 'channel':
       return {
         text: `Official channel:\n👉 ${CHANNEL_URL}\n\nGood place for updates and tips.`,
       }
-
     default:
       return {
         text:
@@ -357,7 +443,10 @@ function buildHandoffSummary(history: Msg[]): string {
   )
 }
 
-/* ─── FAQ chips (short) ──────────────────────────────────────── */
+function buildWaUrl(history: Msg[]): string {
+  return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(buildHandoffSummary(history))}`
+}
+
 const FAQ_CHIPS = [
   'How do I pair?',
   'Premium price',
@@ -375,6 +464,7 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
   const [text, setText] = useState('')
   const [messages, setMessages] = useState<Msg[]>([])
   const [typing, setTyping] = useState(false)
+  const [pendingWa, setPendingWa] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -401,36 +491,76 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, typing])
+  }, [messages, typing, pendingWa])
 
-  const pushBot = useCallback((reply: string) => {
-    setMessages((prev) => [...prev, { id: uid(), role: 'bot', text: reply, ts: Date.now() }])
+  const pushBot = useCallback((reply: string, extra?: Partial<Msg>) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: uid(), role: 'bot', text: reply, ts: Date.now(), ...extra },
+    ])
   }, [])
 
-  const openHumanWhatsApp = useCallback((history: Msg[]) => {
-    const summary = buildHandoffSummary(history)
-    window.open(`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(summary)}`, '_blank')
+  /** Open WhatsApp reliably — try window.open, always show button fallback */
+  const startHandoff = useCallback((history: Msg[]) => {
+    const url = buildWaUrl(history)
+    setPendingWa(url)
+    // Attempt open (may be blocked by popup blocker after async delay)
+    try {
+      const w = window.open(url, '_blank', 'noopener,noreferrer')
+      if (!w) {
+        // Blocked — user will use the green button we render
+        console.warn('WhatsApp popup blocked — showing open button')
+      }
+    } catch (_) {
+      /* ignore */
+    }
   }, [])
 
   const respond = useCallback(
-    (raw: string, history: Msg[]) => {
+    async (raw: string, history: Msg[]) => {
       const { intent, commandName } = detectIntent(raw)
-      const result = replyFor(intent, raw, commandName)
 
-      pushBot(result.text)
-
-      if (result.handoff) {
-        setTimeout(() => openHumanWhatsApp([...history, { id: uid(), role: 'user', text: raw, ts: Date.now() }]), 700)
+      // Human handoff — always local, always show WA button
+      if (intent === 'human') {
+        const result = replyFor('human', raw)
+        pushBot(result.text)
+        startHandoff([...history, { id: uid(), role: 'user', text: raw, ts: Date.now() }])
         return
       }
 
+      const localFirst = !['fallback', 'problem', 'how_use'].includes(intent)
+
+      if (localFirst) {
+        const result = replyFor(intent, raw, commandName)
+        pushBot(result.text)
+        if (result.offerHuman) {
+          setTimeout(() => {
+            pushBot(
+              `If you'd rather talk to a person, type *human* or tap *Talk to a human* — I'll open WhatsApp with a short summary.`
+            )
+          }, 900)
+        }
+        return
+      }
+
+      // Open questions → free AI
+      const ai = await askAI(raw, history)
+      if (ai?.reply) {
+        pushBot(ai.reply)
+        return
+      }
+
+      const result = replyFor(intent, raw, commandName)
+      pushBot(result.text)
       if (result.offerHuman) {
         setTimeout(() => {
-          pushBot(`If you'd rather talk to a person, type *human* — I'll open WhatsApp with a short summary of this chat.`)
+          pushBot(
+            `If you'd rather talk to a person, type *human* or tap *Talk to a human* — I'll open WhatsApp with a short summary.`
+          )
         }, 900)
       }
     },
-    [pushBot, openHumanWhatsApp]
+    [pushBot, startHandoff]
   )
 
   const send = (override?: string) => {
@@ -440,8 +570,8 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
     setMessages((prev) => [...prev, userMsg])
     setText('')
     setTyping(true)
-    // Natural typing delay — short for short messages
-    const delay = 600 + Math.min(1400, msg.length * 18)
+    setPendingWa(null)
+    const delay = 500 + Math.min(1200, msg.length * 16)
     setTimeout(() => {
       setTyping(false)
       respond(msg, [...messages, userMsg])
@@ -450,9 +580,9 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
 
   return (
     <>
-      {/* Light SEO / brand mention */}
       <div className="sr-only">
-        Empire MD customer support is BOT-WAN. Built by Empire Digitals. CEO Mishael Yakubu — {CEO_PAGE}
+        Empire MD customer support is BOT-WAN. Built by Empire Digitals. CEO Mishael Yakubu —{' '}
+        {CEO_PAGE}
       </div>
 
       <AnimatePresence>
@@ -462,35 +592,51 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.92 }}
             transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            className="fixed bottom-24 right-5 md:right-8 z-[90] w-[92vw] max-w-md rounded-2xl overflow-hidden shadow-2xl glass border border-white/10 flex flex-col max-h-[min(70vh,560px)]"
+            className="fixed bottom-24 right-5 md:right-8 z-[90] w-[92vw] max-w-md rounded-2xl overflow-hidden shadow-2xl border border-[#d1e7dd] flex flex-col max-h-[min(72vh,580px)] bg-[#f0f2f5]"
           >
-            {/* Header */}
-            <div className="px-4 py-3 bg-[#075E54] text-white flex items-center gap-3 shrink-0">
-              <div className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center text-lg font-bold border border-white/20">
-                BW
-              </div>
+            {/* Header — green + milk */}
+            <div className="px-4 py-3 bg-[#00A884] text-white flex items-center gap-3 shrink-0 shadow-sm">
+              <img
+                src={BOT_AVATAR}
+                alt={BOT_NAME}
+                className="w-10 h-10 rounded-full object-cover border-2 border-white/40 bg-white"
+                onError={(e) => {
+                  ;(e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm leading-tight">{BOT_NAME}</div>
-                <div className="text-[11px] text-white/75 truncate">{BOT_ROLE} · online</div>
+                <div className="text-[11px] text-white/90 truncate">{BOT_ROLE} · online</div>
               </div>
               <button
                 onClick={() => onOpenChange(false)}
-                className="p-1.5 rounded-full hover:bg-white/10 transition"
+                className="p-1.5 rounded-full hover:bg-white/15 transition"
                 aria-label="Close"
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* Messages */}
-            <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 bg-[#0b141a]">
+            {/* Messages — soft milk background */}
+            <div
+              ref={listRef}
+              className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5"
+              style={{
+                backgroundColor: '#EFEAE2',
+                backgroundImage:
+                  'radial-gradient(circle at 20% 20%, rgba(0,168,132,0.04) 0%, transparent 50%)',
+              }}
+            >
               {messages.map((m) => (
-                <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  key={m.id}
+                  className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
                   <div
-                    className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed whitespace-pre-wrap ${
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed whitespace-pre-wrap shadow-sm ${
                       m.role === 'user'
-                        ? 'bg-[#005c4b] text-white rounded-br-md'
-                        : 'bg-[#1f2c34] text-[#e9edef] rounded-bl-md'
+                        ? 'bg-[#D9FDD3] text-[#111b21] rounded-br-md'
+                        : 'bg-white text-[#111b21] rounded-bl-md border border-black/[0.04]'
                     }`}
                   >
                     {m.text.split(/(\*[^*]+\*)/g).map((part, i) =>
@@ -500,8 +646,15 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
                         <span key={i}>{part}</span>
                       )
                     )}
-                    <div className={`text-[10px] mt-1 ${m.role === 'user' ? 'text-white/50' : 'text-white/40'}`}>
-                      {new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <div
+                      className={`text-[10px] mt-1 ${
+                        m.role === 'user' ? 'text-[#667781]' : 'text-[#8696a0]'
+                      }`}
+                    >
+                      {new Date(m.ts).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
                     </div>
                   </div>
                 </div>
@@ -509,20 +662,40 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
 
               {typing && (
                 <div className="flex justify-start">
-                  <div className="bg-[#1f2c34] rounded-2xl rounded-bl-md px-4 py-2.5 text-white/60 text-xs">
+                  <div className="bg-white border border-black/[0.04] rounded-2xl rounded-bl-md px-4 py-2.5 text-[#667781] text-xs shadow-sm">
                     {BOT_NAME} is typing…
                   </div>
+                </div>
+              )}
+
+              {/* Reliable WhatsApp open button (popup-blocker safe) */}
+              {pendingWa && (
+                <div className="flex justify-center pt-1 pb-2">
+                  <a
+                    href={pendingWa}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#25D366] text-white text-sm font-semibold shadow-md hover:bg-[#1ebe57] transition"
+                    onClick={() => {
+                      /* allow navigation; keep button until next message */
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                    </svg>
+                    Open WhatsApp with summary
+                  </a>
                 </div>
               )}
             </div>
 
             {/* Chips */}
-            <div className="px-2 py-2 flex gap-1.5 overflow-x-auto bg-[#0b141a] border-t border-white/5 shrink-0 no-scrollbar">
+            <div className="px-2 py-2 flex gap-1.5 overflow-x-auto bg-[#f0f2f5] border-t border-[#e9edef] shrink-0">
               {FAQ_CHIPS.map((chip) => (
                 <button
                   key={chip}
                   onClick={() => send(chip)}
-                  className="shrink-0 text-[11px] px-3 py-1.5 rounded-full bg-[#1f2c34] text-[#e9edef] border border-white/10 hover:bg-[#2a3942] transition"
+                  className="shrink-0 text-[11px] px-3 py-1.5 rounded-full bg-white text-[#111b21] border border-[#d1e7dd] hover:bg-[#D9FDD3] hover:border-[#00A884]/40 transition"
                 >
                   {chip}
                 </button>
@@ -534,27 +707,27 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
               href={CEO_PAGE}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3 py-1.5 bg-[#0d1117] text-[10px] text-white/70 flex items-center justify-center gap-1.5 hover:text-white transition shrink-0"
+              className="px-3 py-1.5 bg-white text-[10px] text-[#667781] flex items-center justify-center gap-1.5 hover:text-[#00A884] transition shrink-0 border-t border-[#e9edef]"
             >
               {BRAND_LINE}
               <ExternalLink size={10} />
             </a>
 
             {/* Input */}
-            <div className="p-2 bg-[#1f2c34] border-t border-white/5 flex items-center gap-2 shrink-0">
+            <div className="p-2 bg-[#f0f2f5] border-t border-[#e9edef] flex items-center gap-2 shrink-0">
               <input
                 ref={inputRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
                 placeholder="Message BOT-WAN…"
-                className="flex-1 bg-[#2a3942] border border-white/10 rounded-full px-4 py-2.5 text-sm text-white placeholder-white/40 outline-none focus:border-[#00A884] transition"
+                className="flex-1 bg-white border border-[#e9edef] rounded-full px-4 py-2.5 text-sm text-[#111b21] placeholder-[#8696a0] outline-none focus:border-[#00A884] transition"
               />
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={() => send()}
                 disabled={!text.trim() || typing}
-                className="w-10 h-10 rounded-full bg-[#00A884] flex items-center justify-center text-white shrink-0 disabled:opacity-50"
+                className="w-10 h-10 rounded-full bg-[#00A884] flex items-center justify-center text-white shrink-0 disabled:opacity-50 shadow-sm"
                 aria-label="Send"
               >
                 <Send size={16} />
@@ -574,11 +747,21 @@ export default function WhatsAppChat({ open, onOpenChange }: Props) {
       >
         <AnimatePresence mode="wait">
           {open ? (
-            <motion.span key="x" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }}>
+            <motion.span
+              key="x"
+              initial={{ rotate: -90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: 90, opacity: 0 }}
+            >
               <X size={24} className="text-white" />
             </motion.span>
           ) : (
-            <motion.span key="c" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }}>
+            <motion.span
+              key="c"
+              initial={{ rotate: 90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: -90, opacity: 0 }}
+            >
               <MessageCircle size={24} className="text-white" />
             </motion.span>
           )}
