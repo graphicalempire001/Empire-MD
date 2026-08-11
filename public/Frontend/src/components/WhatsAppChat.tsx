@@ -372,8 +372,11 @@ function replyFor(
         }
       }
       const planTag = cmd.plan === 'premium' ? ' · *Premium*' : cmd.plan === 'owner' ? ' · *Owner*' : ''
+      const aliasesText = cmd.aliases.length
+        ? ` (${cmd.aliases.map((a) => '.' + a).join(', ')})`
+        : ''
       let out =
-        `*\( {cmd.name}* \){cmd.aliases.length ? ` (\( {cmd.aliases.map((a) => '.' + a).join(', ')})` : ''} \){planTag}\n\n` +
+        `*\( {cmd.name}* \){aliasesText}${planTag}\n\n` +
         `${cmd.short}\n\n` +
         `*Use:* ${cmd.usage}`
       if (cmd.tips) out += `\n\n💡 ${cmd.tips}`
