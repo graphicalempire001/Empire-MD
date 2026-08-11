@@ -1,34 +1,10 @@
--- ============================================================================
--- EMPIRE MD — COMPLETE SUPABASE SCHEMA (FROM SCRATCH)
--- ============================================================================
--- Run this ENTIRE file once in a NEW Supabase project:
---   Dashboard → SQL Editor → New query → Paste → Run
---
--- Covers:
---   • bot_registry   (every bot / session / plan / stats / settings JSON)
---   • ai_memory      (per-bot, per-user AI conversation history)
---   • payments       (Paystack / Flutterwave / manual)
---   • platform_config (global admin settings for public page + admin panel)
---   • RPCs           (increment_usage, increment_command_count)
---   • Indexes, views, helpers
---
--- Session IDs are expected in the form:  EMPIRE-MD_<BOTNAME>_<SUFFIX>
--- (Change generateSessionId() in server.js from BOTWAN_ to EMPIRE-MD_)
---
--- No row limits. Service-role key bypasses RLS for the Node backend.
--- ============================================================================
+
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";    -- optional fuzzy search on bot names
 
 
--- ============================================================================
--- 1. bot_registry  — core multi-bot registry
--- ============================================================================
--- One row = one paired WhatsApp bot instance.
--- `settings` JSONB holds per-bot runtime config (prefix, mode, ownerNumber,
--- ghostMode, antilink, welcome, aichatmode, anticall, etc.)
 
 CREATE TABLE IF NOT EXISTS public.bot_registry (
   -- Identity
@@ -118,10 +94,6 @@ CREATE INDEX IF NOT EXISTS idx_bot_registry_whitelisted
 CREATE INDEX IF NOT EXISTS idx_bot_registry_settings_gin
   ON public.bot_registry USING GIN (settings);
 
-
--- ============================================================================
--- 2. ai_memory  — per-bot, per-user conversation history
--- ============================================================================
 CREATE TABLE IF NOT EXISTS public.ai_memory (
   id              BIGSERIAL PRIMARY KEY,
   session_id      TEXT NOT NULL REFERENCES public.bot_registry(session_id) ON DELETE CASCADE,
@@ -144,9 +116,6 @@ CREATE INDEX IF NOT EXISTS idx_ai_memory_updated
   ON public.ai_memory (updated_at DESC);
 
 
--- ============================================================================
--- 3. payments  — monetization ledger
--- ============================================================================
 CREATE TABLE IF NOT EXISTS public.payments (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      TEXT REFERENCES public.bot_registry(session_id) ON DELETE SET NULL,
@@ -207,10 +176,6 @@ INSERT INTO public.platform_config (key, value, description) VALUES
   ('maintenance_message',     'null',                                          'If set, public page shows this message')
 ON CONFLICT (key) DO NOTHING;
 
-
--- ============================================================================
--- 5. RPC helpers used by the Node backend
--- ============================================================================
 
 -- Atomic message counter + last_active touch
 CREATE OR REPLACE FUNCTION public.increment_usage(p_session_id TEXT)
@@ -332,9 +297,6 @@ AS $$
 $$;
 
 
--- ============================================================================
--- 6. Helpful views for admin dashboard / public directory
--- ============================================================================
 
 -- Live public directory (online bots only)
 CREATE OR REPLACE VIEW public.v_public_bots AS
@@ -407,9 +369,6 @@ WHERE last_active IS NULL
 ORDER BY last_active ASC NULLS FIRST;
 
 
--- ============================================================================
--- 7. updated_at trigger
--- ============================================================================
 CREATE OR REPLACE FUNCTION public.set_updated_at()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -430,12 +389,6 @@ CREATE TRIGGER trg_ai_memory_updated_at
   BEFORE UPDATE ON public.ai_memory
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-
--- ============================================================================
--- 8. Row Level Security (optional safety)
--- ============================================================================
--- Backend uses the service_role key → bypasses RLS.
--- These policies protect against accidental anon/authenticated access.
 
 ALTER TABLE public.bot_registry    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_memory       ENABLE ROW LEVEL SECURITY;
@@ -465,43 +418,10 @@ CREATE POLICY "deny_write_platform_config" ON public.platform_config
   FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
 
 
--- ============================================================================
--- 9. Grants (service role already has everything; explicit for clarity)
--- ============================================================================
 GRANT USAGE ON SCHEMA public TO postgres, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres, service_role;
 
 
--- ============================================================================
--- 10. Example default settings JSON (documentation only — not executed)
--- ============================================================================
--- When registerBot() creates a row, settings looks like:
--- {
---   "botName": "MyBot",
---   "prefix": ".",
---   "mode": "private",
---   "ownerNumber": ["2348012345678"],
---   "plan": "free",
---   "ghostMode": false,
---   "alwaysOnline": true,
---   "welcome": true,
---   "autostatusview": true,
---   "autostatusreact": true,
---   "antidelete": true,
---   "aichatmode": "off"
--- }
 
-
--- ============================================================================
--- DONE
--- ============================================================================
--- Next steps:
--- 1. In your Node .env set:
---      SUPABASE_URL=https://xxxx.supabase.co
---      SUPABASE_KEY=<service_role key>   ← use service_role, not anon
--- 2. In server.js change generateSessionId to:
---      return `EMPIRE-MD_${formattedName}_${randomSuffix}`;
--- 3. Restart the bot server.
--- ============================================================================
