@@ -144,7 +144,7 @@ function getRamStatus() {
 function generateSessionId(botName) {
   const formattedName = botName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
-  return `BOTWAN_${formattedName}_${randomSuffix}`;
+  return `EMPIRE-MD_${formattedName}_${randomSuffix}`;
 }
 
 // ✅ Validate a full international MSISDN (no + and no leading zero).
@@ -300,7 +300,7 @@ async function resumeSavedSessions() {
     const folders = fs.readdirSync(SESSIONS_ROOT, { withFileTypes: true })
       .filter(d => d.isDirectory())
       .map(d => d.name)
-      .filter(name => name.startsWith('BOTWAN_'));
+      .filter(name => name.startsWith('EMPIRE-MD_') || name.startsWith('BOTWAN_'));
     if (folders.length === 0) {
       console.log('ℹ️ No saved bot sessions to resume yet.');
       return;
@@ -334,7 +334,7 @@ app.post('/api/connect', async (req, res) => {
         error: "🚧 We're preparing a second server to handle demand. New bot pairing is paused for a few minutes — please try again shortly. Existing bots are unaffected."
       });
     }
-    const { phoneNumber, botName } = req.body;
+    const { phoneNumber, botName, plan } = req.body;
     if (!phoneNumber || !botName) {
       return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
     }
@@ -344,11 +344,20 @@ app.post('/api/connect', async (req, res) => {
         error: `The bot name "${botName}" is already taken. Please choose another.`
       });
     }
+    const chosenPlan = plan === 'premium' ? 'premium' : 'free';
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const sessionId = generateSessionId(botName);
-    console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId}`);
+    console.log(`📡 Pairing for ${botName} (${cleanPhone}) → ${sessionId} | plan=${chosenPlan}`);
     await startSession(sessionId, botName, cleanPhone, 'pair');
-    return res.json({ success: true, sessionId, method: 'code', expiryIn: 120 });
+    // Store chosen plan on the live session object; botWorker/registerBot will persist it
+    if (activeSessions[sessionId]) activeSessions[sessionId].plan = chosenPlan;
+    try {
+      const { registerBot } = require('./lib/database');
+      await registerBot(sessionId, botName, cleanPhone, cleanPhone, chosenPlan);
+    } catch (e) {
+      console.error('registerBot during connect:', e.message);
+    }
+    return res.json({ success: true, sessionId, method: 'code', plan: chosenPlan, expiryIn: 120 });
   } catch (err) {
     console.error("Connect API Error:", err);
     return res.status(500).json({ success: false, error: err.message });
@@ -365,7 +374,7 @@ app.post('/api/qr-connect', async (req, res) => {
         error: "🚧 New bot connections are paused for a few minutes — please try again shortly."
       });
     }
-    const { botName } = req.body;
+    const { botName, plan } = req.body;
     if (!botName) {
       return res.status(400).json({ success: false, error: "Bot name is required!" });
     }
@@ -375,10 +384,12 @@ app.post('/api/qr-connect', async (req, res) => {
         error: `The bot name "${botName}" is already taken. Please choose another.`
       });
     }
+    const chosenPlan = plan === 'premium' ? 'premium' : 'free';
     const sessionId = generateSessionId(botName);
-    console.log(`📷 QR connect for ${botName} → ${sessionId}`);
+    console.log(`📷 QR connect for ${botName} → ${sessionId} | plan=${chosenPlan}`);
     await startSession(sessionId, botName, null, 'qr');
-    return res.json({ success: true, sessionId, method: 'qr', expiryIn: 120 });
+    if (activeSessions[sessionId]) activeSessions[sessionId].plan = chosenPlan;
+    return res.json({ success: true, sessionId, method: 'qr', plan: chosenPlan, expiryIn: 120 });
   } catch (err) {
     console.error("QR Connect API Error:", err);
     return res.status(500).json({ success: false, error: err.message });
