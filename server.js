@@ -743,6 +743,119 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
 });
 
+// ─── Inactive session RAM cleaner ───────────────────────────────────
+const INACTIVE_KILL_DAYS = config.inactiveKillDays || 3;
+const INACTIVE_DELETE_DAYS = config.inactiveDeleteDays || 14;
+
+async function cleanupInactiveSessions() {
+  try {
+    const { getInactiveSessions, setBotStatus, deleteBot } = require('./lib/database');
+    const inactive = await getInactiveSessions(INACTIVE_KILL_DAYS);
+    for (const row of inactive) {
+      const sid = row.session_id;
+      if (!sid) continue;
+
+      if (activeSessions[sid]) {
+        console.log(`🧹 Killing inactive session process: ${sid} (last active: ${row.last_active})`);
+        await killSession(sid);
+      }
+      try { await setBotStatus(sid, 'offline'); } catch (_) {}
+    }
+
+    const veryOld = await getInactiveSessions(INACTIVE_DELETE_DAYS);
+    for (const row of veryOld) {
+      const sid = row.session_id;
+      if (!sid) continue;
+      console.log(`🗑️  Deleting long-inactive session: ${sid}`);
+      if (activeSessions[sid]) await killSession(sid);
+      try { await deleteBot(sid); } catch (_) {}
+      try {
+        fs.rmSync(path.join(SESSIONS_ROOT, sid), { recursive: true, force: true });
+      } catch (_) {}
+    }
+  } catch (e) {
+    console.error('cleanupInactiveSessions error:', e.message);
+  }
+}
+
+// Run every 30 minutes + once 2 min after boot
+setInterval(cleanupInactiveSessions, 30 * 60 * 1000);
+setTimeout(cleanupInactiveSessions, 2 * 60 * 1000);
+
+// ─── Payment webhook (Paystack / Flutterwave compatible) ────────────
+app.post('/api/payment/webhook', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const event = body.event || body.type || '';
+    const data = body.data || body;
+    const reference = data.reference || data.tx_ref || data.flw_ref || body.reference;
+    const status = (data.status || body.status || '').toLowerCase();
+    const amount = data.amount
+      ? (data.amount / (data.currency === 'NGN' || !data.currency ? 100 : 1))
+      : (body.amount || 1500);
+    const phone = data.customer?.phone || data.meta?.phone || body.phone;
+    const sessionId = data.meta?.session_id || body.session_id;
+
+    const { recordPayment, setPlan } = require('./lib/database');
+    const { calcExpiry, PREMIUM_PRICE } = require('./lib/premium');
+
+    if (!reference) {
+      return res.status(400).json({ success: false, error: 'Missing reference' });
+    }
+
+    const isSuccess = status === 'success' || status === 'successful' || event === 'charge.success';
+
+    await recordPayment({
+      sessionId,
+      phone,
+      amount: amount || PREMIUM_PRICE,
+      currency: 'NGN',
+      provider: body.provider || (event ? 'paystack' : 'flutterwave'),
+      reference,
+      status: isSuccess ? 'success' : status || 'pending'
+    });
+
+    if (isSuccess && sessionId) {
+      const expires = calcExpiry(null);
+      await setPlan(sessionId, 'premium', expires, reference);
+      console.log(`💎 Premium activated for ${sessionId} until ${expires}`);
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Payment webhook error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Manual activate (admin only)
+app.post('/api/admin/activate-premium', requireAdmin, async (req, res) => {
+  try {
+    const { sessionId, days = 30 } = req.body || {};
+    if (!sessionId) return res.status(400).json({ success: false, error: 'sessionId required' });
+    const { setPlan } = require('./lib/database');
+    const d = new Date();
+    d.setDate(d.getDate() + Number(days));
+    await setPlan(sessionId, 'premium', d.toISOString(), 'admin-manual');
+    res.json({ success: true, expires: d.toISOString() });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Admin whitelist
+app.post('/api/admin/whitelist', requireAdmin, async (req, res) => {
+  try {
+    const { sessionId, enabled = true, reason = 'admin' } = req.body || {};
+    if (!sessionId) return res.status(400).json({ success: false, error: 'sessionId required' });
+    const { setWhitelist } = require('./lib/database');
+    await setWhitelist(sessionId, enabled, reason);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`🌐 Empire MD Web Onboarding Portal running on port ${PORT}`);
   resumeSavedSessions();
