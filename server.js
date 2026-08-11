@@ -1,4 +1,5 @@
 const express = require('express'); // 🟢 Move imports to the top
+const cors = require('cors');
 const compression = require('compression');
 const http = require('http');
 const path = require('path');
@@ -26,6 +27,21 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
 app.use(compression()); // 🟢 Gzip compression for mobile speed
+
+// Allow the Vercel-hosted frontend (a different origin) to call this API.
+// Set ALLOWED_ORIGINS as a comma-separated list in your VPS env, e.g.
+//   ALLOWED_ORIGINS=https://your-project.vercel.app,https://your-custom-domain.com
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: allowedOrigins.length ? allowedOrigins : true, // fallback: allow all if unset
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
