@@ -127,7 +127,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       !/^[1-9][0-9]{7,14}$/.test(phone.replace(/[^0-9]/g, ''))
     ) {
       setError(
-        'Enter a valid number with country code, no + or spaces. E.g. 2348012345678'
+        'Enter a valid number with country code, no + or spaces. E.g. 1234567890'
       )
       return
     }
@@ -158,7 +158,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       const data = await res.json()
 
       if (!data.success) {
-        setError(data.error || 'Connection failed. Please try again.')
+        setError(data.error || 'Connection unavailable. Please try again.')
         setLoading(false)
         return
       }
@@ -168,7 +168,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       startPolling(data.sessionId)
     } catch {
       setError(
-        'Server unreachable. Deploy / start the background server, then retry.'
+        'Server is currently been activated by team. Deploy / retry by 8PM.'
       )
     } finally {
       setLoading(false)
@@ -186,7 +186,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       !/^[1-9][0-9]{7,14}$/.test(phone.replace(/[^0-9]/g, ''))
     ) {
       setError(
-        'Enter a valid number with country code, no + or spaces. E.g. 2348012345678'
+        'Enter a valid number with country code, no + or spaces. E.g. 2348142656848'
       )
       return
     }
@@ -214,7 +214,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       if (!res.ok || !data.success) {
         setError(
           data.error ||
-            'Payment service not ready. Start the background server with Flutterwave keys, or choose Free for now.'
+            'Payment service not added wait, or choose Free for now.'
         )
         setPaying(false)
         return
@@ -261,7 +261,7 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       }, 3000)
     } catch {
       setError(
-        'Could not reach payment API. Make sure the background server is running and Flutterwave keys are set.'
+        'Could not pay now. Try again later.'
       )
       setPaying(false)
     }
