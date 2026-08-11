@@ -749,6 +749,53 @@ app.post('/api/documents/pdf', requireAdmin, async (req, res) => {
   }
 });
 
+
+// ─── BOT-WAN site support chat (free AI + knowledge) ─────────
+app.get('/api/botwan/status', (req, res) => {
+  try {
+    const { aiStatus } = require('./lib/botwanAI');
+    res.json({ success: true, ai: aiStatus() });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/botwan/chat', async (req, res) => {
+  try {
+    const { message, history } = req.body || {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'message required' });
+    }
+    // Basic abuse guard
+    if (message.length > 2000) {
+      return res.status(400).json({ success: false, error: 'message too long' });
+    }
+    const { generateBotwanReply } = require('./lib/botwanAI');
+    const result = await generateBotwanReply({
+      message: message.trim(),
+      history: Array.isArray(history) ? history.slice(-8) : [],
+    });
+    if (result.ok) {
+      return res.json({
+        success: true,
+        reply: result.reply,
+        provider: result.provider,
+        source: 'ai',
+      });
+    }
+    // Soft fail — frontend keeps local rules
+    return res.json({
+      success: false,
+      error: result.error || 'ai unavailable',
+      source: 'ai',
+    });
+  } catch (e) {
+    console.error('BOT-WAN chat error:', e.message);
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+
 // SPA Catch-all routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
