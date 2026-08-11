@@ -162,5 +162,98 @@ ${text}
         try { await sock.sendMessage(targetDm, { text: codeMsg }); } catch (_) {}
         await sock.sendMessage(chatJid, { text: codeMsg }, { quoted: mek });
     },
-    psession: async (args) => module.exports.pair(args)
+    psession: async (args) => module.exports.pair(args),
+
+    // ─── PREMIUM / PLAN ───────────────────────────────────────
+    plan: async ({ sock, chatJid, mek, settings, isPremium, prefix }) => {
+        const { PREMIUM_PRICE, UPGRADE_LINK } = require('../lib/premium');
+        const { getBotRegistry } = require('../lib/database');
+        let registry = null;
+        try { if (sock.sessionId) registry = await getBotRegistry(sock.sessionId); } catch (_) {}
+
+        const premium = isPremium || false;
+        const expires = registry?.plan_expires_at || settings?.plan_expires_at;
+        const whitelist = registry?.is_whitelisted || settings?.is_whitelisted;
+
+        let statusLine = premium
+            ? `✨ *Premium*${whitelist ? ' (Whitelisted)' : ''}`
+            : `🆓 *Free Plan*`;
+
+        let expiryLine = '';
+        if (premium && expires) {
+            const d = new Date(expires);
+            expiryLine = `\n📅 Expires: *${d.toLocaleDateString()}*`;
+        }
+
+        await sock.sendMessage(chatJid, {
+            text: `📊 *Empire MD Plan Status*\n\n${statusLine}${expiryLine}\n\n💰 Premium: *₦${PREMIUM_PRICE} / 30 days*\n\n*Premium unlocks:*\n• Ghost Mode\n• Anti-Delete Chat\n• .vv / .send\n• PDF / Receipt / Docs\n• Private Status Mode\n• Antibot (suppress free bots)\n\n👉 Upgrade: ${UPGRADE_LINK}\nOr type *${prefix}upgrade*`
+        }, { quoted: mek });
+    },
+
+    upgrade: async ({ sock, chatJid, mek, prefix }) => {
+        const { PREMIUM_PRICE, UPGRADE_LINK } = require('../lib/premium');
+        await sock.sendMessage(chatJid, {
+            text: `💎 *Upgrade to Empire Premium*\n\n💰 *₦${PREMIUM_PRICE} / 30 days*\n\n*You get:*\n✅ Ghost Mode (silent replies)\n✅ Anti-Delete Chat restore\n✅ View-Once collector (.vv)\n✅ .send command\n✅ PDF / Receipt / Documents\n✅ Private Status Mode\n✅ Antibot — suppress free bots\n✅ No promotional footers\n\n👉 *Pay & Activate:*\n${UPGRADE_LINK}\n\nAfter payment your plan activates automatically.\nNeed help? Contact the admin.`
+        }, { quoted: mek });
+    },
+
+    // 👻 Ghost Mode (Premium only)
+    ghostmode: async ({ sock, chatJid, mek, isOwner, settings, text, isPremium }) => {
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Owner only!" }, { quoted: mek });
+        if (!isPremium) return;
+
+        const { updateSettings } = require('../lib/database');
+        const arg = (text || '').toLowerCase().trim();
+        let newVal;
+        if (arg === 'on' || arg === 'true' || arg === '1') newVal = true;
+        else if (arg === 'off' || arg === 'false' || arg === '0') newVal = false;
+        else newVal = !(settings?.ghostMode);
+
+        const merged = { ...(settings || {}), ghostMode: newVal };
+        sock.botSettings = merged;
+        if (sock.sessionId) {
+            try { await updateSettings(sock.sessionId, { ghostMode: newVal }); } catch (_) {}
+        }
+        await sock.sendMessage(chatJid, {
+            text: `👻 *Ghost Mode:* *${newVal ? 'ON' : 'OFF'}*\n\nWhen ON the bot will not send feedback / status messages for most commands.`
+        }, { quoted: mek });
+    },
+    ghost: async (args) => module.exports.ghostmode(args),
+
+    // 🤖 Antibot — Premium only. Suppresses FREE bots in the group.
+    antibot: async ({ sock, chatJid, mek, isOwner, settings, text, isGroup, isPremium }) => {
+        if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Owner only!" }, { quoted: mek });
+        if (!isPremium) return;
+        if (!isGroup) return sock.sendMessage(chatJid, { text: "❌ Antibot works only in groups." }, { quoted: mek });
+
+        const { updateSettings } = require('../lib/database');
+        const arg = (text || '').toLowerCase().trim();
+
+        if (!settings._groupAntibot) settings._groupAntibot = {};
+        const gKey = chatJid;
+        let newVal;
+        if (arg === 'on' || arg === 'true' || arg === '1') newVal = true;
+        else if (arg === 'off' || arg === 'false' || arg === '0') newVal = false;
+        else newVal = !settings._groupAntibot[gKey];
+
+        settings._groupAntibot[gKey] = newVal;
+        sock.botSettings = { ...(sock.botSettings || {}), ...settings };
+
+        if (sock.sessionId) {
+            try {
+                await updateSettings(sock.sessionId, { _groupAntibot: settings._groupAntibot });
+            } catch (_) {}
+        }
+
+        if (newVal) {
+            await sock.sendMessage(chatJid, {
+                text: `🛡️ *Antibot ON*\n\nFree bots in this group will now ignore commands (Premium bots are unaffected).\n\n_EMPIRE_ANTIBOT_SUPPRESS_${sock.sessionId || 'X'}_`
+            }, { quoted: mek });
+        } else {
+            await sock.sendMessage(chatJid, {
+                text: `🛡️ *Antibot OFF*\n\nFree bots can respond again.\n\n_EMPIRE_ANTIBOT_RELEASE_${sock.sessionId || 'X'}_`
+            }, { quoted: mek });
+        }
+    }
 };
+
