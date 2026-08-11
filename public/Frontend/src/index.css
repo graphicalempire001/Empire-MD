@@ -211,4 +211,9 @@
       0 0 18px rgba(0, 168, 132, 0.28);
   }
 }
-
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
