@@ -1,6 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Smartphone, Bot, Loader2, CheckCircle2, Copy, X, RefreshCw, QrCode, KeyRound } from 'lucide-react'
+import {
+  Smartphone,
+  Bot,
+  Loader2,
+  CheckCircle2,
+  Copy,
+  X,
+  RefreshCw,
+  QrCode,
+  KeyRound,
+  Crown,
+  Zap,
+} from 'lucide-react'
 
 interface PairingFlowProps {
   open: boolean
@@ -9,10 +21,34 @@ interface PairingFlowProps {
 
 type Step = 1 | 2 | 3
 type PairingFormat = 'code' | 'qr'
+type Plan = 'free' | 'premium'
+
+const PREMIUM_BASE = 1500
+const MONTH_OPTIONS = [1, 2, 3, 6] as const
+
+function round50(n: number) {
+  return Math.round(n / 50) * 50
+}
+
+/** Same formula as lib/premium.js — geometric 5% discount */
+function calcPlanPrice(months: number) {
+  const n = Math.max(1, Math.round(months || 1))
+  const naive = n * PREMIUM_BASE
+  const multiplier = Math.pow(0.95, n - 1)
+  const price = round50(naive * multiplier)
+  const savings = naive - price
+  return { months: n, naive, price, savings }
+}
+
+function formatNaira(n: number) {
+  return `₦${n.toLocaleString('en-NG')}`
+}
 
 export default function PairingFlow({ open, onClose }: PairingFlowProps) {
   const [step, setStep] = useState<Step>(1)
   const [pairingFormat, setPairingFormat] = useState<PairingFormat>('code')
+  const [plan, setPlan] = useState<Plan>('free')
+  const [months, setMonths] = useState<number>(1)
 
   const [botName, setBotName] = useState('')
   const [phone, setPhone] = useState('')
@@ -23,10 +59,12 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
 
   const [loading, setLoading] = useState(false)
+  const [paying, setPaying] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const paymentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -35,10 +73,20 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
     }
   }, [])
 
+  const stopPaymentPolling = useCallback(() => {
+    if (paymentPollRef.current) {
+      clearInterval(paymentPollRef.current)
+      paymentPollRef.current = null
+    }
+  }, [])
+
   const resetAll = useCallback(() => {
     stopPolling()
+    stopPaymentPolling()
     setStep(1)
     setPairingFormat('code')
+    setPlan('free')
+    setMonths(1)
     setBotName('')
     setPhone('')
     setSessionId('')
@@ -46,41 +94,61 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
     setQrCode('')
     setSecondsLeft(null)
     setLoading(false)
+    setPaying(false)
     setError('')
     setCopied(false)
-  }, [stopPolling])
+  }, [stopPolling, stopPaymentPolling])
 
   const handleClose = () => {
     resetAll()
     onClose()
   }
 
-  // Reset when the modal is closed from outside
   useEffect(() => {
     if (!open) resetAll()
   }, [open, resetAll])
 
-  // Cleanup polling on unmount
-  useEffect(() => () => stopPolling(), [stopPolling])
+  useEffect(
+    () => () => {
+      stopPolling()
+      stopPaymentPolling()
+    },
+    [stopPolling, stopPaymentPolling]
+  )
 
-  const startConnection = async () => {
+  const startConnection = async (chosenPlan: Plan = plan) => {
     setError('')
     if (!botName.trim()) {
       setError('Please enter a bot name.')
       return
     }
-    if (pairingFormat === 'code' && !/^[1-9][0-9]{7,14}$/.test(phone.replace(/[^0-9]/g, ''))) {
-      setError('Enter a valid number with country code, no + or spaces. E.g. 2348012345678')
+    if (
+      pairingFormat === 'code' &&
+      !/^[1-9][0-9]{7,14}$/.test(phone.replace(/[^0-9]/g, ''))
+    ) {
+      setError(
+        'Enter a valid number with country code, no + or spaces. E.g. 2348012345678'
+      )
       return
     }
 
     setLoading(true)
     try {
-      const endpoint = pairingFormat === 'code' ? '/api/connect' : '/api/qr-connect'
+      const endpoint =
+        pairingFormat === 'code' ? '/api/connect' : '/api/qr-connect'
       const body =
         pairingFormat === 'code'
-          ? { botName: botName.trim(), phoneNumber: phone.replace(/[^0-9]/g, '') }
-          : { botName: botName.trim() }
+          ? {
+              botName: botName.trim(),
+              phoneNumber: phone.replace(/[^0-9]/g, ''),
+              plan: chosenPlan,
+              months: chosenPlan === 'premium' ? months : 1,
+            }
+          : {
+              botName: botName.trim(),
+              plan: chosenPlan,
+              months: chosenPlan === 'premium' ? months : 1,
+            }
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -99,9 +167,111 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
       setStep(2)
       startPolling(data.sessionId)
     } catch {
-      setError('Server unreachable. Check your connection and retry.')
+      setError(
+        'Server unreachable. Deploy / start the background server, then retry.'
+      )
     } finally {
       setLoading(false)
+    }
+  }
+
+  const startPremiumCheckout = async () => {
+    setError('')
+    if (!botName.trim()) {
+      setError('Please enter a bot name first.')
+      return
+    }
+    if (
+      pairingFormat === 'code' &&
+      !/^[1-9][0-9]{7,14}$/.test(phone.replace(/[^0-9]/g, ''))
+    ) {
+      setError(
+        'Enter a valid number with country code, no + or spaces. E.g. 2348012345678'
+      )
+      return
+    }
+
+    const tier = calcPlanPrice(months)
+    setPaying(true)
+
+    try {
+      const cleanPhone = phone.replace(/[^0-9]/g, '')
+      const res = await fetch('/api/payment/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: tier.price,
+          phone: cleanPhone || undefined,
+          botName: botName.trim(),
+          email: `${cleanPhone || 'user'}@empirebot.space`,
+          plan: 'premium',
+          months: tier.months,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        setError(
+          data.error ||
+            'Payment service not ready. Start the background server with Flutterwave keys, or choose Free for now.'
+        )
+        setPaying(false)
+        return
+      }
+
+      const checkoutUrl =
+        data.link || data.authorization_url || data.checkout_url
+      if (checkoutUrl) {
+        window.open(checkoutUrl, '_blank', 'noopener,noreferrer')
+      }
+
+      const reference = data.reference
+      if (!reference) {
+        setError('No payment reference returned. Contact support.')
+        setPaying(false)
+        return
+      }
+
+      stopPaymentPolling()
+      let attempts = 0
+      paymentPollRef.current = setInterval(async () => {
+        attempts += 1
+        if (attempts > 60) {
+          stopPaymentPolling()
+          setPaying(false)
+          setError(
+            'Payment timed out. If you already paid, contact support with your reference.'
+          )
+          return
+        }
+        try {
+          const st = await fetch(
+            `/api/payment/status/${encodeURIComponent(reference)}`
+          )
+          const stData = await st.json()
+          if (stData.success && (stData.paid || stData.status === 'success' || stData.status === 'successful')) {
+            stopPaymentPolling()
+            setPaying(false)
+            await startConnection('premium')
+          }
+        } catch {
+          /* keep polling */
+        }
+      }, 3000)
+    } catch {
+      setError(
+        'Could not reach payment API. Make sure the background server is running and Flutterwave keys are set.'
+      )
+      setPaying(false)
+    }
+  }
+
+  const handleContinue = () => {
+    if (plan === 'premium') {
+      startPremiumCheckout()
+    } else {
+      startConnection('free')
     }
   }
 
@@ -129,19 +299,21 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
           setStep(1)
         }
       } catch {
-        /* transient — keep polling */
+        /* transient */
       }
     }, 3000)
   }
 
   const startOver = () => {
     stopPolling()
+    stopPaymentPolling()
     setStep(1)
     setPairingCode('')
     setQrCode('')
     setSecondsLeft(null)
     setSessionId('')
     setError('')
+    setPaying(false)
   }
 
   const copy = (text: string) => {
@@ -151,60 +323,59 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
     })
   }
 
+  const tier = calcPlanPrice(months)
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-[1000] flex items-center justify-center p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          onClick={handleClose}
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onClick={(e) => e.target === e.currentTarget && handleClose()}
         >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-[#0d0d12]/40 backdrop-blur-md" />
-
-          {/* Glass card */}
           <motion.div
-            initial={{ opacity: 0, y: 30, scale: 0.96 }}
+            initial={{ opacity: 0, y: 24, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.97 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 26 }}
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-md rounded-3xl border border-white/40 bg-white/70 backdrop-blur-2xl shadow-2xl shadow-[#00A884]/10 p-7 md:p-8 overflow-hidden"
+            exit={{ opacity: 0, y: 16, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            className="relative w-full max-w-md rounded-3xl bg-[#EDEEF5] shadow-2xl overflow-hidden border border-black/[0.06]"
           >
-            {/* Soft green glow accents */}
-            <div className="absolute -top-16 -right-16 w-40 h-40 rounded-full bg-[#00A884]/20 blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-16 -left-16 w-40 h-40 rounded-full bg-[#9fff00]/15 blur-3xl pointer-events-none" />
-
-            {/* Close */}
-            <button
-              onClick={handleClose}
-              aria-label="Close"
-              className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full flex items-center justify-center text-[#1a1a1a]/60 hover:text-[#1a1a1a] hover:bg-black/5 transition-colors"
-            >
-              <X size={18} />
-            </button>
-
-            {/* Progress bar */}
-            <div className="relative flex gap-1.5 mb-6">
-              {[1, 2, 3].map((s) => (
-                <div
-                  key={s}
-                  className={`h-1 flex-1 rounded-full transition-colors ${
-                    step >= (s as Step) ? 'bg-gradient-green' : 'bg-black/[0.08]'
-                  }`}
-                />
-              ))}
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-black/[0.05]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-[#00A884]/15 flex items-center justify-center">
+                  <Smartphone size={16} className="text-[#00A884]" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-[#1a1a1a]">Get Your Bot</div>
+                  <div className="text-[11px] text-[#8e8e8e]">
+                    Step {step} of 3
+                    {plan === 'premium' && step === 1
+                      ? ` · Premium · ${months} mo`
+                      : ''}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={handleClose}
+                className="p-1.5 rounded-full hover:bg-black/[0.05] transition"
+                aria-label="Close"
+              >
+                <X size={18} className="text-[#8e8e8e]" />
+              </button>
             </div>
 
-            <div className="relative">
-              {/* STEP 1 — FORM */}
+            <div className="px-5 py-5 max-h-[min(78vh,640px)] overflow-y-auto">
+              {/* STEP 1 */}
               {step === 1 && (
                 <div>
-                  <h3 className="font-display font-bold text-xl text-[#1a1a1a] mb-1">Connect Your WhatsApp</h3>
+                  <h3 className="font-display font-bold text-lg text-[#1a1a1a] mb-1">
+                    Launch your WhatsApp bot
+                  </h3>
                   <p className="text-sm text-[#8e8e8e] mb-5">
-                    Enter your details to get your personal connection.
+                    Enter details, choose a plan, then connect in 1 minute.
                   </p>
 
                   {/* Format toggle */}
@@ -246,102 +417,227 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
                         className="flex-1 bg-transparent px-3 py-3 text-sm text-[#1a1a1a] placeholder:text-[#b0b0b8] outline-none"
                       />
                     </div>
-                    <span className="text-[11px] text-[#8e8e8e]">This will be your bot's display name. Max 30 chars.</span>
                   </label>
 
-                  {/* Phone (code only) */}
+                  {/* Phone */}
                   {pairingFormat === 'code' && (
-                    <label className="block mb-4">
-                      <span className="text-xs font-semibold text-[#1a1a1a]">Phone Number</span>
+                    <label className="block mb-5">
+                      <span className="text-xs font-semibold text-[#1a1a1a]">
+                        WhatsApp Number
+                      </span>
                       <div className="mt-1 flex items-center bg-white/80 border border-black/[0.06] rounded-xl px-3 focus-within:ring-2 focus-within:ring-[#00A884]/30 focus-within:border-[#00A884] transition">
                         <Smartphone size={16} className="text-[#8e8e8e] shrink-0" />
-                        <span className="text-sm text-[#8e8e8e] pl-2">+</span>
                         <input
                           value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
+                          onChange={(e) =>
+                            setPhone(e.target.value.replace(/[^0-9]/g, ''))
+                          }
                           placeholder="2348012345678"
-                          className="flex-1 bg-transparent px-2 py-3 text-sm text-[#1a1a1a] placeholder:text-[#b0b0b8] outline-none"
+                          className="flex-1 bg-transparent px-3 py-3 text-sm text-[#1a1a1a] placeholder:text-[#b0b0b8] outline-none"
                         />
                       </div>
-                      <span className="text-[11px] text-[#8e8e8e]">Include country code. No spaces or dashes.</span>
+                      <span className="text-[11px] text-[#8e8e8e]">
+                        Country code, no + or spaces
+                      </span>
                     </label>
                   )}
 
-                  {error && (
-                    <div className="mb-4 text-xs text-red-600 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
-                      {error}
+                  {/* Plan selection */}
+                  <div className="mb-5">
+                    <span className="text-xs font-semibold text-[#1a1a1a] block mb-2">
+                      Choose plan
+                    </span>
+                    <div className="grid grid-cols-2 gap-2.5 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => setPlan('free')}
+                        className={`text-left rounded-2xl border p-3.5 transition-all ${
+                          plan === 'free'
+                            ? 'border-[#00A884] bg-[#00A884]/8 shadow-sm'
+                            : 'border-black/[0.06] bg-white/70 hover:border-black/10'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Zap size={14} className="text-[#00A884]" />
+                          <span className="text-xs font-bold text-[#1a1a1a]">Free</span>
+                        </div>
+                        <div className="text-lg font-black text-[#1a1a1a]">₦0</div>
+                        <p className="text-[10px] text-[#8e8e8e] mt-1 leading-snug">
+                          Media, stickers, groups, AI. Core features.
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPlan('premium')}
+                        className={`text-left rounded-2xl border p-3.5 transition-all relative ${
+                          plan === 'premium'
+                            ? 'border-[#00A884] bg-[#00A884]/8 shadow-sm'
+                            : 'border-black/[0.06] bg-white/70 hover:border-black/10'
+                        }`}
+                      >
+                        <span className="absolute -top-2 right-2 text-[9px] font-bold uppercase tracking-wide bg-[#1a1a1a] text-white px-1.5 py-0.5 rounded-full">
+                          Popular
+                        </span>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Crown size={14} className="text-amber-500" />
+                          <span className="text-xs font-bold text-[#1a1a1a]">Premium</span>
+                        </div>
+                        <div className="text-lg font-black text-[#1a1a1a]">
+                          {formatNaira(tier.price)}
+                        </div>
+                        <p className="text-[10px] text-[#8e8e8e] mt-1 leading-snug">
+                          Ghost mode, save view-once, anti-delete, PDF, MsDoc, Ms Excel, antibot & more.
+                        </p>
+                      </button>
                     </div>
+
+                    {/* Duration — Premium only */}
+                    {plan === 'premium' && (
+                      <div className="rounded-2xl border border-black/[0.06] bg-white/80 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[11px] font-semibold text-[#1a1a1a]">
+                            Subscribe for
+                          </span>
+                          {tier.savings > 0 && (
+                            <span className="text-[10px] font-bold text-[#00A884]">
+                              Save {formatNaira(tier.savings)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {MONTH_OPTIONS.map((m) => {
+                            const t = calcPlanPrice(m)
+                            const active = months === m
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => setMonths(m)}
+                                className={`rounded-xl py-2 px-1 text-center transition-all border ${
+                                  active
+                                    ? 'border-[#00A884] bg-[#00A884]/10 shadow-sm'
+                                    : 'border-transparent bg-black/[0.03] hover:bg-black/[0.05]'
+                                }`}
+                              >
+                                <div
+                                  className={`text-xs font-bold ${
+                                    active ? 'text-[#00A884]' : 'text-[#1a1a1a]'
+                                  }`}
+                                >
+                                  {m} mo
+                                </div>
+                                <div className="text-[10px] text-[#8e8e8e] mt-0.5 leading-tight">
+                                  {formatNaira(t.price)}
+                                </div>
+                                {t.savings > 0 && (
+                                  <div className="text-[9px] font-semibold text-[#00A884] mt-0.5">
+                                    −{Math.round((t.savings / t.naive) * 100)}%
+                                  </div>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        <p className="mt-2 text-[10px] text-[#8e8e8e] leading-snug">
+                          {months === 1
+                            ? 'Billed once for 30 days.'
+                            : `Pay ${formatNaira(tier.price)} once instead of ${formatNaira(
+                                tier.naive
+                              )} if paid monthly. Longer plans unlock more discount.`}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {error && (
+                    <p className="mb-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                      {error}
+                    </p>
                   )}
 
                   <button
-                    onClick={startConnection}
-                    disabled={loading}
-                    className="whatsapp-btn w-full flex items-center justify-center gap-2 text-sm py-3.5 rounded-2xl disabled:opacity-60"
+                    onClick={handleContinue}
+                    disabled={loading || paying}
+                    className="whatsapp-btn w-full text-sm py-3.5 rounded-2xl flex items-center justify-center gap-2 disabled:opacity-60"
                   >
-                    {loading ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin" /> Connecting…
-                      </>
-                    ) : pairingFormat === 'code' ? (
-                      'Get Pairing Code'
-                    ) : (
-                      'Generate QR Code'
+                    {(loading || paying) && (
+                      <Loader2 size={16} className="animate-spin" />
                     )}
+                    {paying
+                      ? 'Waiting for payment…'
+                      : loading
+                        ? 'Starting…'
+                        : plan === 'premium'
+                          ? `Pay ${formatNaira(tier.price)} & Continue`
+                          : 'Continue Free'}
                   </button>
 
-                  <p className="text-[11px] text-[#8e8e8e] text-center mt-4">
-                    Your number is never stored publicly. This is your own personal bot connection.
-                  </p>
+                  {plan === 'premium' && (
+                    <p className="mt-2 text-[10px] text-center text-[#8e8e8e]">
+                      Secure checkout. Pairing starts after payment
+                      is confirmed.
+                    </p>
+                  )}
                 </div>
               )}
 
-              {/* STEP 2 — PAIRING / QR */}
+              {/* STEP 2 */}
               {step === 2 && (
                 <div className="text-center">
-                  <div className="mx-auto mb-4 w-12 h-12 rounded-2xl bg-gradient-green flex items-center justify-center text-white">
-                    {pairingFormat === 'code' ? <KeyRound size={22} /> : <QrCode size={22} />}
-                  </div>
-                  <h3 className="font-display font-bold text-xl text-[#1a1a1a] mb-2">
-                    {pairingFormat === 'code' ? 'Enter Pairing Code' : 'Scan QR Code'}
+                  <h3 className="font-display font-bold text-lg text-[#1a1a1a] mb-1">
+                    {pairingFormat === 'code' ? 'Enter pairing code' : 'Scan QR code'}
                   </h3>
+                  <p className="text-sm text-[#8e8e8e] mb-5">
+                    {pairingFormat === 'code'
+                      ? 'WhatsApp → Linked Devices → Link with phone number'
+                      : 'WhatsApp → Linked Devices → Link a Device'}
+                  </p>
 
                   {pairingFormat === 'code' ? (
                     <>
-                      <p className="text-xs text-[#8e8e8e] mb-4 leading-relaxed">
-                        Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> →{' '}
-                        <strong>Link with phone number instead</strong>
-                      </p>
-                      <div className="flex items-center justify-center gap-2 mb-4">
-                        <div className="font-mono font-bold text-2xl tracking-[0.25em] text-[#1a1a1a] bg-white/70 border border-black/[0.06] rounded-2xl px-5 py-4">
-                          {pairingCode || '···· ····'}
+                      {pairingCode ? (
+                        <div
+                          onClick={() => copy(pairingCode)}
+                          className="cursor-pointer mx-auto mb-3 max-w-xs bg-white border border-black/[0.06] rounded-2xl px-4 py-5 shadow-sm"
+                        >
+                          <div className="text-2xl font-black tracking-[0.2em] text-[#1a1a1a]">
+                            {pairingCode}
+                          </div>
+                          <div className="mt-2 text-[11px] text-[#8e8e8e] flex items-center justify-center gap-1">
+                            {copied ? (
+                              <>
+                                <CheckCircle2 size={12} className="text-[#00A884]" />{' '}
+                                Copied
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={12} /> Tap to copy
+                              </>
+                            )}
+                          </div>
                         </div>
-                        {pairingCode && (
-                          <button
-                            onClick={() => copy(pairingCode)}
-                            className="w-11 h-11 rounded-xl bg-black/[0.04] hover:bg-black/[0.08] flex items-center justify-center transition-colors"
-                          >
-                            {copied ? <CheckCircle2 size={18} className="text-[#00A884]" /> : <Copy size={18} className="text-[#1a1a1a]" />}
-                          </button>
-                        )}
-                      </div>
+                      ) : (
+                        <div className="flex justify-center py-8">
+                          <Loader2 size={26} className="animate-spin text-[#8e8e8e]" />
+                        </div>
+                      )}
                     </>
                   ) : (
                     <>
-                      <p className="text-xs text-[#8e8e8e] mb-4 leading-relaxed">
-                        Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> and point your
-                        phone's camera at this screen.
-                      </p>
-                      <div className="mx-auto mb-4 w-[180px] h-[180px] rounded-2xl bg-white border border-black/[0.06] flex items-center justify-center overflow-hidden">
-                        {qrCode ? (
-                          <img
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(qrCode)}`}
-                            alt="WhatsApp QR Code"
-                            className="w-full h-full"
-                          />
-                        ) : (
+                      {qrCode ? (
+                        <img
+                          src={qrCode}
+                          alt="QR Code"
+                          className="mx-auto mb-3 w-48 h-48 rounded-xl border border-black/[0.06] bg-white"
+                        />
+                      ) : (
+                        <div className="flex justify-center py-8">
                           <Loader2 size={26} className="animate-spin text-[#8e8e8e]" />
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -361,15 +657,19 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
                 </div>
               )}
 
-              {/* STEP 3 — SUCCESS */}
+              {/* STEP 3 */}
               {step === 3 && (
                 <div className="text-center">
                   <div className="mx-auto mb-4 w-14 h-14 rounded-full bg-[#00A884]/15 flex items-center justify-center">
                     <CheckCircle2 size={30} className="text-[#00A884]" />
                   </div>
-                  <h3 className="font-display font-bold text-xl text-[#1a1a1a] mb-2">🎉 Your Bot Is Live!</h3>
+                  <h3 className="font-display font-bold text-xl text-[#1a1a1a] mb-2">
+                    🎉 Your Bot Is Live!
+                  </h3>
                   <p className="text-sm text-[#8e8e8e] mb-5">
                     Check your WhatsApp DM — a welcome message was just sent to you.
+                    {plan === 'premium' &&
+                      ` Premium active for \( {months} month \){months > 1 ? 's' : ''}.`}
                   </p>
 
                   <div
@@ -377,13 +677,26 @@ export default function PairingFlow({ open, onClose }: PairingFlowProps) {
                     className="cursor-pointer bg-white/70 border border-black/[0.06] rounded-xl px-4 py-3 flex items-center justify-between gap-3 mb-2"
                   >
                     <code className="text-xs text-[#1a1a1a] truncate">{sessionId}</code>
-                    {copied ? <CheckCircle2 size={16} className="text-[#00A884] shrink-0" /> : <Copy size={16} className="text-[#8e8e8e] shrink-0" />}
+                    {copied ? (
+                      <CheckCircle2 size={16} className="text-[#00A884] shrink-0" />
+                    ) : (
+                      <Copy size={16} className="text-[#8e8e8e] shrink-0" />
+                    )}
                   </div>
-                  {copied && <p className="text-[11px] text-[#00A884] mb-2">✅ Session ID copied to clipboard!</p>}
+                  {copied && (
+                    <p className="text-[11px] text-[#00A884] mb-2">
+                      ✅ Session ID copied to clipboard!
+                    </p>
+                  )}
 
-                  <p className="text-[11px] text-[#8e8e8e] mb-5">⚠️ Keep your Session ID private — it's your bot's identity.</p>
+                  <p className="text-[11px] text-[#8e8e8e] mb-5">
+                    ⚠️ Keep your Session ID private — it&apos;s your bot&apos;s identity.
+                  </p>
 
-                  <button onClick={handleClose} className="whatsapp-btn w-full text-sm py-3.5 rounded-2xl">
+                  <button
+                    onClick={handleClose}
+                    className="whatsapp-btn w-full text-sm py-3.5 rounded-2xl"
+                  >
                     Done
                   </button>
                 </div>
