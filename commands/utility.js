@@ -197,7 +197,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
   system: async (args) => module.exports.info(args),
 
   // ❓ Menu (Alias: h, menu)
-  help: async ({ sock, chatJid, mek, senderName, prefix, settings }) => {
+  help: async ({ sock, chatJid, mek, senderName, prefix, settings, isPremium }) => {
     const px = prefix || settings?.prefix || config.prefix || ".";
     const botName = resolveBotName(sock, settings);
     const uptime = formatUptime(process.uptime());
@@ -205,6 +205,17 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
     const dbConnected = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY;
     const dbStatus = dbConnected ? "🟢 Connected (EmpireDB)" : "🟡 Local Cache";
     const now = new Date().toLocaleString();
+
+    // Resolve plan for display
+    let planLabel = "🆓 Free";
+    try {
+      const { isPremium: checkPremium } = require('../lib/premium');
+      const { getBotRegistry } = require('../lib/database');
+      let registry = null;
+      if (sock.sessionId) registry = await getBotRegistry(sock.sessionId);
+      const premium = typeof isPremium === 'boolean' ? isPremium : checkPremium(settings, registry || {});
+      planLabel = premium ? "✨ Premium" : "🆓 Free";
+    } catch (_) {}
 
     let registered = {};
     try { registered = require('../lib/commands'); } catch (_) {}
@@ -225,6 +236,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
     let menu = `╭━━━〔 *🧑‍💻 ${botName}* 〕━━━┈⊷
 ┃ 👋 Hello, *${senderName || "User"}*!
 ┃ 👑 *Owner:* ${config.ownerName}
+┃ 💎 *Plan:* ${planLabel}
 ┃ ⚙️ *Prefix:* ${px}
 ┃ 🔒 *Mode:* ${modeLabel}
 ┃ 🕒 *Uptime:* ${uptime}
