@@ -1001,9 +1001,12 @@ app.post('/api/payment/webhook', async (req, res) => {
     });
 
     if (isSuccess && sessionId) {
-      const expires = calcExpiry(null);
-      await setPlan(sessionId, 'premium', expires, reference);
-      console.log(`💎 Premium activated for ${sessionId} until ${expires}`);
+      const months = Number(data.meta?.months || body.months || 1)
+      const days = months * 30
+      const d = new Date()
+      d.setDate(d.getDate() + days)
+      await setPlan(sessionId, 'premium', d.toISOString(), reference)
+      console.log(`💎 Premium activated for ${sessionId} · ${months} mo · until ${d.toISOString()}`)
     }
 
     res.json({ success: true });
