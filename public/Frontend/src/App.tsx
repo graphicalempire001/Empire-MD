@@ -7,14 +7,20 @@ import Transformation from './sections/Transformation'
 import Features from './sections/Features'
 import LiveBots from './sections/LiveBots'
 import Pricing from './sections/Pricing'
+import Testimonials from './sections/Testimonials'
 import CustomerCare from './sections/CustomerCare'
 import Footer from './sections/Footer'
 import WhatsAppChat from './components/WhatsAppChat'
 import PairingFlow from './components/PairingFlow'
-//import Admin from './pages/Admin'
-import Admin from './components/AdminDashboard';
+import Admin from './components/AdminDashboard'
 
-function Landing({ onGetBot, onOpenChat }: { onGetBot: () => void; onOpenChat: () => void }) {
+function Landing({
+  onGetBot,
+  onOpenChat,
+}: {
+  onGetBot: () => void
+  onOpenChat: () => void
+}) {
   return (
     <>
       <Navbar />
@@ -24,6 +30,7 @@ function Landing({ onGetBot, onOpenChat }: { onGetBot: () => void; onOpenChat: (
       <Features />
       <LiveBots />
       <Pricing />
+      <Testimonials />
       <CustomerCare />
       <Footer />
     </>
@@ -33,12 +40,22 @@ function Landing({ onGetBot, onOpenChat }: { onGetBot: () => void; onOpenChat: (
 export default function App() {
   const [pairingOpen, setPairingOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Landing onGetBot={() => setPairingOpen(true)} onOpenChat={() => setChatOpen(true)} />} />
+        <Route
+          path="/"
+          element={
+            <Landing
+              onGetBot={() => setPairingOpen(true)}
+              onOpenChat={() => setChatOpen(true)}
+            />
+          }
+        />
         <Route path="/admin" element={<Admin />} />
       </Routes>
+
       <PairingFlow open={pairingOpen} onClose={() => setPairingOpen(false)} />
       <WhatsAppChat open={chatOpen} onOpenChange={setChatOpen} />
     </BrowserRouter>
