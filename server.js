@@ -810,7 +810,118 @@ app.post('/api/botwan/chat', async (req, res) => {
     return res.status(500).json({ success: false, error: e.message });
   }
 });
+// ═══════════════════════════════════════════════════════════════
+// Flutterwave — initialize + status
+// Env: FLW_SECRET_KEY, FLW_REDIRECT_URL (optional)
+// ═══════════════════════════════════════════════════════════════
 
+app.post('/api/payment/initialize', async (req, res) => {
+  try {
+    const secret = process.env.FLW_SECRET_KEY
+    if (!secret) {
+      return res.status(503).json({
+        success: false,
+        error: 'Flutterwave not configured (missing FLW_SECRET_KEY)',
+      })
+    }
+
+    const {
+      amount = 1500,
+      email = 'user@empirebot.space',
+      phone,
+      botName,
+      plan = 'premium',
+      months = 1,
+    } = req.body || {}
+
+    const tx_ref = `EMPIRE_\( {Date.now()}_ \){Math.random().toString(36).slice(2, 8).toUpperCase()}`
+    const redirectUrl = process.env.FLW_REDIRECT_URL || 'https://empirebot.space/'
+
+    const flwRes = await fetch('https://api.flutterwave.com/v3/payments', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tx_ref,
+        amount: Number(amount),
+        currency: 'NGN',
+        redirect_url: redirectUrl,
+        customer: {
+          email,
+          phonenumber: phone || undefined,
+          name: botName || 'Empire MD User',
+        },
+        customizations: {
+          title: 'Empire MD Premium',
+          description: `Premium — ${months} month(s)`,
+          logo: 'https://empirebot.space/robot-mascot.png',
+        },
+        meta: {
+          phone: phone || '',
+          botName: botName || '',
+          plan,
+          months: Number(months) || 1,
+        },
+      }),
+    })
+
+    const data = await flwRes.json()
+
+    if (data.status !== 'success' || !data.data?.link) {
+      return res.status(400).json({
+        success: false,
+        error: data.message || 'Flutterwave init failed',
+      })
+    }
+
+    res.json({
+      success: true,
+      reference: tx_ref,
+      link: data.data.link,
+      authorization_url: data.data.link,
+    })
+  } catch (e) {
+    console.error('Flutterwave init error:', e.message)
+    res.status(500).json({ success: false, error: e.message })
+  }
+})
+
+app.get('/api/payment/status/:reference', async (req, res) => {
+  try {
+    const secret = process.env.FLW_SECRET_KEY
+    if (!secret) {
+      return res.status(503).json({ success: false, error: 'Flutterwave not configured' })
+    }
+
+    const reference = req.params.reference
+    const flwRes = await fetch(
+      `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`,
+      { headers: { Authorization: `Bearer ${secret}` } }
+    )
+    const data = await flwRes.json()
+
+    if (data.status !== 'success' || !data.data) {
+      return res.json({ success: true, status: 'pending', paid: false })
+    }
+
+    const paid =
+      data.data.status === 'successful' || data.data.status === 'success'
+
+    res.json({
+      success: true,
+      status: data.data.status,
+      paid,
+      amount: data.data.amount,
+      reference,
+      flw_ref: data.data.flw_ref,
+      months: data.data.meta?.months || 1,
+    })
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message })
+  }
+})
 
 // SPA Catch-all routing
 app.get('*', (req, res) => {
