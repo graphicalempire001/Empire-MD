@@ -13,6 +13,7 @@ import Footer from './sections/Footer'
 import WhatsAppChat from './components/WhatsAppChat'
 import PairingFlow from './components/PairingFlow'
 import Admin from './components/AdminDashboard'
+import Upgrade from './components/Upgrade'
 
 function Landing({
   onGetBot,
@@ -54,6 +55,7 @@ export default function App() {
           }
         />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/upgrade" element={<Upgrade />} />
       </Routes>
 
       <PairingFlow open={pairingOpen} onClose={() => setPairingOpen(false)} />
