@@ -1,4 +1,4 @@
-// Empire MD - Global Configuration
+
 
 module.exports = {
     botName: "Empire MD",
@@ -20,6 +20,15 @@ module.exports = {
     channelName: "Empire BOT-WAN",
     newsletterJid: "120363213059253232@newsletter",
 
+    // ─── Monetization ───────────────────────────────────────
+    premiumPrice: 1500,                 // NGN per month
+    premiumDurationDays: 30,
+    upgradeLink: process.env.UPGRADE_LINK || "https://empire-md.vercel.app/upgrade",
+
+    // Inactive session cleanup (saves RAM)
+    inactiveKillDays: 3,                // kill process after 3 days of no activity
+    inactiveDeleteDays: 14,             // delete session folder after 14 days
+
     settings: {
         autostatusview: true,
         autostatusreact: true,
@@ -39,6 +48,8 @@ module.exports = {
         antiarabic: false,
         alwaysOnline: true,
         welcome: true,
-        goodbye: true
+        goodbye: true,
+        ghostMode: false,               // premium only
+        plan: "free"
     }
 };
