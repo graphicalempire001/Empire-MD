@@ -34,7 +34,7 @@ function uid() {
   return Math.random().toString(36).slice(2, 10)
 }
 
-/* ─── Free AI supplement (server /api/botwan/chat) ───────────── */
+/* ─── Free AI supplement (Vercel serverless function: /api/botwan/chat) ─ */
 async function askAI(
   message: string,
   history: Msg[]
@@ -171,6 +171,34 @@ function detectIntent(raw: string): { intent: Intent; commandName?: string } {
     ])
   ) {
     return { intent: 'who' }
+  }
+
+  // Payment/subscription trouble takes priority over plain pricing questions —
+  // "my payment failed" must never be answered with a price card.
+  if (
+    hasWord(t, ['payment', 'pay', 'subscribe', 'subscription', '₦', 'naira']) &&
+    hasWord(t, [
+      'not working',
+      'broken',
+      'error',
+      'failed',
+      'fail',
+      'declined',
+      'problem',
+      'issue',
+      'bug',
+      'stuck',
+      "didn't go",
+      'did not go',
+      "hasn't updated",
+      'has not updated',
+      'no update',
+      "can't",
+      'cannot',
+      'pending',
+    ])
+  ) {
+    return { intent: 'problem' }
   }
 
   if (
