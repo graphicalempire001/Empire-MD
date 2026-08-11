@@ -150,7 +150,7 @@ async function generateBotwanReply({ message, history = [] }) {
   return { ok: false, error: errors.length ? errors.join(' | ') : 'No AI provider configured or reachable' };
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // Basic CORS so this also works if the chat widget is ever embedded elsewhere.
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
