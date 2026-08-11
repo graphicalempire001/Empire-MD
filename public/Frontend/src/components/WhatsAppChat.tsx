@@ -469,7 +469,8 @@ function buildHandoffSummary(history: Msg[]): string {
 }
 
 function buildWaUrl(history: Msg[]): string {
-return `https://wa.me/\( {WA_NUMBER}?text= \){encodeURIComponent(buildHandoffSummary(history))}`
+  return `https://wa.me/\( {WA_NUMBER}?text= \){encodeURIComponent(buildHandoffSummary(history))}`
+}
 }
 
 const FAQ_CHIPS = [
