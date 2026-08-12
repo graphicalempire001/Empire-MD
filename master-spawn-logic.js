@@ -6,7 +6,7 @@ const fs = require('fs');
 // This ensures that every bot connection runs in its own memory space and does not affect the master server.
 
 const activeSessions = {};
-const SESSIONS_ROOT = path.join(__dirname, 'sessions');
+const SESSIONS_ROOT = process.env.SESSIONS_ROOT || path.join(__dirname, 'sessions');
 
 async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
     if (activeSessions[sessionId]) {
