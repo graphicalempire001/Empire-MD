@@ -25,7 +25,7 @@ if (!sessionId) {
     process.exit(1);
 }
 
-const SESSIONS_ROOT = path.join(__dirname, 'sessions');
+const SESSIONS_ROOT = process.env.SESSIONS_ROOT || path.join(__dirname, 'sessions');
 const messageCache = new Map();
 const MSG_CACHE_LIMIT = 400;
 
