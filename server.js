@@ -49,7 +49,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public/Frontend/dist')));
 
 const activeSessions = {}; // { [sessionId]: { process, botName, phoneNumber, mode, status, pairingCode, qr, error, codeRequested, expiry } }
-const SESSIONS_ROOT = path.join(__dirname, 'sessions');
+const SESSIONS_ROOT = process.env.SESSIONS_ROOT || path.join(__dirname, 'sessions');
 
 // 🔒 Per-session lock file helpers — prevents spawning a duplicate worker for a
 // session whose old process is still alive (e.g. after an ungraceful master
