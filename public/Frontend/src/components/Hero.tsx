@@ -215,14 +215,14 @@ export default function Hero({ onGetBot, onOpenChat }: HeroProps) {
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-4">
-            <motion.button
+            <motion.a
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.98 }}
-              onClick={onGetBot}
-              className="whatsapp-btn py-4 px-8 text-sm font-bold shadow-xl hover:shadow-green-500/20"
+              href="#pricing"
+              className="whatsapp-btn py-4 px-8 text-sm font-bold shadow-xl hover:shadow-green-500/20 text-center"
             >
-              Get Your Free Bot
-            </motion.button>
+              Get Bot
+            </motion.a>
             <motion.a
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.98 }}
