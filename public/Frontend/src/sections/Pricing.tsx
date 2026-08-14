@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { Link } from 'react-router'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -25,6 +26,7 @@ const plans = [
     ctaStyle: 'outline' as const,
     highlight: false,
     badge: null,
+    isFree: true,
   },
   {
     name: 'BORGEEYES Robot',
@@ -44,6 +46,7 @@ const plans = [
     ctaStyle: 'solid' as const,
     highlight: true,
     badge: 'Most Popular',
+    isFree: false,
   },
   {
     name: 'MVP Bot',
@@ -65,10 +68,11 @@ const plans = [
     ctaStyle: 'solid' as const,
     highlight: false,
     badge: 'Best Value',
+    isFree: false,
   },
 ]
 
-export default function Pricing() {
+export default function Pricing({ onGetBot }: { onGetBot: () => void }) {
   const sectionRef = useRef<HTMLElement>(null)
   const cardsRef = useRef<HTMLDivElement>(null)
 
@@ -181,22 +185,37 @@ export default function Pricing() {
               </ul>
 
               {/* CTA Button */}
-              <a
-                href={`https://wa.me/2347086757575?text=${encodeURIComponent(`Hi! I want to subscribe to the ${plan.name} plan.`)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 ${
-                  plan.ctaStyle === 'solid'
-                    ? plan.highlight
-                      ? 'bg-[#9fff00] text-[#1a1a1a] hover:bg-[#b3ff33]'
-                      : 'bg-[#1a1a1a] text-white hover:bg-[#333]'
-                    : plan.highlight
-                    ? 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
-                    : 'bg-transparent text-[#1a1a1a] border border-black/[0.1] hover:bg-black/[0.03]'
-                }`}
-              >
-                {plan.cta}
-              </a>
+              {plan.isFree ? (
+                <button
+                  onClick={onGetBot}
+                  className={`block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 ${
+                    plan.ctaStyle === 'solid'
+                      ? plan.highlight
+                        ? 'bg-[#9fff00] text-[#1a1a1a] hover:bg-[#b3ff33]'
+                        : 'bg-[#1a1a1a] text-white hover:bg-[#333]'
+                      : plan.highlight
+                      ? 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
+                      : 'bg-transparent text-[#1a1a1a] border border-black/[0.1] hover:bg-black/[0.03]'
+                  }`}
+                >
+                  {plan.cta}
+                </button>
+              ) : (
+                <Link
+                  to="/upgrade"
+                  className={`block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 ${
+                    plan.ctaStyle === 'solid'
+                      ? plan.highlight
+                        ? 'bg-[#9fff00] text-[#1a1a1a] hover:bg-[#b3ff33]'
+                        : 'bg-[#1a1a1a] text-white hover:bg-[#333]'
+                      : plan.highlight
+                      ? 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
+                      : 'bg-transparent text-[#1a1a1a] border border-black/[0.1] hover:bg-black/[0.03]'
+                  }`}
+                >
+                  {plan.cta}
+                </Link>
+              )}
             </div>
           ))}
         </div>
