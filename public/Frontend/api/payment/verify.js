@@ -111,9 +111,16 @@ export default async function handler(req, res) {
       return res.status(500).json({ success: false, error: 'Lookup failed' });
     }
     if (!bot) {
-      // Payment succeeded but we can't find a bot for this number — do NOT
-      // silently lose the money. Log it as a payment with no session yet so
-      // an admin can manually reconcile, and tell the user to contact support.
+      // No bot paired to this number yet — that's fine now, Premium is tracked
+      // by phone number. Activate it anyway so it's already active the moment
+      // they pair, and log the payment.
+      const days = months * PREMIUM_DURATION_DAYS;
+      const { data: activation, error: rpcErr } = await supabase.rpc('activate_premium_by_phone', {
+        p_phone: cleanPhone,
+        p_days: days,
+        p_payment_ref: String(transaction_id),
+      });
+
       await supabase.from('payments').insert({
         session_id: null,
         phone_number: cleanPhone,
@@ -125,19 +132,34 @@ export default async function handler(req, res) {
         metadata: { months, tx: txn },
         paid_at: new Date().toISOString(),
       });
+
+      if (rpcErr || !activation?.ok) {
+        console.error('[payment/verify] phone activation failed:', rpcErr?.message || activation?.error);
+        return res.status(200).json({
+          success: false,
+          error:
+            'Payment received, but activation failed. Contact support with your payment reference — nothing is lost.',
+          reference: String(transaction_id),
+        });
+      }
+
       return res.status(200).json({
-        success: false,
-        error:
-          'Payment received, but no bot is registered under that number yet. Pair your bot first, then contact support with your payment reference to get Premium applied — nothing is lost.',
-        reference: String(transaction_id),
+        success: true,
+        plan: 'premium',
+        expires_at: activation.expires_at,
+        months,
+        amount_paid: txn.amount,
+        note: 'Premium is active on your number — pair your bot now and it will pick this up automatically.',
       });
     }
 
-    // 3. Activate/extend Premium via the Supabase RPC (accumulates on top of
-    // an existing active plan rather than overwriting it).
+    // 3. Activate/extend Premium by PHONE NUMBER — this is what survives a
+    // disconnect/reconnect, since reconnecting mints a brand-new session_id.
+    // We also patch the currently-live bot_registry row so the UI reflects
+    // it immediately without waiting for the bot to re-register.
     const days = months * PREMIUM_DURATION_DAYS;
-    const { data: activation, error: rpcErr } = await supabase.rpc('activate_premium', {
-      p_session_id: bot.session_id,
+    const { data: activation, error: rpcErr } = await supabase.rpc('activate_premium_by_phone', {
+      p_phone: cleanPhone,
       p_days: days,
       p_payment_ref: String(transaction_id),
     });
@@ -150,6 +172,13 @@ export default async function handler(req, res) {
         reference: String(transaction_id),
       });
     }
+
+    // Mirror onto the live session row too, so the bot's own premium-gate
+    // checks (which currently read bot_registry) see it without a re-register.
+    await supabase
+      .from('bot_registry')
+      .update({ plan: 'premium', plan_expires_at: activation.expires_at, payment_ref: String(transaction_id) })
+      .eq('session_id', bot.session_id);
 
     // 4. Log the payment for records/admin reconciliation.
     await supabase.from('payments').insert({
