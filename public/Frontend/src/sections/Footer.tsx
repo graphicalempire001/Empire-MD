@@ -1,3 +1,5 @@
+import { Link } from 'react-router'
+
 export default function Footer() {
   return (
     <footer className="relative py-12 md:py-16 border-t border-black/[0.06]" style={{ backgroundColor: '#EDEEF5' }}>
@@ -36,18 +38,30 @@ export default function Footer() {
           <div className="md:col-span-2">
             <h4 className="text-xs font-bold text-[#1a1a1a] uppercase tracking-wider mb-4">Support</h4>
             <ul className="space-y-2.5">
-              {['Help Center', 'Contact Us', 'Status'].map((item) => (
-                <li key={item}>
-                  <a
-                    href={item === 'Contact Us' ? 'https://wa.me/2347086757575' : '#'}
-                    target={item === 'Contact Us' ? '_blank' : undefined}
-                    rel={item === 'Contact Us' ? 'noopener noreferrer' : undefined}
-                    className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors"
-                  >
-                    {item}
-                  </a>
-                </li>
-              ))}
+              {[
+                { label: 'Help Center', to: '/help' },
+                { label: 'Contact Us', href: 'https://wa.me/2347086757575' },
+                { label: 'Status', to: '/status' },
+              ].map((item) =>
+                item.to ? (
+                  <li key={item.label}>
+                    <Link to={item.to} className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">
+                      {item.label}
+                    </Link>
+                  </li>
+                ) : (
+                  <li key={item.label}>
+                    <a
+                      href={item.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors"
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                )
+              )}
             </ul>
           </div>
 
@@ -65,7 +79,12 @@ export default function Footer() {
                 </a>
               </li>
               <li>
-                <a href="#" className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">
+                <a
+                  href="https://t.me/BOTWAN_SUPPORT"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors"
+                >
                   Telegram
                 </a>
               </li>
@@ -95,8 +114,8 @@ export default function Footer() {
             &copy; {new Date().getFullYear()} Empire Digitals. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
-            <a href="#" className="text-[11px] text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">Privacy</a>
-            <a href="#" className="text-[11px] text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">Terms</a>
+            <Link to="/privacy" className="text-[11px] text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">Privacy</Link>
+            <Link to="/terms" className="text-[11px] text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">Terms</Link>
           </div>
         </div>
       </div>
