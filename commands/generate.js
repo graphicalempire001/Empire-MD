@@ -3,8 +3,14 @@ const os = require('os');
 const path = require('path');
 const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
+const ffmpegStatic = require('ffmpeg-static');
 const { EdgeTTS } = require('node-edge-tts');
 const config = require('../config');
+
+// Use a bundled ffmpeg binary rather than relying on the host having one
+// installed on PATH — Railway's default Node build does NOT install ffmpeg
+// system-wide, which is why ".tts" was failing with "Cannot find ffmpeg".
+if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
 
 // Convert an mp3 file to Ogg/Opus mono 48kHz — the exact format WhatsApp
 // requires for a voice-note (ptt) bubble to actually play. Sending raw MP3
