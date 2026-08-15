@@ -11,70 +11,103 @@ const plans = [
     name: 'Free Bot',
     price: 'Free',
     priceNote: 'forever',
-    description: 'Get started with essential WhatsApp automation at no cost.',
-    features: [
-      'Almost every command unlocked',
-      '20 commands per day',
-      'Auto status view & react — unlimited',
-      'Sticker maker (.s)',
-      'Group tools & anti-link protection',
-      'Heavy commands queue behind Premium',
-      'Community support',
-    ],
     cta: 'Get Free Bot',
-    ctaStyle: 'outline' as const,
     highlight: false,
-    badge: null,
     isFree: true,
   },
   {
     name: 'Premium',
     price: '₦1,500',
     priceNote: '/month',
-    description: 'Unlimited commands, priority delivery, and full privacy tools.',
-    features: [
-      'Unlimited commands — no daily cap',
-      'Priority delivery — skip the free queue',
-      'True Ghost Mode (.vv/.pp/.send with zero trace)',
-      'PDF / Receipt / Invoice / Word / Excel / OCR',
-      'AI chat & AI customer replies',
-      'Web dashboard — manage & read chats without opening WhatsApp',
-      'Priority support',
-    ],
     cta: 'Get Premium',
-    ctaStyle: 'solid' as const,
     highlight: true,
     badge: 'Most Popular',
     isFree: false,
   },
 ]
 
+// Each row: [label, freeValue, premiumValue]
+// freeValue/premiumValue: true = check, false = locked, or a string for custom text
+const comparisonRows: { label: string; free: boolean | string; premium: boolean | string }[] = [
+  { label: 'Daily command limit', free: '20 / day', premium: 'Unlimited' },
+  { label: 'Message delivery', free: 'Standard queue', premium: 'Priority (skip queue)' },
+  { label: 'Auto status view & react', free: true, premium: true },
+  { label: 'Sticker maker (.s)', free: true, premium: true },
+  { label: 'Group tools & anti-link protection', free: true, premium: true },
+  { label: 'Ghost Mode (.vv / .pp / .send, zero trace)', free: false, premium: true },
+  { label: 'Heavy commands (PDF, Receipt, Invoice, Word, Excel, OCR)', free: false, premium: true },
+  { label: 'AI chat & AI customer replies', free: false, premium: true },
+  { label: 'Web dashboard (manage & read chats)', free: false, premium: true },
+  { label: 'Support', free: 'Community', premium: 'Priority' },
+]
+
+function Cell({ value, isPremiumCol }: { value: boolean | string; isPremiumCol: boolean }) {
+  if (typeof value === 'string') {
+    return (
+      <span className={`text-xs font-semibold ${isPremiumCol ? 'text-[#1a1a1a]' : 'text-[#5a5a5a]'}`}>
+        {value}
+      </span>
+    )
+  }
+  if (value) {
+    return (
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className="mx-auto">
+        <path
+          d="M3 8.5L6.5 12L13 5"
+          stroke={isPremiumCol ? '#00A884' : '#00A884'}
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="mx-auto opacity-40">
+      <path d="M4 4L12 12M12 4L4 12" stroke="#b5b5b5" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export default function Pricing({ onGetBot }: { onGetBot: () => void }) {
   const sectionRef = useRef<HTMLElement>(null)
   const cardsRef = useRef<HTMLDivElement>(null)
+  const tableRef = useRef<HTMLDivElement>(null)
 
   useGSAP(() => {
     const section = sectionRef.current
     const cards = cardsRef.current
-    if (!section || !cards) return
+    const table = tableRef.current
+    if (!section) return
 
     const ctx = gsap.context(() => {
-      gsap.fromTo(
-        cards.children,
-        { opacity: 0, y: 60 },
-        {
-          opacity: 1,
-          y: 0,
-          duration: 0.7,
-          stagger: 0.15,
-          ease: 'power2.out',
-          scrollTrigger: {
-            trigger: section,
-            start: 'top 65%',
-            toggleActions: 'play none none none',
-          },
-        }
-      )
+      if (cards) {
+        gsap.fromTo(
+          cards.children,
+          { opacity: 0, y: 60 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.7,
+            stagger: 0.15,
+            ease: 'power2.out',
+            scrollTrigger: { trigger: section, start: 'top 65%', toggleActions: 'play none none none' },
+          }
+        )
+      }
+      if (table) {
+        gsap.fromTo(
+          table,
+          { opacity: 0, y: 40 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.7,
+            ease: 'power2.out',
+            scrollTrigger: { trigger: table, start: 'top 80%', toggleActions: 'play none none none' },
+          }
+        )
+      }
     }, section)
 
     return () => ctx.revert()
@@ -87,7 +120,6 @@ export default function Pricing({ onGetBot }: { onGetBot: () => void }) {
       className="relative py-24 md:py-32 overflow-hidden"
       style={{ backgroundColor: '#EDEEF5' }}
     >
-      {/* Subtle gradient blob */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[#00A884]/[0.03] blur-3xl pointer-events-none" />
 
       <div className="max-w-7xl mx-auto section-padding relative z-10">
@@ -107,92 +139,78 @@ export default function Pricing({ onGetBot }: { onGetBot: () => void }) {
           </p>
         </div>
 
-        {/* Pricing Cards */}
-        <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+        {/* Price Cards (CTA only, no feature lists — table below does that job) */}
+        <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto mb-12">
           {plans.map((plan, i) => (
             <div
               key={i}
-              className={`relative rounded-3xl p-6 md:p-8 transition-all duration-300 hover:-translate-y-2 ${
+              className={`relative rounded-3xl p-6 md:p-8 text-center transition-all duration-300 hover:-translate-y-2 ${
                 plan.highlight
                   ? 'bg-[#1a1a1a] text-white shadow-2xl shadow-[#1a1a1a]/20 scale-[1.02] md:scale-[1.05]'
                   : 'bg-white/80 backdrop-blur-sm border border-black/[0.06] hover:shadow-xl'
               }`}
             >
-              {/* Badge */}
               {plan.badge && (
-                <div className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                  plan.highlight
-                    ? 'bg-[#9fff00] text-[#1a1a1a]'
-                    : 'bg-[#00A884] text-white'
-                }`}>
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#9fff00] text-[#1a1a1a]">
                   {plan.badge}
                 </div>
               )}
 
-              {/* Plan Header */}
-              <div className="mb-6">
-                <h3 className={`font-display font-bold text-lg mb-2 ${plan.highlight ? 'text-white' : 'text-[#1a1a1a]'}`}>
-                  {plan.name}
-                </h3>
-                <div className="flex items-baseline gap-1">
-                  <span className={`font-display font-bold text-3xl md:text-4xl ${plan.highlight ? 'text-white' : 'text-[#1a1a1a]'}`}>
-                    {plan.price}
-                  </span>
-                  <span className={`text-xs ${plan.highlight ? 'text-white/60' : 'text-[#8e8e8e]'}`}>
-                    {plan.priceNote}
-                  </span>
-                </div>
-                <p className={`text-xs mt-2 leading-relaxed ${plan.highlight ? 'text-white/70' : 'text-[#8e8e8e]'}`}>
-                  {plan.description}
-                </p>
+              <h3 className={`font-display font-bold text-lg mb-2 ${plan.highlight ? 'text-white' : 'text-[#1a1a1a]'}`}>
+                {plan.name}
+              </h3>
+              <div className="flex items-baseline justify-center gap-1 mb-6">
+                <span className={`font-display font-bold text-3xl md:text-4xl ${plan.highlight ? 'text-white' : 'text-[#1a1a1a]'}`}>
+                  {plan.price}
+                </span>
+                <span className={`text-xs ${plan.highlight ? 'text-white/60' : 'text-[#8e8e8e]'}`}>
+                  {plan.priceNote}
+                </span>
               </div>
 
-              {/* Features List */}
-              <ul className="space-y-3 mb-8">
-                {plan.features.map((feature, fi) => (
-                  <li key={fi} className="flex items-start gap-2.5">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 mt-0.5">
-                      <path d="M3 8.5L6.5 12L13 5" stroke={plan.highlight ? '#9fff00' : '#00A884'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    <span className={`text-xs leading-relaxed ${plan.highlight ? 'text-white/80' : 'text-[#8e8e8e]'}`}>
-                      {feature}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              {/* CTA Button */}
               {plan.isFree ? (
                 <button
                   onClick={onGetBot}
-                  className={`block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 ${
-                    plan.ctaStyle === 'solid'
-                      ? plan.highlight
-                        ? 'bg-[#9fff00] text-[#1a1a1a] hover:bg-[#b3ff33]'
-                        : 'bg-[#1a1a1a] text-white hover:bg-[#333]'
-                      : plan.highlight
-                      ? 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
-                      : 'bg-transparent text-[#1a1a1a] border border-black/[0.1] hover:bg-black/[0.03]'
-                  }`}
+                  className="block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 bg-transparent text-[#1a1a1a] border border-black/[0.1] hover:bg-black/[0.03]"
                 >
                   {plan.cta}
                 </button>
               ) : (
                 <Link
                   to="/upgrade"
-                  className={`block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 ${
-                    plan.ctaStyle === 'solid'
-                      ? plan.highlight
-                        ? 'bg-[#9fff00] text-[#1a1a1a] hover:bg-[#b3ff33]'
-                        : 'bg-[#1a1a1a] text-white hover:bg-[#333]'
-                      : plan.highlight
-                      ? 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
-                      : 'bg-transparent text-[#1a1a1a] border border-black/[0.1] hover:bg-black/[0.03]'
-                  }`}
+                  className="block w-full text-center py-3.5 rounded-2xl text-sm font-semibold transition-all duration-300 bg-[#9fff00] text-[#1a1a1a] hover:bg-[#b3ff33]"
                 >
                   {plan.cta}
                 </Link>
               )}
+            </div>
+          ))}
+        </div>
+
+        {/* Feature Comparison Table — this is what makes the difference obvious */}
+        <div
+          ref={tableRef}
+          className="max-w-3xl mx-auto rounded-3xl overflow-hidden border border-black/[0.06] bg-white/80 backdrop-blur-sm"
+        >
+          <div className="grid grid-cols-[1fr_auto_auto] items-center px-5 md:px-8 py-4 border-b border-black/[0.06]">
+            <span className="text-xs font-bold uppercase tracking-wider text-[#8e8e8e]">Feature</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-[#8e8e8e] w-20 text-center">Free</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-[#1a1a1a] w-24 text-center">Premium</span>
+          </div>
+          {comparisonRows.map((row, i) => (
+            <div
+              key={i}
+              className={`grid grid-cols-[1fr_auto_auto] items-center px-5 md:px-8 py-3.5 ${
+                i % 2 === 0 ? 'bg-black/[0.015]' : ''
+              }`}
+            >
+              <span className="text-xs md:text-sm text-[#1a1a1a] pr-3">{row.label}</span>
+              <span className="w-20 text-center">
+                <Cell value={row.free} isPremiumCol={false} />
+              </span>
+              <span className="w-24 text-center">
+                <Cell value={row.premium} isPremiumCol={true} />
+              </span>
             </div>
           ))}
         </div>
