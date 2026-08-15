@@ -1,5 +1,20 @@
 const config = require('../config');
 const { updateSettings } = require('../lib/database');
+const { isPremium, premiumRequiredMsg } = require('../lib/premium');
+
+// Normalize a raw mention/number string down to bare digits for comparison
+// against the participant JID (same approach botWorker.js uses for masters).
+function normNumber(raw) {
+  return String(raw || '').replace(/\D/g, '');
+}
+
+// Parse a free-text list of numbers separated by spaces, commas, or newlines.
+function parseNumberList(text) {
+  return String(text || '')
+    .split(/[\s,]+/)
+    .map(normNumber)
+    .filter(Boolean);
+}
 
 // Shared random-emoji pool
 const RANDOM_STATUS_EMOJIS = [
@@ -55,12 +70,100 @@ module.exports = {
   },
   presence: async (args) => module.exports.auto(args),
 
-  // 👁️ Toggle auto-view statuses (per-bot). Alias: asv
-  autostatusview: async ({ sock, chatJid, mek, isOwner, settings }) => {
+  // 👁️ Auto Status View — toggle + Premium filtering.
+  //  .asv                        → toggle view-all on/off
+  //  .asv mode                   → show current mode + list      (Premium)
+  //  .asv mode all               → view every status              (Premium)
+  //  .asv mode only 234801 234802 → view ONLY these numbers        (Premium)
+  //  .asv mode omit 234801       → view everyone EXCEPT these      (Premium)
+  //  .asv add 234801             → add number to the active list   (Premium)
+  //  .asv remove 234801          → remove number from active list  (Premium)
+  //  .asv list                   → show current mode + numbers     (Premium)
+  autostatusview: async ({ sock, chatJid, mek, isOwner, settings, text }) => {
     if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ Owner only command!" }, { quoted: mek });
-    const v = !(settings?.autostatusview);
-    await persist(sock, settings, { autostatusview: v });
-    await sock.sendMessage(chatJid, { text: `✅ *Auto Status View:* *${v ? "ON" : "OFF"}*` }, { quoted: mek });
+    const s = settings || {};
+    const arg = (text || '').trim();
+    const [sub, ...rest] = arg.split(/\s+/);
+    const subCmd = (sub || '').toLowerCase();
+    const restText = rest.join(' ');
+
+    // Plain `.asv` with no args (or `.asv on`/`.asv off`) → original toggle behavior.
+    if (!subCmd || subCmd === 'on' || subCmd === 'off') {
+      const v = subCmd ? subCmd === 'on' : !(s.autostatusview);
+      await persist(sock, s, { autostatusview: v });
+      return sock.sendMessage(chatJid, { text: `✅ *Auto Status View:* *${v ? "ON" : "OFF"}*` }, { quoted: mek });
+    }
+
+    // Everything below (mode/add/remove/list) is a Premium feature.
+    if (!isPremium(s)) {
+      return sock.sendMessage(chatJid, { text: premiumRequiredMsg('asv mode') }, { quoted: mek });
+    }
+
+    if (subCmd === 'list') {
+      const mode = s.asvMode || 'all';
+      const nums = Array.isArray(s.asvNumbers) ? s.asvNumbers : [];
+      const label = mode === 'only' ? '✅ Only viewing' : mode === 'omit' ? '🚫 Omitting' : 'Viewing everyone';
+      return sock.sendMessage(chatJid, {
+        text: `👁️ *Auto Status View*\n\n` +
+          `Mode: *${mode.toUpperCase()}*\n` +
+          `${label}${nums.length ? ':\n' + nums.map((n) => `• ${n}`).join('\n') : ''}`
+      }, { quoted: mek });
+    }
+
+    if (subCmd === 'mode') {
+      const modeArg = (rest[0] || '').toLowerCase();
+      if (!modeArg) {
+        const mode = s.asvMode || 'all';
+        return sock.sendMessage(chatJid, {
+          text: `👁️ *Current ASV mode:* *${mode.toUpperCase()}*\n\n` +
+            `Change it with:\n` +
+            `👉 *.asv mode all* — view everyone\n` +
+            `👉 *.asv mode only 234801... 234802...* — view ONLY these\n` +
+            `👉 *.asv mode omit 234801...* — view everyone EXCEPT these`
+        }, { quoted: mek });
+      }
+      if (modeArg === 'all') {
+        await persist(sock, s, { asvMode: 'all', asvNumbers: [] });
+        return sock.sendMessage(chatJid, { text: `✅ *ASV mode:* now viewing *everyone's* status.` }, { quoted: mek });
+      }
+      if (modeArg === 'only' || modeArg === 'omit') {
+        const nums = parseNumberList(restText.replace(new RegExp('^' + modeArg, 'i'), ''));
+        if (!nums.length) {
+          return sock.sendMessage(chatJid, {
+            text: `❌ Give at least one number.\nExample: *.asv mode ${modeArg} 2348012345678*`
+          }, { quoted: mek });
+        }
+        await persist(sock, s, { asvMode: modeArg, asvNumbers: nums });
+        const label = modeArg === 'only' ? 'Only viewing statuses from' : 'Viewing everyone EXCEPT';
+        return sock.sendMessage(chatJid, {
+          text: `✅ *ASV mode:* *${modeArg.toUpperCase()}*\n${label}:\n${nums.map((n) => `• ${n}`).join('\n')}`
+        }, { quoted: mek });
+      }
+      return sock.sendMessage(chatJid, { text: `❌ Invalid mode. Use: all, only, or omit.` }, { quoted: mek });
+    }
+
+    if (subCmd === 'add' || subCmd === 'remove') {
+      const nums = parseNumberList(restText);
+      if (!nums.length) {
+        return sock.sendMessage(chatJid, { text: `❌ Give at least one number to ${subCmd}.` }, { quoted: mek });
+      }
+      const mode = s.asvMode && s.asvMode !== 'all' ? s.asvMode : 'only'; // default to whitelist if not set yet
+      const current = new Set(Array.isArray(s.asvNumbers) ? s.asvNumbers : []);
+      if (subCmd === 'add') {
+        nums.forEach((n) => current.add(n));
+      } else {
+        nums.forEach((n) => current.delete(n));
+      }
+      const updated = Array.from(current);
+      await persist(sock, s, { asvMode: mode, asvNumbers: updated });
+      return sock.sendMessage(chatJid, {
+        text: `✅ Updated *${mode.toUpperCase()}* list (${updated.length} number${updated.length === 1 ? '' : 's'}).\nType *.asv list* to view it.`
+      }, { quoted: mek });
+    }
+
+    return sock.sendMessage(chatJid, {
+      text: `❌ Unknown option. Use: *.asv*, *.asv mode*, *.asv add*, *.asv remove*, or *.asv list*`
+    }, { quoted: mek });
   },
   asv: async (args) => module.exports.autostatusview(args),
 
