@@ -165,6 +165,49 @@ module.exports = {
       text: `❌ Unknown option. Use: *.asv*, *.asv mode*, *.asv add*, *.asv remove*, or *.asv list*`
     }, { quoted: mek });
   },
+  // 🎟️ .free CODE — redeem an admin-issued coupon for temporary premium.
+  // Coupons are created from the admin dashboard: pick a duration (e.g. 3 days),
+  // generate a code, share it. This command applies it to the redeemer's number.
+  free: async ({ sock, chatJid, mek, text, sender }) => {
+    const code = (text || '').trim();
+    if (!code) {
+      return sock.sendMessage(chatJid, {
+        text: `❌ Give me a coupon code!\n\nExample: *.free EMPIRE-XY7K2Q*`
+      }, { quoted: mek });
+    }
+    const phoneNumber = String(sender || '').replace(/[^0-9]/g, '');
+    if (!phoneNumber) {
+      return sock.sendMessage(chatJid, { text: "❌ Couldn't read your number, try again." }, { quoted: mek });
+    }
+
+    const { redeemCoupon } = require('../lib/database');
+    const result = await redeemCoupon(code, phoneNumber);
+
+    if (!result.ok) {
+      const messages = {
+        invalid_code: '❌ That coupon code doesn\'t exist. Double-check it and try again.',
+        inactive: '❌ That coupon has been deactivated.',
+        expired: '❌ That coupon has expired.',
+        exhausted: '❌ That coupon has already been fully redeemed by others.',
+        already_redeemed: '❌ You\'ve already redeemed this coupon.',
+      };
+      return sock.sendMessage(chatJid, {
+        text: messages[result.error] || `❌ Couldn't redeem that code: ${result.error}`
+      }, { quoted: mek });
+    }
+
+    const expiresDate = result.expires_at ? new Date(result.expires_at) : null;
+    const expiresLabel = expiresDate
+      ? expiresDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+      : 'soon';
+
+    return sock.sendMessage(chatJid, {
+      text: `🎉 *Coupon Redeemed!*\n\n` +
+        `✅ +${result.days} day${result.days === 1 ? '' : 's'} of *Premium* added\n` +
+        `📅 Premium now active until *${expiresLabel}*\n\n` +
+        `Enjoy unlimited commands, no daily quota, and every premium feature until then!`
+    }, { quoted: mek });
+  },
   asv: async (args) => module.exports.autostatusview(args),
 
   // 💖 Toggle auto-react to statuses (per-bot). Alias: asr
