@@ -13,13 +13,12 @@ const plans = [
     priceNote: 'forever',
     description: 'Get started with essential WhatsApp automation at no cost.',
     features: [
-      'Basic auto-reply',
-      'Status viewer (.asv)',
-      'Status reactions (.asr)',
-      'Music search (.play)',
+      'Almost every command unlocked',
+      '20 commands per day',
+      'Auto status view & react — unlimited',
       'Sticker maker (.s)',
-      'Group open/close',
-      'Anti-link protection (.antilink)',
+      'Group tools & anti-link protection',
+      'Heavy commands queue behind Premium',
       'Community support',
     ],
     cta: 'Get Free Bot',
@@ -29,45 +28,23 @@ const plans = [
     isFree: true,
   },
   {
-    name: 'BORGEEYES Robot',
-    price: '₦5,000',
+    name: 'Premium',
+    price: '₦1,500',
     priceNote: '/month',
-    description: 'Advanced automation for power users who need more control anf functions.',
+    description: 'Unlimited commands, priority delivery, and full privacy tools.',
     features: [
-      'Everything in Free',
-      'Plugin system for sports, Office, PDF, MS Word, Customer care service(.plugin)',
-      'Auto typing & recording (.auto)',
-      'AI customer replies (.cs)',
-      'Auto-save contacts (.contacts)',
-      'Broadcast messaging with custom channel link(.bc)',
+      'Unlimited commands — no daily cap',
+      'Priority delivery — skip the free queue',
+      'True Ghost Mode (.vv/.pp/.send with zero trace)',
+      'PDF / Receipt / Invoice / Word / Excel / OCR',
+      'AI chat & AI customer replies',
+      'Web dashboard — manage & read chats without opening WhatsApp',
       'Priority support',
     ],
-    cta: 'Get Borgeyes',
+    cta: 'Get Premium',
     ctaStyle: 'solid' as const,
     highlight: true,
     badge: 'Most Popular',
-    isFree: false,
-  },
-  {
-    name: 'MVP Bot',
-    price: '₦12,000',
-    priceNote: '/month',
-    description: 'The ultimate package with unlimited power and all features.',
-    features: [
-      'Everything in Borgeyes',
-      'AI video generation (.grok)',
-      'Leads Generator (.lg)',
-      'Advanced AI learning',
-      'Unlimited broadcasts',
-      'Custom plugin development',
-      'White-label option',
-      '24/7 dedicated support',
-      'Early access to new features',
-    ],
-    cta: 'Get MVP',
-    ctaStyle: 'solid' as const,
-    highlight: false,
-    badge: 'Best Value',
     isFree: false,
   },
 ]
@@ -131,7 +108,7 @@ export default function Pricing({ onGetBot }: { onGetBot: () => void }) {
         </div>
 
         {/* Pricing Cards */}
-        <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           {plans.map((plan, i) => (
             <div
               key={i}
