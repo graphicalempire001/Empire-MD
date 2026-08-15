@@ -184,48 +184,130 @@ module.exports = {
       fs.unlink(oggFile, () => {});
     }
   },
+// ─────────────────────────────────────────────
+// Public image search (DuckDuckGo — real web photos)
+// ─────────────────────────────────────────────
+async function searchImages(query, limit = 8) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
 
-  // 🔍 .imagine / .img  — real web image search (DuckDuckGo)
-  imagine: async ({ sock, chatJid, mek, text }) => {
-    if (!text || !text.trim()) {
-      return sock.sendMessage(chatJid, {
-        text: "❌ What should I search for?\n\nExample: *.imagine lagos skyline at night*\nOr: *.img messi celebration*"
-      }, { quoted: mek });
-    }
+  // 1. Get vqd token
+  const home = await axios.get('https://duckduckgo.com/', {
+    params: { q: query },
+    headers,
+    timeout: 12000,
+  });
 
-    const query = text.trim().slice(0, 200);
-    try {
-      await sock.sendMessage(chatJid, { text: `🔍 Searching images for: _${query}_…` }, { quoted: mek });
+  const vqdMatch = String(home.data).match(/vqd=["']([^"']+)["']/i);
+  if (!vqdMatch) throw new Error('Search token failed — try again');
 
-      const results = await searchImages(query, 4); // send up to 4 images
+  const vqd = vqdMatch[1];
 
-      for (const item of results) {
-        try {
-          const res = await axios.get(item.image, {
-            responseType: 'arraybuffer',
-            timeout: 20000,
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            maxContentLength: 8 * 1024 * 1024 // 8 MB max
-          });
-          await sock.sendMessage(chatJid, {
-            image: Buffer.from(res.data),
-            caption: `📷 *${item.title || query}*\n_Source search_`
-          }, { quoted: mek });
-        } catch (dlErr) {
-          // skip broken image links
-          console.warn('Skip image:', dlErr.message);
-        }
+  // 2. Fetch image results
+  const imgRes = await axios.get('https://duckduckgo.com/i.js', {
+    params: {
+      l: 'us-en',
+      o: 'json',
+      q: query,
+      vqd,
+      f: ',,,',
+      p: '1',
+    },
+    headers: {
+      ...headers,
+      Referer: 'https://duckduckgo.com/',
+    },
+    timeout: 15000,
+  });
+
+  const results = (imgRes.data?.results || [])
+    .filter(r => r?.image && /^https?:\/\//i.test(r.image))
+    .map(r => ({
+      url: r.image,
+      title: r.title || query,
+      source: r.url || '',
+    }));
+
+  if (!results.length) throw new Error('No images found for that search');
+  return results.slice(0, limit);
+}
+
+async function downloadImage(url) {
+  const res = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 18000,
+    maxContentLength: 10 * 1024 * 1024, // 10 MB
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      Accept: 'image/*,*/*;q=0.8',
+    },
+    validateStatus: s => s >= 200 && s < 400,
+  });
+  const buf = Buffer.from(res.data);
+  if (buf.length < 2000) throw new Error('Image too small / invalid');
+  return buf;
+}
+
+// Inside module.exports — replace the imagine function with this:
+imagine: async ({ sock, chatJid, mek, text }) => {
+  if (!text || !text.trim()) {
+    return sock.sendMessage(chatJid, {
+      text: "❌ What should I search?\n\nExample:\n*.imagine lagos skyline*\n*.img messi celebration*\n*.pics dubai at night*"
+    }, { quoted: mek });
+  }
+
+  const query = text.trim().slice(0, 180);
+  const TARGET = 3; // always try to send 3 images
+
+  try {
+    await sock.sendMessage(chatJid, {
+      text: `🔍 Searching public images for: *${query}*\nSending up to ${TARGET} photos…`
+    }, { quoted: mek });
+
+    // Fetch more candidates so we can skip broken ones
+    const candidates = await searchImages(query, 12);
+    let sent = 0;
+
+    for (const item of candidates) {
+      if (sent >= TARGET) break;
+      try {
+        const buf = await downloadImage(item.url);
+        await sock.sendMessage(chatJid, {
+          image: buf,
+          caption: sent === 0
+            ? `📷 *${item.title}*\n_Public web search • \( {sent + 1}/ \){TARGET}_`
+            : `📷 \( {sent + 1}/ \){TARGET}`
+        }, { quoted: mek });
+        sent++;
+        // small delay so WhatsApp doesn’t throttle
+        await new Promise(r => setTimeout(r, 600));
+      } catch (e) {
+        // skip this broken / blocked image and try next
+        console.warn('Skip image:', e.message);
       }
-    } catch (err) {
-      console.error('Image search error:', err.message);
+    }
+
+    if (sent === 0) {
       await sock.sendMessage(chatJid, {
-        text: `❌ Image search failed: ${err.message}`
+        text: '❌ Could not download any of the found images. Try a different search.'
+      }, { quoted: mek });
+    } else if (sent < TARGET) {
+      await sock.sendMessage(chatJid, {
+        text: `⚠️ Only got ${sent} working image(s) for that search.`
       }, { quoted: mek });
     }
-  },
+  } catch (err) {
+    console.error('Image search error:', err.message);
+    await sock.sendMessage(chatJid, {
+      text: `❌ Image search failed: ${err.message}`
+    }, { quoted: mek });
+  }
+},
 
-  // aliases
-  img: (args) => module.exports.imagine(args),
-  image: (args) => module.exports.imagine(args),
-  pics: (args) => module.exports.imagine(args),
-};
+// keep aliases
+img: (args) => module.exports.imagine(args),
+image: (args) => module.exports.imagine(args),
+pics: (args) => module.exports.imagine(args),
+  
