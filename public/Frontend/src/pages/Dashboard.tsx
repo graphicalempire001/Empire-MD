@@ -205,9 +205,9 @@ export default function Dashboard() {
           initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.5 }}
           className="glass-card rounded-3xl p-8 md:p-10 w-full max-w-sm shadow-xl text-center"
         >
-          <div className="mx-auto mb-4 w-14 h-14 rounded-2xl bg-[#00A884]/10 flex items-center justify-center">
-            <Lock className="text-[#00A884]" />
-          </div>
+          <div className="mx-auto mb-4 w-20 h-20 flex items-center justify-center">
+  <img src="/robot-mascot.png" alt="Empire MD Bot Mascot" className="w-full h-full object-contain drop-shadow-lg" />
+</div>
           <h2 className="heading-md text-[#1a1a1a] mb-1">
             {authView === 'login' ? 'Your ' : ''}<span className="text-gradient-green">Dashboard</span>
           </h2>
