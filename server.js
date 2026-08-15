@@ -1017,6 +1017,41 @@ app.post('/api/admin/whitelist', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Admin: coupon codes (create, list, revoke) ─────────────────────────
+app.post('/api/admin/coupons', requireAdmin, async (req, res) => {
+  try {
+    const { days, maxUses = 1, note = null, code = null, expiresAt = null } = req.body || {};
+    if (!days || Number(days) <= 0) return res.status(400).json({ success: false, error: 'days must be > 0' });
+    const { createCoupon } = require('./lib/database');
+    const result = await createCoupon({ days, maxUses, note, createdBy: 'admin', code, expiresAt });
+    if (!result.ok) return res.status(400).json({ success: false, error: result.error });
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/admin/coupons', requireAdmin, async (req, res) => {
+  try {
+    const { listCoupons } = require('./lib/database');
+    const coupons = await listCoupons(Number(req.query.limit) || 100);
+    res.json({ success: true, coupons });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/admin/coupons/:code/revoke', requireAdmin, async (req, res) => {
+  try {
+    const { revokeCoupon } = require('./lib/database');
+    const result = await revokeCoupon(req.params.code);
+    if (!result.ok) return res.status(400).json({ success: false, error: result.error });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ── Admin: payments list (for the Payments tab) ───────────────────────
 app.get('/api/admin/payments', requireAdmin, async (req, res) => {
   try {
