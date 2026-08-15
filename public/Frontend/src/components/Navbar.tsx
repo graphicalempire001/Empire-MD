@@ -3,11 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router'
 
 const navLinks = [
-  { label: 'features', href: '#features' },
-  { label: 'pricing', href: '#pricing' },
-  { label: 'commands', href: '#commands' },
-  { label: 'support', href: '#support' },
+  { label: 'features', to: '/#features' },
+  { label: 'pricing', to: '/#pricing' },
+  { label: 'commands', to: '/help' },
+  { label: 'support', to: '/#support' },
   { label: 'reconnect', to: '/reconnect' },
+  { label: 'upgrade', to: '/upgrade' },
+  { label: 'dashboard', to: '/dashboard' },
 ]
 
 export default function Navbar() {
@@ -30,26 +32,16 @@ export default function Navbar() {
           </div>
 
           {/* Desktop Nav Links */}
-          <div className="hidden md:flex col-span-6 items-center justify-center gap-8">
-            {navLinks.map((link) =>
-              link.to ? (
-                <Link
-                  key={link.label}
-                  to={link.to}
-                  className="text-xs font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase tracking-wide"
-                >
-                  {link.label}
-                </Link>
-              ) : (
-                <a
-                  key={link.label}
-                  href={link.href}
-                  className="text-xs font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase tracking-wide"
-                >
-                  {link.label}
-                </a>
-              )
-            )}
+          <div className="hidden md:flex col-span-6 items-center justify-center gap-7">
+            {navLinks.map((link) => (
+              <Link
+                key={link.label}
+                to={link.to}
+                className="text-xs font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase tracking-wide"
+              >
+                {link.label}
+              </Link>
+            ))}
           </div>
 
           {/* Right Side */}
@@ -112,27 +104,16 @@ export default function Navbar() {
             className="md:hidden overflow-hidden bg-white/95 backdrop-blur-lg border-b border-black/[0.06]"
           >
             <div className="px-6 py-6 space-y-4">
-              {navLinks.map((link) =>
-                link.to ? (
-                  <Link
-                    key={link.label}
-                    to={link.to}
-                    onClick={() => setMobileOpen(false)}
-                    className="block text-sm font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase"
-                  >
-                    {link.label}
-                  </Link>
-                ) : (
-                  <a
-                    key={link.label}
-                    href={link.href}
-                    onClick={() => setMobileOpen(false)}
-                    className="block text-sm font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase"
-                  >
-                    {link.label}
-                  </a>
-                )
-              )}
+              {navLinks.map((link) => (
+                <Link
+                  key={link.label}
+                  to={link.to}
+                  onClick={() => setMobileOpen(false)}
+                  className="block text-sm font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase"
+                >
+                  {link.label}
+                </Link>
+              ))}
               <a
                 href="https://wa.me/2347086757575"
                 target="_blank"
