@@ -241,6 +241,7 @@ function spawnBotProcess(sessionId, botName, cleanPhone, mode, _crashInfo = {}) 
     if (crashCount > MAX_CRASH_RESPAWNS) {
       console.error(`🛑 ${sessionId} crashed ${crashCount} times within ${CRASH_WINDOW_MS / 60000}min — giving up auto-respawn. Re-pair manually.`);
       delete activeSessions[sessionId];
+      try { setBotStatus(sessionId, 'offline'); } catch (_) {}
       return;
     }
 
@@ -595,42 +596,6 @@ app.delete('/api/admin/bot/:sessionId', requireAdmin, async (req, res) => {
 });
 
 
-// ── Admin: full bot list (unlimited / paginated server-side) ─────────
-app.get('/api/admin/bots', requireAdmin, async (req, res) => {
-  try {
-    const { search, filterBy, status } = req.query;
-    let bots = await getAllBots();
-    const totalBots = bots.length;
-
-    if (status === 'online' || status === 'active') {
-      bots = bots.filter(b => String(b.status || '').toLowerCase() === 'online');
-    } else if (status === 'offline' || status === 'inactive') {
-      bots = bots.filter(b => String(b.status || '').toLowerCase() !== 'online');
-    }
-
-    if (search) {
-      const q = String(search).toLowerCase();
-      bots = bots.filter(b => {
-        const name = (b.bot_name || '').toLowerCase();
-        const num = (b.phone_number || '').toLowerCase();
-        const sid = (b.session_id || '').toLowerCase();
-        if (filterBy === 'number') return num.includes(q);
-        if (filterBy === 'session') return sid.includes(q);
-        return name.includes(q) || num.includes(q) || sid.includes(q);
-      });
-    }
-
-    return res.json({
-      success: true,
-      totalCount: totalBots,
-      filteredCount: bots.length,
-      bots
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 // ── Admin: set active (online) / inactive (offline) ──────────────────
 app.post('/api/admin/bot/:sessionId/status', requireAdmin, async (req, res) => {
   try {
@@ -981,7 +946,7 @@ app.post('/api/payment/webhook', async (req, res) => {
     const phone = data.customer?.phone || data.meta?.phone || body.phone;
     const sessionId = data.meta?.session_id || body.session_id;
 
-    const { recordPayment, setPlan } = require('./lib/database');
+    const { recordPayment, activatePremiumByPhone, setPlan } = require('./lib/database');
     const { calcExpiry, PREMIUM_PRICE } = require('./lib/premium');
 
     if (!reference) {
@@ -1000,13 +965,21 @@ app.post('/api/payment/webhook', async (req, res) => {
       status: isSuccess ? 'success' : status || 'pending'
     });
 
-    if (isSuccess && sessionId) {
+    if (isSuccess) {
       const months = Number(data.meta?.months || body.months || 1)
       const days = months * 30
-      const d = new Date()
-      d.setDate(d.getDate() + days)
-      await setPlan(sessionId, 'premium', d.toISOString(), reference)
-      console.log(`💎 Premium activated for ${sessionId} · ${months} mo · until ${d.toISOString()}`)
+      const cleanPhone = String(phone || '').replace(/[^0-9]/g, '');
+      if (cleanPhone) {
+        // Phone-anchored — survives disconnect/reconnect even after session_id changes.
+        const activation = await activatePremiumByPhone(cleanPhone, days, reference);
+        console.log(`💎 Premium activated for phone ${cleanPhone} · ${months} mo · until ${activation?.expires_at}`)
+      }
+      if (sessionId) {
+        // Mirror onto the live session for immediate effect without a re-register.
+        const d = new Date()
+        d.setDate(d.getDate() + days)
+        await setPlan(sessionId, 'premium', d.toISOString(), reference)
+      }
     }
 
     res.json({ success: true });
@@ -1031,7 +1004,7 @@ app.post('/api/admin/activate-premium', requireAdmin, async (req, res) => {
   }
 });
 
-// Admin whitelist
+// Admin whitelist (by session — legacy, still supported for one-off overrides)
 app.post('/api/admin/whitelist', requireAdmin, async (req, res) => {
   try {
     const { sessionId, enabled = true, reason = 'admin' } = req.body || {};
@@ -1039,6 +1012,295 @@ app.post('/api/admin/whitelist', requireAdmin, async (req, res) => {
     const { setWhitelist } = require('./lib/database');
     await setWhitelist(sessionId, enabled, reason);
     res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Admin: payments list (for the Payments tab) ───────────────────────
+app.get('/api/admin/payments', requireAdmin, async (req, res) => {
+  try {
+    const { listPayments } = require('./lib/database');
+    const { status, limit } = req.query;
+    const payments = await listPayments({ status: status || null, limit: Number(limit) || 100 });
+    res.json({ success: true, payments });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Admin: search subscribers by phone number (for manual whitelist) ──
+app.get('/api/admin/subscribers', requireAdmin, async (req, res) => {
+  try {
+    const { searchSubscribers, getAllBots } = require('./lib/database');
+    const { search } = req.query;
+    const subscribers = await searchSubscribers(search || '', 30);
+    // Enrich with the most recent bot registered under that number, if any,
+    // so admin can see whether the number currently has a live bot.
+    const bots = await getAllBots();
+    const enriched = subscribers.map((s) => {
+      const match = bots
+        .filter((b) => b.phone_number === s.phone_number)
+        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+      return { ...s, bot_name: match?.bot_name || null, session_id: match?.session_id || null, status: match?.status || null };
+    });
+    res.json({ success: true, subscribers: enriched });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Admin: whitelist premium directly by phone number (survives reconnect,
+// no dependency on any particular session existing) ────────────────────
+app.post('/api/admin/subscribers/whitelist', requireAdmin, async (req, res) => {
+  try {
+    const { phoneNumber, enabled = true, reason = 'admin' } = req.body || {};
+    if (!phoneNumber) return res.status(400).json({ success: false, error: 'phoneNumber required' });
+    const { setSubscriberWhitelist, getAllBots, setWhitelist } = require('./lib/database');
+    const result = await setSubscriberWhitelist(phoneNumber, enabled, reason);
+    // Mirror onto any live session for that number too, for immediate effect.
+    const cleanPhone = String(phoneNumber).replace(/[^0-9]/g, '');
+    const bots = await getAllBots();
+    const live = bots.filter((b) => b.phone_number === cleanPhone);
+    await Promise.all(live.map((b) => setWhitelist(b.session_id, enabled, reason)));
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Reconnect: re-pair a number to its EXISTING registration instead of
+// spawning a brand-new session_id. Looks up the most recent bot registered
+// under the given phone number (or bot name) and respawns using that same
+// session_id — preserving history, settings, and (via phone-anchored
+// premium) subscription status. ────────────────────────────────────────
+app.post('/api/reconnect', async (req, res) => {
+  try {
+    const disk = getDiskStatus();
+    if (pairingPaused || disk.usePercent >= DISK_ALERT_AT) {
+      return res.status(503).json({
+        success: false,
+        error: "🚧 New connections are paused for a few minutes — please try again shortly."
+      });
+    }
+    const { phoneNumber, botName } = req.body || {};
+    const cleanPhone = String(phoneNumber || '').replace(/[^0-9]/g, '');
+    if (!cleanPhone && !botName) {
+      return res.status(400).json({ success: false, error: 'Enter your phone number or bot name.' });
+    }
+
+    const { getAllBots } = require('./lib/database');
+    const bots = await getAllBots();
+    let match = null;
+    if (cleanPhone) {
+      match = bots
+        .filter((b) => b.phone_number === cleanPhone)
+        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+    }
+    if (!match && botName) {
+      const name = String(botName).trim().toLowerCase();
+      match = bots.find((b) => String(b.bot_name || '').trim().toLowerCase() === name);
+    }
+    if (!match) {
+      return res.status(404).json({
+        success: false,
+        error: "We couldn't find a previous bot for that number or name — use Get Bot to pair a new one."
+      });
+    }
+
+    const sessionId = match.session_id;
+    if (activeSessions[sessionId] && activeSessions[sessionId].status === 'connected') {
+      return res.json({ success: true, sessionId, alreadyOnline: true });
+    }
+
+    console.log(`🔁 Reconnect requested for ${sessionId} (${match.phone_number})`);
+    await startSession(sessionId, match.bot_name, match.phone_number, 'pair');
+
+    const started = Date.now();
+    while (Date.now() - started < 15000) {
+      const s = activeSessions[sessionId];
+      if (s?.pairingCode) return res.json({ success: true, sessionId, method: 'code', code: s.pairingCode });
+      if (s?.status === 'connected') return res.json({ success: true, sessionId, alreadyOnline: true });
+      if (s?.error) return res.status(500).json({ success: false, error: s.error });
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return res.status(504).json({ success: false, error: "Timed out generating the pairing code. Please try again." });
+  } catch (err) {
+    console.error("Reconnect API Error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Send a DM to a bot owner's own WhatsApp self-chat via IPC to the
+// live child process. Used for dashboard credentials and OTP delivery. ──
+function sendDM(sessionId, text) {
+  const liveProcess = activeSessions[sessionId]?.process;
+  if (!liveProcess) return false;
+  try {
+    liveProcess.send({ type: 'sendDM', text });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Internal endpoint — called by the Vercel payment/verify function (a
+// separate deployment) after a successful Premium activation, to deliver
+// dashboard credentials via WhatsApp DM. Protected by a shared secret.
+app.post('/api/internal/send-dm', async (req, res) => {
+  try {
+    const secret = req.headers['x-internal-secret'];
+    if (!process.env.INTERNAL_SECRET || secret !== process.env.INTERNAL_SECRET) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const { sessionId, text } = req.body || {};
+    if (!sessionId || !text) return res.status(400).json({ success: false, error: 'sessionId and text required' });
+    const sent = sendDM(sessionId, text);
+    res.json({ success: true, delivered: sent, note: sent ? undefined : 'Bot is offline — message not delivered live.' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Dashboard auth ───────────────────────────────────────────────────
+const {
+  verifyDashboardLogin, createDashboardSession, getDashboardSession,
+  getBotByName, createOtp, verifyOtp, setDashboardPassword,
+  listChats, listMessages, getBotRegistry
+} = require('./lib/database');
+
+app.post('/api/dashboard/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) return res.status(400).json({ success: false, error: 'Username and password required' });
+    const bot = await verifyDashboardLogin(username, password);
+    if (!bot) return res.status(401).json({ success: false, error: 'Invalid credentials, or this bot is not on Premium.' });
+    const token = await createDashboardSession(bot.session_id);
+    if (!token) return res.status(500).json({ success: false, error: 'Could not start session' });
+    res.json({ success: true, token, sessionId: bot.session_id, botName: bot.bot_name });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/dashboard/request-otp', async (req, res) => {
+  try {
+    const { username } = req.body || {};
+    if (!username) return res.status(400).json({ success: false, error: 'Username required' });
+    const bot = await getBotByName(username);
+    if (!bot) return res.status(404).json({ success: false, error: 'No bot found with that name.' });
+    const premium = bot.is_whitelisted || (bot.plan === 'premium' && bot.plan_expires_at && new Date(bot.plan_expires_at) > new Date());
+    if (!premium) return res.status(403).json({ success: false, error: 'Dashboard access is Premium-only.' });
+
+    const otp = await createOtp(bot.session_id, bot.phone_number, 'dashboard_reset');
+    if (!otp) return res.status(500).json({ success: false, error: 'Could not generate OTP' });
+
+    const delivered = sendDM(
+      bot.session_id,
+      `🔐 *Empire MD Dashboard*\n\nYour password reset code: *${otp.code}*\n\nExpires in 10 minutes. If you didn't request this, ignore this message.`
+    );
+    res.json({
+      success: true,
+      delivered,
+      note: delivered ? 'Code sent to your WhatsApp.' : 'Your bot is offline right now — reconnect it first, then request a new code.'
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/dashboard/verify-otp', async (req, res) => {
+  try {
+    const { username, otp, newPassword } = req.body || {};
+    if (!username || !otp || !newPassword) return res.status(400).json({ success: false, error: 'username, otp, and newPassword required' });
+    if (String(newPassword).length < 6) return res.status(400).json({ success: false, error: 'New password must be at least 6 characters.' });
+    const bot = await getBotByName(username);
+    if (!bot) return res.status(404).json({ success: false, error: 'No bot found with that name.' });
+    const ok = await verifyOtp(bot.session_id, otp, 'dashboard_reset');
+    if (!ok) return res.status(401).json({ success: false, error: 'Invalid or expired code.' });
+    await setDashboardPassword(bot.session_id, newPassword);
+    res.json({ success: true, message: 'Password updated — log in with your new password.' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Auth middleware for everything below — requires a valid dashboard token,
+// scoped to exactly one session_id (never any other user's bot).
+async function requireDashboardAuth(req, res, next) {
+  try {
+    const token = req.headers['x-dashboard-token'] || req.query.token;
+    const session = await getDashboardSession(token);
+    if (!session) return res.status(401).json({ success: false, error: 'Session expired — please log in again.' });
+    req.dashboardSessionId = session.session_id;
+    next();
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+}
+
+app.get('/api/dashboard/me', requireDashboardAuth, async (req, res) => {
+  try {
+    const sessionId = req.dashboardSessionId;
+    const registry = await getBotRegistry(sessionId);
+    if (!registry) return res.status(404).json({ success: false, error: 'Bot not found' });
+    const live = activeSessions[sessionId];
+    res.json({
+      success: true,
+      bot: {
+        session_id: sessionId,
+        bot_name: registry.bot_name,
+        phone_number: registry.phone_number,
+        status: live?.status === 'connected' ? 'online' : (registry.status || 'offline'),
+        plan: registry.plan,
+        plan_expires_at: registry.plan_expires_at,
+        is_whitelisted: registry.is_whitelisted,
+        ghost_mode: !!registry.settings?.ghostMode,
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/dashboard/refresh', requireDashboardAuth, async (req, res) => {
+  try {
+    const sessionId = req.dashboardSessionId;
+    const registry = await getBotRegistry(sessionId);
+    if (!registry) return res.status(404).json({ success: false, error: 'Bot not found' });
+    if (activeSessions[sessionId] && activeSessions[sessionId].status === 'connected') {
+      return res.json({ success: true, alreadyOnline: true });
+    }
+    await startSession(sessionId, registry.bot_name, registry.phone_number, 'pair');
+    const started = Date.now();
+    while (Date.now() - started < 15000) {
+      const s = activeSessions[sessionId];
+      if (s?.pairingCode) return res.json({ success: true, method: 'code', code: s.pairingCode });
+      if (s?.status === 'connected') return res.json({ success: true, alreadyOnline: true });
+      if (s?.error) return res.status(500).json({ success: false, error: s.error });
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return res.status(504).json({ success: false, error: 'Timed out — try again.' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/dashboard/chats', requireDashboardAuth, async (req, res) => {
+  try {
+    const chats = await listChats(req.dashboardSessionId, 100);
+    res.json({ success: true, chats });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/dashboard/messages', requireDashboardAuth, async (req, res) => {
+  try {
+    const { chat } = req.query;
+    if (!chat) return res.status(400).json({ success: false, error: 'chat query param required' });
+    const messages = await listMessages(req.dashboardSessionId, chat, 200);
+    res.json({ success: true, messages });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
