@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import { PLAN_TIERS, formatNaira, type PlanTier } from '../lib/pricing'
 
 declare global {
@@ -32,7 +33,7 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'paying' }
   | { kind: 'verifying' }
-  | { kind: 'success'; expiresAt: string; botName: string; months: number }
+  | { kind: 'success'; expiresAt: string; botName?: string; months: number }
   | { kind: 'error'; message: string }
 
 export default function Upgrade() {
@@ -172,10 +173,21 @@ export default function Upgrade() {
           </button>
 
           {status.kind === 'success' && (
-            <div className="mt-4 rounded-lg bg-[#C6FF3D]/10 border border-[#C6FF3D]/40 p-3 text-sm">
-              ✅ Premium activated for <strong>{status.botName}</strong> — {status.months} month
-              {status.months > 1 ? 's' : ''}, valid until{' '}
-              {new Date(status.expiresAt).toLocaleDateString()}.
+            <div className="mt-4 rounded-lg bg-[#C6FF3D]/10 border border-[#C6FF3D]/40 p-3 text-sm space-y-2">
+              <p>
+                ✅ Premium activated{status.botName ? <> for <strong>{status.botName}</strong></> : ''} — {status.months} month
+                {status.months > 1 ? 's' : ''}, valid until{' '}
+                {new Date(status.expiresAt).toLocaleDateString()}.
+              </p>
+              <p className="text-white/70">
+                Check your WhatsApp — we've sent your dashboard login (bot name + password) to your own chat.
+              </p>
+              <Link
+                to="/dashboard"
+                className="inline-block mt-1 rounded-lg bg-[#C6FF3D] text-black text-xs font-semibold px-4 py-2 hover:bg-[#d9ff70] transition-colors"
+              >
+                Open Dashboard →
+              </Link>
             </div>
           )}
           {status.kind === 'error' && (
@@ -185,8 +197,8 @@ export default function Upgrade() {
           )}
 
           <p className="text-xs text-white/40 mt-4">
-            Your bot must already be paired under this number before upgrading. Payment is
-            verified automatically — Premium activates within seconds of a successful payment.
+            Already paired? Premium activates within seconds of payment. Not paired yet? Premium is
+            saved to your number and applies automatically the moment you pair.
           </p>
         </div>
       </div>
