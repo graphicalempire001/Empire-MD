@@ -100,7 +100,7 @@ export default async function handler(req, res) {
     // 2. Find the bot registered to this phone number.
     const { data: bot, error: lookupErr } = await supabase
       .from('bot_registry')
-      .select('session_id, plan, plan_expires_at, bot_name')
+      .select('session_id, plan, plan_expires_at, bot_name, dashboard_password_set_at')
       .eq('phone_number', cleanPhone)
       .order('last_active', { ascending: false, nullsFirst: false })
       .limit(1)
@@ -193,6 +193,35 @@ export default async function handler(req, res) {
       paid_at: new Date().toISOString(),
     });
 
+    // 5. First-time dashboard credentials — only if this bot has never had
+    // them issued before (botWorker.js handles the same thing on a fresh
+    // connect; this covers a bot that's ALREADY online and upgrades without
+    // reconnecting, so that path never fires).
+    if (!bot.dashboard_password_set_at && process.env.SERVER_BASE_URL && process.env.INTERNAL_SECRET) {
+      try {
+        await supabase
+          .from('bot_registry')
+          .update({ dashboard_password_hash: null, dashboard_password_set_at: new Date().toISOString() })
+          .eq('session_id', bot.session_id);
+        // dashboard_password_hash stays null → verifyDashboardLogin falls back
+        // to hash(session_id) as the default password, same as botWorker.js does.
+        await fetch(`${process.env.SERVER_BASE_URL}/api/internal/send-dm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_SECRET },
+          body: JSON.stringify({
+            sessionId: bot.session_id,
+            text: `💎 *Premium Activated — Dashboard Access*\n\n` +
+              `Manage your bot from your browser at empirebot.space/dashboard\n\n` +
+              `👤 *Username:* ${bot.bot_name}\n` +
+              `🔑 *Password:* ${bot.session_id}\n\n` +
+              `Change your password anytime from the dashboard — it'll text you a verification code right here to confirm it's really you.`,
+          }),
+        });
+      } catch (dmErr) {
+        console.error('[payment/verify] credential DM failed:', dmErr.message);
+      }
+    }
+
     return res.status(200).json({
       success: true,
       session_id: bot.session_id,
@@ -201,6 +230,7 @@ export default async function handler(req, res) {
       expires_at: activation.expires_at,
       months,
       amount_paid: txn.amount,
+      dashboard_url: '/dashboard',
     });
   } catch (e) {
     console.error('[api/payment/verify] error:', e);
