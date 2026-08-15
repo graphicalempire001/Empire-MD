@@ -30,6 +30,7 @@ module.exports = {
         { cmd: "help", alias: ["h", "menu"], desc: "Show full command menu" },
         { cmd: "list", alias: [], desc: "Show compact command list" },
         { cmd: "pp", alias: [], desc: "Get profile picture" },
-        { cmd: "vv", alias: [], desc: "Collect view once media" }
+        { cmd: "vv", alias: [], desc: "Collect view once media" },
+        { cmd: "ghost", alias: ["ghostmode"], desc: "Toggle Ghost Mode — silent .vv/.pp/.send, no caption or mention (Premium)" }
     ]
 };
