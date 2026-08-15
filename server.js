@@ -689,10 +689,6 @@ app.get('/api/admin/export-vcf-preview', requireAdmin, async (req, res) => {
 });
 
 
-app.get(['/admin', '/admin.html'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public/admin.html'));
-});
-
 // 🧾 Invoice/Receipt generator web page — tabbed UI at /documents.html
 app.get(['/documents', '/documents.html'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public/documents.html'));
