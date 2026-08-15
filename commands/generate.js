@@ -2,8 +2,27 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const axios = require('axios');
+const ffmpeg = require('fluent-ffmpeg');
 const { EdgeTTS } = require('node-edge-tts');
 const config = require('../config');
+
+// Convert an mp3 file to Ogg/Opus mono 48kHz — the exact format WhatsApp
+// requires for a voice-note (ptt) bubble to actually play. Sending raw MP3
+// with ptt:true uploads fine but shows a broken/unplayable player on the
+// receiving end, which is the bug this fixes.
+function toWhatsappVoiceNote(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioCodec('libopus')
+      .audioChannels(1)
+      .audioFrequency(48000)
+      .audioBitrate('64k')
+      .format('ogg')
+      .on('error', reject)
+      .on('end', resolve)
+      .save(outputPath);
+  });
+}
 
 // A small, friendly set of voices users can pick with a short code.
 // Full list: https://github.com/SchneeHertz/node-edge-tts (or `edge-tts --list-voices`)
@@ -45,13 +64,15 @@ module.exports = {
     }
 
     const tmpFile = path.join(os.tmpdir(), `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+    const oggFile = tmpFile.replace(/\.mp3$/, '.ogg');
     try {
       const tts = new EdgeTTS({ voice, lang: 'en-US', outputFormat: 'audio-24khz-48kbitrate-mono-mp3', timeout: 15000 });
       await tts.ttsPromise(spoken, tmpFile);
-      const buf = fs.readFileSync(tmpFile);
+      await toWhatsappVoiceNote(tmpFile, oggFile);
+      const buf = fs.readFileSync(oggFile);
       await sock.sendMessage(chatJid, {
         audio: buf,
-        mimetype: 'audio/mpeg',
+        mimetype: 'audio/ogg; codecs=opus',
         ptt: true
       }, { quoted: mek });
     } catch (err) {
@@ -59,6 +80,7 @@ module.exports = {
       await sock.sendMessage(chatJid, { text: `❌ Text-to-speech failed: ${err.message}` }, { quoted: mek });
     } finally {
       fs.unlink(tmpFile, () => {});
+      fs.unlink(oggFile, () => {});
     }
   },
 
