@@ -196,13 +196,6 @@ export default function AdminDashboard() {
     }
   }, [key])
 
-  useEffect(() => {
-    if (!authed) return
-    if (tab === 'payments') loadPayments()
-    if (tab === 'subscribers') loadSubscribers(subSearch)
-    if (tab === 'coupons') loadCoupons()
-  }, [authed, tab, loadPayments, loadSubscribers, loadCoupons]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const loadCoupons = useCallback(async () => {
     if (!key) return
     setCouponsLoading(true)
@@ -217,6 +210,13 @@ export default function AdminDashboard() {
       setCouponsLoading(false)
     }
   }, [key])
+
+  useEffect(() => {
+    if (!authed) return
+    if (tab === 'payments') loadPayments()
+    if (tab === 'subscribers') loadSubscribers(subSearch)
+    if (tab === 'coupons') loadCoupons()
+  }, [authed, tab, loadPayments, loadSubscribers, loadCoupons]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const createCoupon = async () => {
     const days = Number(newCouponDays)
