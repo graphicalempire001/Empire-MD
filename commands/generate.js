@@ -23,26 +23,26 @@ function toWhatsappVoiceNote(inputPath, outputPath) {
   });
 }
 
-// Expanded voice list — short codes users can type
+// ✅ ONLY verified Edge TTS voices (these actually exist)
 const VOICES = {
-  // Nigerian (best for Pidgin / Naija English)
-  ng:      'en-NG-AbeoNeural',      // male
-  ngf:     'en-NG-EzinneNeural',    // female
-  pidgin:  'en-NG-AbeoNeural',      // alias for Pidgin style
+  // Nigeria / Pidgin-friendly
+  ng:      'en-NG-AbeoNeural',
+  ngf:     'en-NG-EzinneNeural',
+  pidgin:  'en-NG-AbeoNeural',
   pidginf: 'en-NG-EzinneNeural',
 
   // US
   male:    'en-US-GuyNeural',
   female:  'en-US-JennyNeural',
-  aria:    'en-US-AriaNeural',
   guy:     'en-US-GuyNeural',
   jenny:   'en-US-JennyNeural',
-  davis:   'en-US-DavisNeural',
-  jane:    'en-US-JaneNeural',
-  jason:   'en-US-JasonNeural',
-  sara:    'en-US-SaraNeural',
-  tony:    'en-US-TonyNeural',
-  nancy:   'en-US-NancyNeural',
+  aria:    'en-US-AriaNeural',
+  ana:     'en-US-AnaNeural',
+  chris:   'en-US-ChristopherNeural',
+  eric:    'en-US-EricNeural',
+  michelle:'en-US-MichelleNeural',
+  roger:   'en-US-RogerNeural',
+  steffan: 'en-US-SteffanNeural',
 
   // UK
   uk:      'en-GB-RyanNeural',
@@ -61,104 +61,140 @@ const VOICES = {
   zaf:     'en-ZA-LeahNeural',
   ke:      'en-KE-ChilembaNeural',
   kef:     'en-KE-AsiliaNeural',
-
-  // Popular non-English (bonus)
-  yo:      'en-NG-AbeoNeural',      // fallback — no true Yoruba TTS on Edge
-  ha:      'en-NG-AbeoNeural',      // same
-  es:      'es-ES-AlvaroNeural',
-  esf:     'es-ES-ElviraNeural',
-  fr:      'fr-FR-HenriNeural',
-  frf:     'fr-FR-DeniseNeural',
-  ar:      'ar-SA-HamedNeural',
-  arf:     'ar-SA-ZariyahNeural',
-  hi:      'hi-IN-MadhurNeural',
-  hif:     'hi-IN-SwaraNeural',
+  ca:      'en-CA-LiamNeural',
+  caf:     'en-CA-ClaraNeural',
 };
 
-const DEFAULT_VOICE = VOICES.ngf; // default to Nigerian female
+const DEFAULT_VOICE = VOICES.ngf;
+
+// lang is taken from the voice name itself (en-NG, en-US, …)
+function langFromVoice(voice) {
+  const m = voice.match(/^([a-z]{2}-[A-Z]{2})/);
+  return m ? m[1] : 'en-US';
+}
 
 // ─────────────────────────────────────────────
-// DuckDuckGo image search (real web photos)
+// Bing public image search (real photos)
 // ─────────────────────────────────────────────
-async function searchImages(query, limit = 5) {
-  // Step 1: get vqd token
-  const tokenRes = await axios.get('https://duckduckgo.com/', {
-    params: { q: query },
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    },
-    timeout: 12000
-  });
-
-  const vqdMatch = tokenRes.data.match(/vqd=["']([^"']+)["']/);
-  if (!vqdMatch) throw new Error('Could not get search token');
-
-  const vqd = vqdMatch[1];
-
-  // Step 2: image results
-  const imgRes = await axios.get('https://duckduckgo.com/i.js', {
+async function searchBingImages(query, limit = 15) {
+  const url = 'https://www.bing.com/images/async';
+  const res = await axios.get(url, {
     params: {
-      l: 'us-en',
-      o: 'json',
       q: query,
-      vqd,
-      f: ',,,',
-      p: '1'
+      first: 1,
+      count: 35,
+      mmasync: 1,
+      qft: '+filterui:photo-photo', // photos only, not clipart/AI-looking junk as much as possible
     },
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://duckduckgo.com/'
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
     },
-    timeout: 15000
+    timeout: 15000,
   });
 
-  const results = (imgRes.data?.results || [])
-    .filter(r => r.image && r.image.startsWith('http'))
-    .slice(0, limit);
+  const html = String(res.data);
+  const results = [];
+  // Bing embeds JSON in m="..." attributes
+  const re = /m="({[^"]+})"/g;
+  let match;
+  while ((match = re.exec(html)) !== null) {
+    try {
+      const raw = match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, '&');
+      const obj = JSON.parse(raw);
+      const imageUrl = obj.murl || obj.imgurl || obj.turl;
+      const w = parseInt(obj.w || obj.width || 0, 10);
+      const h = parseInt(obj.h || obj.height || 0, 10);
+      if (
+        imageUrl &&
+        /^https?:\/\//i.test(imageUrl) &&
+        w >= 400 &&
+        h >= 300
+      ) {
+        results.push({
+          url: imageUrl,
+          title: obj.t || obj.title || query,
+          w,
+          h,
+        });
+      }
+    } catch (_) {}
+  }
 
-  if (!results.length) throw new Error('No images found');
-  return results;
+  // de-dupe
+  const seen = new Set();
+  const unique = [];
+  for (const r of results) {
+    if (seen.has(r.url)) continue;
+    seen.add(r.url);
+    unique.push(r);
+    if (unique.length >= limit) break;
+  }
+  if (!unique.length) throw new Error('No photos found');
+  return unique;
+}
+
+async function downloadImage(url) {
+  const res = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 20000,
+    maxContentLength: 12 * 1024 * 1024,
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      Referer: 'https://www.bing.com/',
+    },
+    validateStatus: (s) => s >= 200 && s < 400,
+  });
+  const buf = Buffer.from(res.data);
+  if (buf.length < 5000) throw new Error('too small');
+  return buf;
 }
 
 module.exports = {
-  // 🔊 .tts <text>   or   .tts <voice> | <text>
+  // 🔊 .tts <text>  OR  .tts <voice> | <text>
   tts: async ({ sock, chatJid, mek, text }) => {
     if (!text || !text.trim()) {
-      return sock.sendMessage(chatJid, {
-        text: `❌ Give me text to speak!\n\n*Examples:*\n.tts How far, wetin dey happen?\n.tts pidgin | Abeg make we go\n.tts ngf | Good morning o\n.tts male | Hello world\n\n*Voices:* ${Object.keys(VOICES).join(', ')}`
-      }, { quoted: mek });
+      return sock.sendMessage(
+        chatJid,
+        {
+          text:
+            `❌ Give me text to speak!\n\n` +
+            `*Examples:*\n` +
+            `.tts How far, wetin dey happen?\n` +
+            `.tts pidgin | Abeg make we go market\n` +
+            `.tts ngf | Good morning o\n` +
+            `.tts male | Hello from America\n` +
+            `.tts uk | British accent test\n\n` +
+            `*Working voices:*\n${Object.keys(VOICES).join(', ')}`,
+        },
+        { quoted: mek }
+      );
     }
 
     let voice = DEFAULT_VOICE;
     let spoken = text.trim();
     const pipeIdx = spoken.indexOf('|');
     if (pipeIdx > -1) {
-      const maybeVoiceKey = spoken.slice(0, pipeIdx).trim().toLowerCase();
-      if (VOICES[maybeVoiceKey]) {
-        voice = VOICES[maybeVoiceKey];
+      const key = spoken.slice(0, pipeIdx).trim().toLowerCase();
+      if (VOICES[key]) {
+        voice = VOICES[key];
         spoken = spoken.slice(pipeIdx + 1).trim();
       }
     }
     if (!spoken) {
-      return sock.sendMessage(chatJid, { text: "❌ No text left after the voice code." }, { quoted: mek });
+      return sock.sendMessage(chatJid, { text: '❌ No text after voice code.' }, { quoted: mek });
     }
     if (spoken.length > 1200) {
-      return sock.sendMessage(chatJid, { text: "❌ Keep it under 1200 characters." }, { quoted: mek });
+      return sock.sendMessage(chatJid, { text: '❌ Max 1200 characters.' }, { quoted: mek });
     }
 
-    // Use matching lang for Nigerian voices
-    const lang = voice.startsWith('en-NG') ? 'en-NG' :
-                 voice.startsWith('en-GB') ? 'en-GB' :
-                 voice.startsWith('en-AU') ? 'en-AU' :
-                 voice.startsWith('en-IN') ? 'en-IN' :
-                 voice.startsWith('en-ZA') ? 'en-ZA' :
-                 voice.startsWith('en-KE') ? 'en-KE' :
-                 voice.startsWith('es-')   ? 'es-ES' :
-                 voice.startsWith('fr-')   ? 'fr-FR' :
-                 voice.startsWith('ar-')   ? 'ar-SA' :
-                 voice.startsWith('hi-')   ? 'hi-IN' : 'en-US';
-
-    const tmpFile = path.join(os.tmpdir(), `tts-\( {Date.now()}- \){Math.random().toString(36).slice(2)}.mp3`);
+    const lang = langFromVoice(voice);
+    const tmpFile = path.join(os.tmpdir(), `tts-${Date.now()}.mp3`);
     const oggFile = tmpFile.replace(/\.mp3$/, '.ogg');
 
     try {
@@ -166,148 +202,102 @@ module.exports = {
         voice,
         lang,
         outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
-        timeout: 20000
+        timeout: 20000,
       });
       await tts.ttsPromise(spoken, tmpFile);
       await toWhatsappVoiceNote(tmpFile, oggFile);
       const buf = fs.readFileSync(oggFile);
-      await sock.sendMessage(chatJid, {
-        audio: buf,
-        mimetype: 'audio/ogg; codecs=opus',
-        ptt: true
-      }, { quoted: mek });
+      await sock.sendMessage(
+        chatJid,
+        { audio: buf, mimetype: 'audio/ogg; codecs=opus', ptt: true },
+        { quoted: mek }
+      );
     } catch (err) {
       console.error('TTS error:', err.message);
-      await sock.sendMessage(chatJid, { text: `❌ TTS failed: ${err.message}` }, { quoted: mek });
+      await sock.sendMessage(
+        chatJid,
+        { text: `❌ TTS failed (${voice}): ${err.message}` },
+        { quoted: mek }
+      );
     } finally {
       fs.unlink(tmpFile, () => {});
       fs.unlink(oggFile, () => {});
     }
   },
-// ─────────────────────────────────────────────
-// Public image search (DuckDuckGo — real web photos)
-// ─────────────────────────────────────────────
-async function searchImages(query, limit = 8) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept-Language': 'en-US,en;q=0.9',
-  };
 
-  // 1. Get vqd token
-  const home = await axios.get('https://duckduckgo.com/', {
-    params: { q: query },
-    headers,
-    timeout: 12000,
-  });
+  // 🔍 .imagine / .img / .pics  — 3 real Bing photos
+  imagine: async ({ sock, chatJid, mek, text }) => {
+    if (!text || !text.trim()) {
+      return sock.sendMessage(
+        chatJid,
+        {
+          text:
+            '❌ What should I search?\n\n' +
+            'Example:\n*.imagine lagos skyline at night*\n*.img messi celebration*\n*.pics abuja mosque*',
+        },
+        { quoted: mek }
+      );
+    }
 
-  const vqdMatch = String(home.data).match(/vqd=["']([^"']+)["']/i);
-  if (!vqdMatch) throw new Error('Search token failed — try again');
+    const query = text.trim().slice(0, 180);
+    const TARGET = 3;
 
-  const vqd = vqdMatch[1];
+    try {
+      await sock.sendMessage(
+        chatJid,
+        { text: `🔍 Searching real photos for: *${query}*\nSending ${TARGET} images…` },
+        { quoted: mek }
+      );
 
-  // 2. Fetch image results
-  const imgRes = await axios.get('https://duckduckgo.com/i.js', {
-    params: {
-      l: 'us-en',
-      o: 'json',
-      q: query,
-      vqd,
-      f: ',,,',
-      p: '1',
-    },
-    headers: {
-      ...headers,
-      Referer: 'https://duckduckgo.com/',
-    },
-    timeout: 15000,
-  });
+      const candidates = await searchBingImages(query, 20);
+      let sent = 0;
 
-  const results = (imgRes.data?.results || [])
-    .filter(r => r?.image && /^https?:\/\//i.test(r.image))
-    .map(r => ({
-      url: r.image,
-      title: r.title || query,
-      source: r.url || '',
-    }));
-
-  if (!results.length) throw new Error('No images found for that search');
-  return results.slice(0, limit);
-}
-
-async function downloadImage(url) {
-  const res = await axios.get(url, {
-    responseType: 'arraybuffer',
-    timeout: 18000,
-    maxContentLength: 10 * 1024 * 1024, // 10 MB
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      Accept: 'image/*,*/*;q=0.8',
-    },
-    validateStatus: s => s >= 200 && s < 400,
-  });
-  const buf = Buffer.from(res.data);
-  if (buf.length < 2000) throw new Error('Image too small / invalid');
-  return buf;
-}
-
-// Inside module.exports — replace the imagine function with this:
-imagine: async ({ sock, chatJid, mek, text }) => {
-  if (!text || !text.trim()) {
-    return sock.sendMessage(chatJid, {
-      text: "❌ What should I search?\n\nExample:\n*.imagine lagos skyline*\n*.img messi celebration*\n*.pics dubai at night*"
-    }, { quoted: mek });
-  }
-
-  const query = text.trim().slice(0, 180);
-  const TARGET = 3; // always try to send 3 images
-
-  try {
-    await sock.sendMessage(chatJid, {
-      text: `🔍 Searching public images for: *${query}*\nSending up to ${TARGET} photos…`
-    }, { quoted: mek });
-
-    // Fetch more candidates so we can skip broken ones
-    const candidates = await searchImages(query, 12);
-    let sent = 0;
-
-    for (const item of candidates) {
-      if (sent >= TARGET) break;
-      try {
-        const buf = await downloadImage(item.url);
-        await sock.sendMessage(chatJid, {
-          image: buf,
-          caption: sent === 0
-            ? `📷 *${item.title}*\n_Public web search • \( {sent + 1}/ \){TARGET}_`
-            : `📷 \( {sent + 1}/ \){TARGET}`
-        }, { quoted: mek });
-        sent++;
-        // small delay so WhatsApp doesn’t throttle
-        await new Promise(r => setTimeout(r, 600));
-      } catch (e) {
-        // skip this broken / blocked image and try next
-        console.warn('Skip image:', e.message);
+      for (const item of candidates) {
+        if (sent >= TARGET) break;
+        try {
+          const buf = await downloadImage(item.url);
+          await sock.sendMessage(
+            chatJid,
+            {
+              image: buf,
+              caption:
+                sent === 0
+                  ? `📷 *\( {item.title}*\n_ \){item.w}×${item.h} • \( {sent + 1}/ \){TARGET}_`
+                  : `📷 \( {sent + 1}/ \){TARGET}`,
+            },
+            { quoted: mek }
+          );
+          sent++;
+          await new Promise((r) => setTimeout(r, 700));
+        } catch (e) {
+          console.warn('Skip image:', e.message);
+        }
       }
-    }
 
-    if (sent === 0) {
-      await sock.sendMessage(chatJid, {
-        text: '❌ Could not download any of the found images. Try a different search.'
-      }, { quoted: mek });
-    } else if (sent < TARGET) {
-      await sock.sendMessage(chatJid, {
-        text: `⚠️ Only got ${sent} working image(s) for that search.`
-      }, { quoted: mek });
+      if (sent === 0) {
+        await sock.sendMessage(
+          chatJid,
+          { text: '❌ Found results but could not download any. Try another search.' },
+          { quoted: mek }
+        );
+      } else if (sent < TARGET) {
+        await sock.sendMessage(
+          chatJid,
+          { text: `⚠️ Only ${sent} working photo(s) for that search.` },
+          { quoted: mek }
+        );
+      }
+    } catch (err) {
+      console.error('Image search error:', err.message);
+      await sock.sendMessage(
+        chatJid,
+        { text: `❌ Image search failed: ${err.message}` },
+        { quoted: mek }
+      );
     }
-  } catch (err) {
-    console.error('Image search error:', err.message);
-    await sock.sendMessage(chatJid, {
-      text: `❌ Image search failed: ${err.message}`
-    }, { quoted: mek });
-  }
-},
+  },
 
-// keep aliases
-img: (args) => module.exports.imagine(args),
-image: (args) => module.exports.imagine(args),
-pics: (args) => module.exports.imagine(args),
-  
+  img: (args) => module.exports.imagine(args),
+  image: (args) => module.exports.imagine(args),
+  pics: (args) => module.exports.imagine(args),
+};
