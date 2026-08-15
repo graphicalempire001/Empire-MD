@@ -312,7 +312,7 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
   },
 
   // 📥 FIXED SAVE/STEAL (With DM Routing)
-  send: async ({ sock, chatJid, mek, settings }) => {
+  send: async ({ sock, chatJid, mek, settings, ghostMode }) => {
     try {
       const q = getQuoted(mek);
       if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a status or media message with .send" }, { quoted: mek });
@@ -322,8 +322,8 @@ Bot: *${resolveBotName(sock, sock.botSettings)}* | Mode: *${((sock.botSettings?.
       }
       const buffer = await downloadBuffer(message, type);
       const dest = await getDestination(sock, chatJid, settings);
-      const caption = "📥 *Saved via Empire MD*";
-      
+      const caption = ghostMode ? undefined : "📥 *Saved via Empire MD*";
+
       if (type === 'imageMessage') await sock.sendMessage(dest, { image: buffer, caption }, { quoted: mek });
       else if (type === 'videoMessage') await sock.sendMessage(dest, { video: buffer, caption }, { quoted: mek });
       else if (type === 'audioMessage') await sock.sendMessage(dest, { audio: buffer, mimetype: 'audio/mp4' }, { quoted: mek });
@@ -373,7 +373,7 @@ _🦾 Powered by ${resolveBotName(sock, sock.botSettings)}_`
   },
 
   // 📸 PP — profile picture (reply / mention / number). Works in groups AND private chats.
-  pp: async ({ sock, chatJid, mek, quotedSender, contextInfo, args, isGroup, settings }) => {
+  pp: async ({ sock, chatJid, mek, quotedSender, contextInfo, args, isGroup, settings, ghostMode }) => {
     try {
       // Resolve target: reply → mention → typed number → self (group) / chat partner (DM)
       let target =
@@ -406,8 +406,8 @@ _🦾 Powered by ${resolveBotName(sock, sock.botSettings)}_`
       const url = await sock.profilePictureUrl(target, 'image');
       await sock.sendMessage(dest, {
         image: { url },
-        caption: `📸 *Profile Picture*\nTarget: @${target.split('@')[0]}`,
-        mentions: [target]
+        caption: ghostMode ? undefined : `📸 *Profile Picture*\nTarget: @${target.split('@')[0]}`,
+        mentions: ghostMode ? undefined : [target]
       }, { quoted: mek });
       // No feedback message — keep process clean
     } catch {
@@ -452,8 +452,26 @@ Current: *${(settings?.antidelete || "off").toUpperCase()}*
   },
   pmode: async (args) => module.exports.privacymode(args),
 
+  // 👻 GHOST MODE TOGGLE — Premium only (gated centrally via PREMIUM_COMMANDS).
+  // When on, .vv / .pp / .send drop all captions and mentions — bare media,
+  // no attribution, true silent operation.
+  ghostmode: async ({ sock, chatJid, mek, text, isOwner, settings }) => {
+    if (!isOwner) return sock.sendMessage(chatJid, { text: "❌ This is an owner-only command!" }, { quoted: mek });
+    const arg = (text || "").toLowerCase().trim();
+    if (!["on", "off"].includes(arg)) {
+      return sock.sendMessage(chatJid, {
+        text: `👻 *Ghost Mode*\nCurrent: *${settings?.ghostMode ? "ON" : "OFF"}*\n\nWhen ON, .vv / .pp / .send send bare media with no caption or mention — fully silent.\n\n👉 *.ghost on*\n👉 *.ghost off*`
+      }, { quoted: mek });
+    }
+    const enabled = arg === 'on';
+    await updateSettings(sock.sessionId, { ghostMode: enabled });
+    sock.botSettings = { ...settings, ghostMode: enabled };
+    await sock.sendMessage(chatJid, { text: `✅ *Ghost Mode* is now *${enabled ? 'ON' : 'OFF'}*.` }, { quoted: mek });
+  },
+  ghost: (args) => module.exports.ghostmode(args),
+
   // 👁️ VV — reveal view-once media (image / video / voice note). Works with DM routing.
-  vv: async ({ sock, chatJid, mek, settings }) => {
+  vv: async ({ sock, chatJid, mek, settings, ghostMode }) => {
     const q = getQuoted(mek);
     if (!q) return sock.sendMessage(chatJid, { text: "❌ Reply to a view-once message or voice note!" }, { quoted: mek });
     try {
@@ -467,8 +485,8 @@ Current: *${(settings?.antidelete || "off").toUpperCase()}*
       const buffer = await downloadBuffer(message, type);
       const dest = await getDestination(sock, chatJid, settings);
       const who = (mek.quotedSender || chatJid).split('@')[0];
-      const caption = `👁️ *Revealed* from @${who}`;
-      const mentions = mek.quotedSender ? [mek.quotedSender] : [];
+      const caption = ghostMode ? undefined : `👁️ *Revealed* from @${who}`;
+      const mentions = (!ghostMode && mek.quotedSender) ? [mek.quotedSender] : undefined;
 
       if (type === 'imageMessage') {
         await sock.sendMessage(dest, { image: buffer, caption, mentions }, { quoted: mek });
