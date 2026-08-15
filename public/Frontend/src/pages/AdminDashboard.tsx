@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Lock, Trash2, Flag, RefreshCw, CheckSquare, Square, ShieldCheck,
   Pause, Play, Download, Search, Users, CreditCard, Bot as BotIcon,
-  ShieldPlus, ShieldMinus,
+  ShieldPlus, ShieldMinus, Ticket, Copy, Ban,
 } from 'lucide-react'
 
 interface AdminBot {
@@ -48,8 +48,20 @@ interface SystemStats {
   reserveThreshold: number
 }
 
+interface Coupon {
+  code: string
+  days: number
+  max_uses: number
+  uses_count: number
+  active: boolean
+  expires_at: string | null
+  note: string | null
+  created_by: string | null
+  created_at: string
+}
+
 type StatusFilter = 'all' | 'online' | 'offline'
-type Tab = 'bots' | 'payments' | 'subscribers'
+type Tab = 'bots' | 'payments' | 'subscribers' | 'coupons'
 
 export default function AdminDashboard() {
   const [key, setKey] = useState('')
@@ -85,6 +97,13 @@ export default function AdminDashboard() {
   const [vcfOnlineOnly, setVcfOnlineOnly] = useState(false)
   const [vcfPreview, setVcfPreview] = useState('')
   const [vcfOpen, setVcfOpen] = useState(false)
+
+  const [coupons, setCoupons] = useState<Coupon[]>([])
+  const [couponsLoading, setCouponsLoading] = useState(false)
+  const [newCouponDays, setNewCouponDays] = useState('3')
+  const [newCouponUses, setNewCouponUses] = useState('1')
+  const [newCouponNote, setNewCouponNote] = useState('')
+  const [creatingCoupon, setCreatingCoupon] = useState(false)
 
   const headers = { 'Content-Type': 'application/json', 'x-admin-key': key }
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2800) }
@@ -181,7 +200,63 @@ export default function AdminDashboard() {
     if (!authed) return
     if (tab === 'payments') loadPayments()
     if (tab === 'subscribers') loadSubscribers(subSearch)
-  }, [authed, tab, loadPayments, loadSubscribers]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (tab === 'coupons') loadCoupons()
+  }, [authed, tab, loadPayments, loadSubscribers, loadCoupons]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadCoupons = useCallback(async () => {
+    if (!key) return
+    setCouponsLoading(true)
+    try {
+      const res = await fetch('/api/admin/coupons', { headers: { 'x-admin-key': key } })
+      const data = await res.json()
+      if (data.success) setCoupons(data.coupons || [])
+      else flash(data.error || 'Failed to load coupons')
+    } catch {
+      flash('Failed to load coupons')
+    } finally {
+      setCouponsLoading(false)
+    }
+  }, [key])
+
+  const createCoupon = async () => {
+    const days = Number(newCouponDays)
+    if (!days || days <= 0) return flash('Enter a valid number of days')
+    setCreatingCoupon(true)
+    try {
+      const res = await fetch('/api/admin/coupons', {
+        method: 'POST', headers,
+        body: JSON.stringify({ days, maxUses: Number(newCouponUses) || 1, note: newCouponNote.trim() || null }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        flash(`Coupon created: ${data.code}`)
+        setNewCouponDays('3')
+        setNewCouponUses('1')
+        setNewCouponNote('')
+        loadCoupons()
+      } else flash(data.error || 'Failed to create coupon')
+    } catch {
+      flash('Failed to create coupon')
+    } finally {
+      setCreatingCoupon(false)
+    }
+  }
+
+  const revokeCoupon = async (code: string) => {
+    try {
+      const res = await fetch(`/api/admin/coupons/${encodeURIComponent(code)}/revoke`, { method: 'POST', headers })
+      const data = await res.json()
+      if (data.success) { flash(`Revoked ${code}`); loadCoupons() }
+      else flash(data.error || 'Failed to revoke')
+    } catch {
+      flash('Failed to revoke')
+    }
+  }
+
+  const copyCoupon = (code: string) => {
+    navigator.clipboard?.writeText(code)
+    flash(`Copied ${code}`)
+  }
 
   const toggleWhitelist = async (phoneNumber: string, enabled: boolean, reason = 'admin') => {
     try {
@@ -401,6 +476,7 @@ export default function AdminDashboard() {
             { id: 'bots' as Tab, label: 'Bots', icon: BotIcon },
             { id: 'payments' as Tab, label: 'Payments', icon: CreditCard },
             { id: 'subscribers' as Tab, label: 'Subscribers', icon: Users },
+            { id: 'coupons' as Tab, label: 'Coupons', icon: Ticket },
           ]).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -695,6 +771,89 @@ export default function AdminDashboard() {
               })}
               {!subscribers.length && !subLoading && (
                 <p className="text-center body-text py-12">No subscribers found.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ---------- COUPONS TAB ---------- */}
+        {tab === 'coupons' && (
+          <div>
+            <div className="glass-card rounded-2xl p-5 mb-5">
+              <h3 className="heading-md text-base text-[#1a1a1a] mb-1">Create a coupon</h3>
+              <p className="text-[11px] text-[#8e8e8e] mb-3">
+                Users redeem it in WhatsApp with <span className="font-mono">.free CODE</span> — grants Premium (unlimited commands, no daily quota) for the number of days you set.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <div className="min-w-[110px]">
+                  <label className="text-[10px] text-[#8e8e8e] block mb-1">Days</label>
+                  <input
+                    type="number" min={1} value={newCouponDays}
+                    onChange={(e) => setNewCouponDays(e.target.value)}
+                    className="w-full bg-white/80 border border-black/[0.06] rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-[#00A884] transition"
+                  />
+                </div>
+                <div className="min-w-[110px]">
+                  <label className="text-[10px] text-[#8e8e8e] block mb-1">Max uses</label>
+                  <input
+                    type="number" min={1} value={newCouponUses}
+                    onChange={(e) => setNewCouponUses(e.target.value)}
+                    className="w-full bg-white/80 border border-black/[0.06] rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-[#00A884] transition"
+                  />
+                </div>
+                <div className="flex-1 min-w-[160px]">
+                  <label className="text-[10px] text-[#8e8e8e] block mb-1">Note (optional)</label>
+                  <input
+                    value={newCouponNote} onChange={(e) => setNewCouponNote(e.target.value)}
+                    placeholder="e.g. TikTok giveaway"
+                    className="w-full bg-white/80 border border-black/[0.06] rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-[#00A884] transition"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <motion.button whileTap={{ scale: 0.97 }} onClick={createCoupon} disabled={creatingCoupon}
+                    className="whatsapp-btn px-5 py-2.5 text-sm inline-flex items-center gap-1.5 disabled:opacity-50">
+                    <Ticket size={14} /> {creatingCoupon ? 'Creating…' : 'Generate'}
+                  </motion.button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mb-4">
+              <p className="body-text">{couponsLoading ? 'Loading…' : `${coupons.length} coupon${coupons.length === 1 ? '' : 's'}`}</p>
+              <button onClick={loadCoupons} className="glass-card rounded-full px-3.5 py-2 text-xs text-[#1a1a1a] inline-flex items-center gap-1.5 hover:text-[#00A884] transition-colors">
+                <RefreshCw size={13} className={couponsLoading ? 'animate-spin' : ''} /> Refresh
+              </button>
+            </div>
+            <div className="space-y-2.5">
+              {coupons.map((c) => (
+                <div key={c.code} className="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={() => copyCoupon(c.code)} className="font-mono font-semibold text-sm text-[#1a1a1a] inline-flex items-center gap-1 hover:text-[#00A884] transition-colors">
+                        {c.code} <Copy size={11} />
+                      </button>
+                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                        c.active ? 'text-[#00A884] bg-[#00A884]/10' : 'text-[#8e8e8e] bg-black/5'
+                      }`}>
+                        {c.active ? 'active' : 'revoked'}
+                      </span>
+                      <span className="text-[10px] font-medium text-[#8e8e8e]">
+                        {c.uses_count}/{c.max_uses} used · {c.days} day{c.days === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    {c.note && <p className="text-xs text-[#8e8e8e] mt-1">{c.note}</p>}
+                    <p className="text-[11px] text-[#b0b0b8] mt-0.5">Created {fmtDate(c.created_at)}</p>
+                  </div>
+                  {c.active && (
+                    <button onClick={() => revokeCoupon(c.code)}
+                      className="text-[10px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 shrink-0 bg-[#e5484d]/10 text-[#e5484d] hover:bg-[#e5484d]/20 transition-colors">
+                      <Ban size={12} /> Revoke
+                    </button>
+                  )}
+                </div>
+              ))}
+              {!coupons.length && !couponsLoading && (
+                <p className="text-center body-text py-12">No coupons yet.</p>
               )}
             </div>
           </div>
