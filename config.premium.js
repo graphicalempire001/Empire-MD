@@ -24,7 +24,7 @@ module.exports = {
     // ─── Monetization ───────────────────────────────────────
     premiumPrice: 1500,                 // NGN per month
     premiumDurationDays: 30,
-    upgradeLink: process.env.UPGRADE_LINK || "https://empire-md.vercel.app/upgrade",
+    upgradeLink: process.env.UPGRADE_LINK || "https://empirebot.space/upgrade",
 
     // Inactive session cleanup (saves RAM)
     inactiveKillDays: 3,                // kill process after 3 days of no activity
