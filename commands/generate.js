@@ -7,15 +7,8 @@ const ffmpegStatic = require('ffmpeg-static');
 const { EdgeTTS } = require('node-edge-tts');
 const config = require('../config');
 
-// Use a bundled ffmpeg binary rather than relying on the host having one
-// installed on PATH — Railway's default Node build does NOT install ffmpeg
-// system-wide, which is why ".tts" was failing with "Cannot find ffmpeg".
 if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
 
-// Convert an mp3 file to Ogg/Opus mono 48kHz — the exact format WhatsApp
-// requires for a voice-note (ptt) bubble to actually play. Sending raw MP3
-// with ptt:true uploads fine but shows a broken/unplayable player on the
-// receiving end, which is the bug this fixes.
 function toWhatsappVoiceNote(inputPath, outputPath) {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
@@ -30,25 +23,109 @@ function toWhatsappVoiceNote(inputPath, outputPath) {
   });
 }
 
-// A small, friendly set of voices users can pick with a short code.
-// Full list: https://github.com/SchneeHertz/node-edge-tts (or `edge-tts --list-voices`)
+// Expanded voice list — short codes users can type
 const VOICES = {
-  male: 'en-US-GuyNeural',
-  female: 'en-US-JennyNeural',
-  uk: 'en-GB-RyanNeural',
-  ukf: 'en-GB-SoniaNeural',
-  ng: 'en-NG-AbeoNeural',
-  ngf: 'en-NG-EzinneNeural',
+  // Nigerian (best for Pidgin / Naija English)
+  ng:      'en-NG-AbeoNeural',      // male
+  ngf:     'en-NG-EzinneNeural',    // female
+  pidgin:  'en-NG-AbeoNeural',      // alias for Pidgin style
+  pidginf: 'en-NG-EzinneNeural',
+
+  // US
+  male:    'en-US-GuyNeural',
+  female:  'en-US-JennyNeural',
+  aria:    'en-US-AriaNeural',
+  guy:     'en-US-GuyNeural',
+  jenny:   'en-US-JennyNeural',
+  davis:   'en-US-DavisNeural',
+  jane:    'en-US-JaneNeural',
+  jason:   'en-US-JasonNeural',
+  sara:    'en-US-SaraNeural',
+  tony:    'en-US-TonyNeural',
+  nancy:   'en-US-NancyNeural',
+
+  // UK
+  uk:      'en-GB-RyanNeural',
+  ukf:     'en-GB-SoniaNeural',
+  ryan:    'en-GB-RyanNeural',
+  sonia:   'en-GB-SoniaNeural',
+  libby:   'en-GB-LibbyNeural',
+  thomas:  'en-GB-ThomasNeural',
+
+  // Other English
+  au:      'en-AU-WilliamNeural',
+  auf:     'en-AU-NatashaNeural',
+  in:      'en-IN-PrabhatNeural',
+  inf:     'en-IN-NeerjaNeural',
+  za:      'en-ZA-LukeNeural',
+  zaf:     'en-ZA-LeahNeural',
+  ke:      'en-KE-ChilembaNeural',
+  kef:     'en-KE-AsiliaNeural',
+
+  // Popular non-English (bonus)
+  yo:      'en-NG-AbeoNeural',      // fallback — no true Yoruba TTS on Edge
+  ha:      'en-NG-AbeoNeural',      // same
+  es:      'es-ES-AlvaroNeural',
+  esf:     'es-ES-ElviraNeural',
+  fr:      'fr-FR-HenriNeural',
+  frf:     'fr-FR-DeniseNeural',
+  ar:      'ar-SA-HamedNeural',
+  arf:     'ar-SA-ZariyahNeural',
+  hi:      'hi-IN-MadhurNeural',
+  hif:     'hi-IN-SwaraNeural',
 };
-const DEFAULT_VOICE = VOICES.female;
+
+const DEFAULT_VOICE = VOICES.ngf; // default to Nigerian female
+
+// ─────────────────────────────────────────────
+// DuckDuckGo image search (real web photos)
+// ─────────────────────────────────────────────
+async function searchImages(query, limit = 5) {
+  // Step 1: get vqd token
+  const tokenRes = await axios.get('https://duckduckgo.com/', {
+    params: { q: query },
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    },
+    timeout: 12000
+  });
+
+  const vqdMatch = tokenRes.data.match(/vqd=["']([^"']+)["']/);
+  if (!vqdMatch) throw new Error('Could not get search token');
+
+  const vqd = vqdMatch[1];
+
+  // Step 2: image results
+  const imgRes = await axios.get('https://duckduckgo.com/i.js', {
+    params: {
+      l: 'us-en',
+      o: 'json',
+      q: query,
+      vqd,
+      f: ',,,',
+      p: '1'
+    },
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://duckduckgo.com/'
+    },
+    timeout: 15000
+  });
+
+  const results = (imgRes.data?.results || [])
+    .filter(r => r.image && r.image.startsWith('http'))
+    .slice(0, limit);
+
+  if (!results.length) throw new Error('No images found');
+  return results;
+}
 
 module.exports = {
-  // 🔊 .tts <text>  or  .tts <voice> | <text>
-  // Free command — Microsoft Edge TTS, no API key, no cost.
+  // 🔊 .tts <text>   or   .tts <voice> | <text>
   tts: async ({ sock, chatJid, mek, text }) => {
     if (!text || !text.trim()) {
       return sock.sendMessage(chatJid, {
-        text: `❌ Give me some text to speak!\n\nExample: *.tts Hello there*\nOr pick a voice: *.tts ng | Bawo ni, how far?*\n\nVoices: ${Object.keys(VOICES).join(', ')}`
+        text: `❌ Give me text to speak!\n\n*Examples:*\n.tts How far, wetin dey happen?\n.tts pidgin | Abeg make we go\n.tts ngf | Good morning o\n.tts male | Hello world\n\n*Voices:* ${Object.keys(VOICES).join(', ')}`
       }, { quoted: mek });
     }
 
@@ -63,16 +140,34 @@ module.exports = {
       }
     }
     if (!spoken) {
-      return sock.sendMessage(chatJid, { text: "❌ There's no text left to speak after the voice code." }, { quoted: mek });
+      return sock.sendMessage(chatJid, { text: "❌ No text left after the voice code." }, { quoted: mek });
     }
     if (spoken.length > 1200) {
-      return sock.sendMessage(chatJid, { text: "❌ That's too long — keep it under 1200 characters." }, { quoted: mek });
+      return sock.sendMessage(chatJid, { text: "❌ Keep it under 1200 characters." }, { quoted: mek });
     }
 
-    const tmpFile = path.join(os.tmpdir(), `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+    // Use matching lang for Nigerian voices
+    const lang = voice.startsWith('en-NG') ? 'en-NG' :
+                 voice.startsWith('en-GB') ? 'en-GB' :
+                 voice.startsWith('en-AU') ? 'en-AU' :
+                 voice.startsWith('en-IN') ? 'en-IN' :
+                 voice.startsWith('en-ZA') ? 'en-ZA' :
+                 voice.startsWith('en-KE') ? 'en-KE' :
+                 voice.startsWith('es-')   ? 'es-ES' :
+                 voice.startsWith('fr-')   ? 'fr-FR' :
+                 voice.startsWith('ar-')   ? 'ar-SA' :
+                 voice.startsWith('hi-')   ? 'hi-IN' : 'en-US';
+
+    const tmpFile = path.join(os.tmpdir(), `tts-\( {Date.now()}- \){Math.random().toString(36).slice(2)}.mp3`);
     const oggFile = tmpFile.replace(/\.mp3$/, '.ogg');
+
     try {
-      const tts = new EdgeTTS({ voice, lang: 'en-US', outputFormat: 'audio-24khz-48kbitrate-mono-mp3', timeout: 15000 });
+      const tts = new EdgeTTS({
+        voice,
+        lang,
+        outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
+        timeout: 20000
+      });
       await tts.ttsPromise(spoken, tmpFile);
       await toWhatsappVoiceNote(tmpFile, oggFile);
       const buf = fs.readFileSync(oggFile);
@@ -83,33 +178,54 @@ module.exports = {
       }, { quoted: mek });
     } catch (err) {
       console.error('TTS error:', err.message);
-      await sock.sendMessage(chatJid, { text: `❌ Text-to-speech failed: ${err.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, { text: `❌ TTS failed: ${err.message}` }, { quoted: mek });
     } finally {
       fs.unlink(tmpFile, () => {});
       fs.unlink(oggFile, () => {});
     }
   },
 
-  // 🎨 .imagine <prompt>
-  // Free command — Pollinations.ai image generation, no API key, no cost.
+  // 🔍 .imagine / .img  — real web image search (DuckDuckGo)
   imagine: async ({ sock, chatJid, mek, text }) => {
     if (!text || !text.trim()) {
-      return sock.sendMessage(chatJid, { text: "❌ Describe what you want to see!\n\nExample: *.imagine a neon lion in a cyberpunk city*" }, { quoted: mek });
-    }
-    const prompt = text.trim().slice(0, 600);
-    const seed = Math.floor(Math.random() * 1_000_000);
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
-
-    try {
-      await sock.sendMessage(chatJid, { text: `🎨 Generating: _${prompt}_ — give it a moment…` }, { quoted: mek });
-      const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      await sock.sendMessage(chatJid, {
-        image: Buffer.from(res.data),
-        caption: `🎨 *${prompt}*\n_Powered by ${config.botName}_`
+      return sock.sendMessage(chatJid, {
+        text: "❌ What should I search for?\n\nExample: *.imagine lagos skyline at night*\nOr: *.img messi celebration*"
       }, { quoted: mek });
+    }
+
+    const query = text.trim().slice(0, 200);
+    try {
+      await sock.sendMessage(chatJid, { text: `🔍 Searching images for: _${query}_…` }, { quoted: mek });
+
+      const results = await searchImages(query, 4); // send up to 4 images
+
+      for (const item of results) {
+        try {
+          const res = await axios.get(item.image, {
+            responseType: 'arraybuffer',
+            timeout: 20000,
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            maxContentLength: 8 * 1024 * 1024 // 8 MB max
+          });
+          await sock.sendMessage(chatJid, {
+            image: Buffer.from(res.data),
+            caption: `📷 *${item.title || query}*\n_Source search_`
+          }, { quoted: mek });
+        } catch (dlErr) {
+          // skip broken image links
+          console.warn('Skip image:', dlErr.message);
+        }
+      }
     } catch (err) {
-      console.error('Imagine error:', err.message);
-      await sock.sendMessage(chatJid, { text: `❌ Image generation failed, try again in a moment: ${err.message}` }, { quoted: mek });
+      console.error('Image search error:', err.message);
+      await sock.sendMessage(chatJid, {
+        text: `❌ Image search failed: ${err.message}`
+      }, { quoted: mek });
     }
   },
+
+  // aliases
+  img: (args) => module.exports.imagine(args),
+  image: (args) => module.exports.imagine(args),
+  pics: (args) => module.exports.imagine(args),
 };
