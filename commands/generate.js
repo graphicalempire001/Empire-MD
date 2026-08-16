@@ -23,7 +23,6 @@ function toWhatsappVoiceNote(inputPath, outputPath) {
   });
 }
 
-// ✅ Verified Edge TTS voices only
 const VOICES = {
   ng: 'en-NG-AbeoNeural',
   ngf: 'en-NG-EzinneNeural',
@@ -64,44 +63,92 @@ function langFromVoice(voice) {
   return m ? m[1] : 'en-US';
 }
 
-// ─────────────────────────────────────────────
-// Unsplash — real photography
-// ─────────────────────────────────────────────
 const UNSPLASH_KEY =
   process.env.UNSPLASH_ACCESS_KEY ||
   config.unsplashKey ||
   'JPvZUN-pFifioWJQcWb0kaR1VPLW9kxtTkbEs3DVgz4';
 
-async function searchUnsplash(query, limit = 3) {
-  if (!UNSPLASH_KEY) throw new Error('Unsplash Access Key missing');
+const PEXELS_KEY = process.env.PEXELS_API_KEY || config.pexelsKey || '';
+const PIXABAY_KEY = process.env.PIXABAY_API_KEY || config.pixabayKey || '';
 
-  const res = await axios.get('https://api.unsplash.com/search/photos', {
-    params: {
-      query,
-      per_page: limit,
-      orientation: 'landscape',
-      content_filter: 'high',
-    },
-    headers: {
-      Authorization: `Client-ID ${UNSPLASH_KEY}`,
-      'Accept-Version': 'v1',
-    },
-    timeout: 15000,
-  });
-
-  const results = (res.data?.results || [])
-    .map((p) => ({
-      url: p.urls?.regular || p.urls?.full || p.urls?.small,
+async function fromUnsplash(query) {
+  if (!UNSPLASH_KEY) return null;
+  try {
+    const res = await axios.get('https://api.unsplash.com/search/photos', {
+      params: { query, per_page: 1, orientation: 'landscape', content_filter: 'high' },
+      headers: { Authorization: `Client-ID ${UNSPLASH_KEY}`, 'Accept-Version': 'v1' },
+      timeout: 12000,
+    });
+    const p = res.data?.results?.[0];
+    if (!p?.urls) return null;
+    return {
+      url: p.urls.regular || p.urls.full || p.urls.small,
       title: p.alt_description || p.description || query,
-      photographer: p.user?.name || 'Unknown',
-      profile: p.user?.links?.html || 'https://unsplash.com',
-      w: p.width,
-      h: p.height,
-    }))
-    .filter((p) => p.url);
+      credit: `Photo by ${p.user?.name || 'Unknown'} · Unsplash`,
+    };
+  } catch (e) {
+    console.warn('Unsplash fail:', e.message);
+    return null;
+  }
+}
 
-  if (!results.length) throw new Error('No Unsplash photos found');
-  return results;
+async function fromPexels(query) {
+  if (!PEXELS_KEY) return null;
+  try {
+    const res = await axios.get('https://api.pexels.com/v1/search', {
+      params: { query, per_page: 1, orientation: 'landscape' },
+      headers: { Authorization: PEXELS_KEY },
+      timeout: 12000,
+    });
+    const p = res.data?.photos?.[0];
+    if (!p?.src) return null;
+    return {
+      url: p.src.large || p.src.medium || p.src.original,
+      title: p.alt || query,
+      credit: `Photo by ${p.photographer || 'Unknown'} · Pexels`,
+    };
+  } catch (e) {
+    console.warn('Pexels fail:', e.message);
+    return null;
+  }
+}
+
+async function fromPixabay(query) {
+  if (!PIXABAY_KEY) return null;
+  try {
+    const res = await axios.get('https://pixabay.com/api/', {
+      params: {
+        key: PIXABAY_KEY,
+        q: query,
+        image_type: 'photo',
+        orientation: 'horizontal',
+        safesearch: 'true',
+        per_page: 3,
+      },
+      timeout: 12000,
+    });
+    const p = res.data?.hits?.[0];
+    if (!p) return null;
+    return {
+      url: p.largeImageURL || p.webformatURL,
+      title: p.tags || query,
+      credit: `Photo by ${p.user || 'Unknown'} · Pixabay`,
+    };
+  } catch (e) {
+    console.warn('Pixabay fail:', e.message);
+    return null;
+  }
+}
+
+async function searchThreeSources(query) {
+  const [u, p, x] = await Promise.all([
+    fromUnsplash(query),
+    fromPexels(query),
+    fromPixabay(query),
+  ]);
+  const picked = [u, p, x].filter(Boolean);
+  if (!picked.length) throw new Error('No photos found from any source');
+  return picked.slice(0, 3);
 }
 
 async function downloadImage(url) {
@@ -121,7 +168,6 @@ async function downloadImage(url) {
 }
 
 module.exports = {
-  // 🔊 .tts
   tts: async ({ sock, chatJid, mek, text }) => {
     if (!text || !text.trim()) {
       return sock.sendMessage(chatJid, {
@@ -183,25 +229,23 @@ module.exports = {
     }
   },
 
-  // 📷 .imagine / .img / .pics — 3 real Unsplash photos
   imagine: async ({ sock, chatJid, mek, text }) => {
     if (!text || !text.trim()) {
       return sock.sendMessage(chatJid, {
         text:
-          '❌ Search real photos on Unsplash.\n\n' +
+          '❌ Search real photos.\n\n' +
           'Example:\n*.imagine lagos nigeria*\n*.img football stadium*\n*.pics mountain lake*',
       }, { quoted: mek });
     }
 
     const query = text.trim().slice(0, 120);
-    const TARGET = 3;
 
     try {
       await sock.sendMessage(chatJid, {
-        text: `🔍 Searching Unsplash for: *${query}*\nSending ${TARGET} real photos…`,
+        text: `🔍 Searching Unsplash + Pexels + Pixabay for: *${query}*\nSending up to 3 real photos…`,
       }, { quoted: mek });
 
-      const photos = await searchUnsplash(query, TARGET);
+      const photos = await searchThreeSources(query);
       let sent = 0;
 
       for (const photo of photos) {
@@ -211,8 +255,30 @@ module.exports = {
             image: buf,
             caption:
               `📷 *${photo.title}*\n` +
-              `📸 Photo by ${photo.photographer} on Unsplash\n` +
-              `_\( {photo.w}× \){photo.h} · \( {sent + 1}/ \){photos.length}_`,
+              `📸 ${photo.credit}\n` +
+              `_\( {sent + 1}/ \){photos.length}_`,
           }, { quoted: mek });
           sent++;
-          await new Promise((r) =>
+          await new Promise((r) => setTimeout(r, 600));
+        } catch (e) {
+          console.warn('Skip image:', e.message);
+        }
+      }
+
+      if (sent === 0) {
+        await sock.sendMessage(chatJid, {
+          text: '❌ Found results but downloads failed. Try another search.',
+        }, { quoted: mek });
+      }
+    } catch (err) {
+      console.error('Image search error:', err.message);
+      await sock.sendMessage(chatJid, {
+        text: `❌ Search failed: ${err.message}`,
+      }, { quoted: mek });
+    }
+  },
+
+  img: (args) => module.exports.imagine(args),
+  image: (args) => module.exports.imagine(args),
+  pics: (args) => module.exports.imagine(args),
+};
