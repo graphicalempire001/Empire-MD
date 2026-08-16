@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Lock, RefreshCw, MessageSquare, LayoutGrid, KeyRound, LogOut,
-  Ghost, CheckCircle2, ArrowLeft, Puzzle,
+  Ghost, CheckCircle2, ArrowLeft, Puzzle, Trash2,
 } from 'lucide-react'
 import { COMMANDS, DEFAULT_PREFIX } from '../components/siteChatKnowledge'
 
@@ -23,6 +23,7 @@ interface BotInfo {
 interface ChatSummary {
   chat_jid: string
   last: { sender_name: string | null; body: string | null; from_me: boolean; msg_type: string; created_at: string }
+  unread_count: number
 }
 
 interface Message {
@@ -189,8 +190,29 @@ export default function Dashboard() {
       const res = await fetch(`/api/dashboard/messages?chat=${encodeURIComponent(chatJid)}`, { headers: authHeaders })
       const data = await res.json()
       if (data.success) setMessages(data.messages || [])
+      // Backend marks the chat read as a side effect of fetching messages —
+      // reflect that immediately in the local list without waiting for a reload.
+      setChats((prev) => prev.map((c) => (c.chat_jid === chatJid ? { ...c, unread_count: 0 } : c)))
     } finally {
       setMessagesLoading(false)
+    }
+  }
+
+  const [disposing, setDisposing] = useState(false)
+  const disposeChat = async (chatJid: string) => {
+    setDisposing(true)
+    try {
+      const res = await fetch(`/api/dashboard/chats?chat=${encodeURIComponent(chatJid)}`, {
+        method: 'DELETE', headers: authHeaders,
+      })
+      const data = await res.json()
+      if (data.success) {
+        setChats((prev) => prev.filter((c) => c.chat_jid !== chatJid))
+        setActiveChat(null)
+        setMessages([])
+      }
+    } finally {
+      setDisposing(false)
     }
   }
 
@@ -205,9 +227,9 @@ export default function Dashboard() {
           initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.5 }}
           className="glass-card rounded-3xl p-8 md:p-10 w-full max-w-sm shadow-xl text-center"
         >
-          <div className="mx-auto mb-4 w-20 h-20 flex items-center justify-center">
-  <img src="/robot-mascot.png" alt="Empire MD Bot Mascot" className="w-full h-full object-contain drop-shadow-lg" />
-</div>
+          <div className="mx-auto mb-4 w-14 h-14 rounded-2xl bg-[#00A884]/10 flex items-center justify-center">
+            <Lock className="text-[#00A884]" />
+          </div>
           <h2 className="heading-md text-[#1a1a1a] mb-1">
             {authView === 'login' ? 'Your ' : ''}<span className="text-gradient-green">Dashboard</span>
           </h2>
@@ -356,11 +378,18 @@ export default function Dashboard() {
             <div className="space-y-2">
               {chats.map((c) => (
                 <button key={c.chat_jid} onClick={() => openChat(c.chat_jid)}
-                  className="w-full text-left glass-card rounded-xl p-4 hover:bg-white/60 transition-colors">
-                  <p className="text-sm font-semibold text-[#1a1a1a]">{chatLabel(c.chat_jid)}</p>
-                  <p className="text-xs text-[#8e8e8e] truncate mt-0.5">
-                    {c.last.from_me ? 'You: ' : ''}{c.last.body || `[${c.last.msg_type}]`}
-                  </p>
+                  className="w-full text-left glass-card rounded-xl p-4 hover:bg-white/60 transition-colors flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[#1a1a1a]">{chatLabel(c.chat_jid)}</p>
+                    <p className="text-xs text-[#8e8e8e] truncate mt-0.5">
+                      {c.last.from_me ? 'You: ' : ''}{c.last.body || `[${c.last.msg_type}]`}
+                    </p>
+                  </div>
+                  {c.unread_count > 0 && (
+                    <span className="shrink-0 text-[10px] font-bold text-white bg-[#00A884] rounded-full min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center">
+                      {c.unread_count > 99 ? '99+' : c.unread_count}
+                    </span>
+                  )}
                 </button>
               ))}
               {!chats.length && !chatsLoading && <p className="text-center body-text py-12">No messages logged yet — they'll appear here as your bot receives them.</p>}
@@ -373,7 +402,16 @@ export default function Dashboard() {
             <button onClick={() => setActiveChat(null)} className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] inline-flex items-center gap-1 mb-4">
               <ArrowLeft size={12} /> All chats
             </button>
-            <h3 className="heading-md text-base text-[#1a1a1a] mb-3">{chatLabel(activeChat)}</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="heading-md text-base text-[#1a1a1a]">{chatLabel(activeChat)}</h3>
+              <button
+                onClick={() => { if (confirm('Delete this whole chat history? This can\'t be undone.')) disposeChat(activeChat) }}
+                disabled={disposing}
+                className="text-[10px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 bg-[#e5484d]/10 text-[#e5484d] hover:bg-[#e5484d]/20 transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={12} /> {disposing ? 'Disposing…' : 'Dispose chat'}
+              </button>
+            </div>
             <div className="glass-card rounded-2xl p-4 space-y-3 max-h-[60vh] overflow-y-auto">
               {messagesLoading && <p className="text-center body-text py-6">Loading…</p>}
               {messages.map((m) => (
