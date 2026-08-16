@@ -257,6 +257,25 @@ function spawnBotProcess(sessionId, botName, cleanPhone, mode, _crashInfo = {}) 
 
 // Keep legacy async wrapper so all existing callers (resumeSavedSessions etc.) work unchanged
 async function startSession(sessionId, botName, cleanPhone, mode = 'pair') {
+  // 🔒 Guard EVERY spawn path (pair, QR, reconnect, dashboard-refresh, resume-on-boot)
+  // against launching a second worker while a live process already holds this
+  // session's lock. Two processes sharing one WhatsApp session race on the
+  // Signal encryption ratchet in the session files — corrupting it for
+  // subsequent messages, which is what produces WhatsApp's grey
+  // "Waiting for this message. This may take a while." placeholder on the
+  // receiving end. Previously this check only ran during resumeSavedSessions()
+  // at boot; every other caller (reconnect, pair, dashboard refresh) could
+  // still spawn a duplicate alongside a surviving orphan.
+  if (isSessionLockedByLiveProcess(sessionId)) {
+    console.log(`⏭️ Refusing to start ${sessionId} — a live process already holds its lock.`);
+    const existing = activeSessions[sessionId];
+    if (existing) return existing;
+    // Lock is held by a process this master doesn't know about (e.g. survived
+    // a master restart). Report it as connecting rather than silently no-op,
+    // so callers waiting on activeSessions[sessionId] don't hang forever.
+    activeSessions[sessionId] = activeSessions[sessionId] || { status: 'connecting', lockedByOtherProcess: true };
+    return activeSessions[sessionId];
+  }
   spawnBotProcess(sessionId, botName, cleanPhone, mode);
 }
 
@@ -323,15 +342,9 @@ async function resumeSavedSessions() {
       return;
     }
     for (const sessionId of folders) {
-      // 🔒 Safety check — skip if a live process already holds this session's lock.
-      // This catches the case where the master process was killed/crashed without
-      // getting to SIGTERM its children (e.g. OOM kill, force restart), leaving an
-      // orphaned worker still connected to WhatsApp under this same auth session.
-      // Spawning a second one here would trigger a conflict/replaced disconnect.
-      if (isSessionLockedByLiveProcess(sessionId)) {
-        console.log(`⏭️ Skipping resume for ${sessionId} — a live process already holds its lock.`);
-        continue;
-      }
+      // Note: startSession() itself now guards against a live lock-holder for
+      // EVERY spawn path, so this loop no longer needs its own check — kept
+      // simple here, the real protection lives centrally in startSession().
       console.log(`♻️ Resuming saved session: ${sessionId}`);
       await startSession(sessionId, config.botName || "Empire MD", null, 'pair');
     }
@@ -1000,6 +1013,40 @@ app.post('/api/admin/activate-premium', requireAdmin, async (req, res) => {
   }
 });
 
+// Manual activate BY PHONE (admin only) — the phone-anchored equivalent of the
+// route above. Works even before a bot is paired, matches how coupons and
+// payments already grant premium, and stacks on any remaining time.
+app.post('/api/admin/premium-numbers', requireAdmin, async (req, res) => {
+  try {
+    const { phone, days = 30 } = req.body || {};
+    const cleanPhone = String(phone || '').replace(/[^0-9]/g, '');
+    if (!cleanPhone) return res.status(400).json({ success: false, error: 'phone required' });
+    if (!days || Number(days) <= 0) return res.status(400).json({ success: false, error: 'days must be > 0' });
+    const { activatePremiumByPhone } = require('./lib/database');
+    const result = await activatePremiumByPhone(cleanPhone, Number(days), 'admin-manual');
+    if (!result.ok) return res.status(500).json({ success: false, error: result.error });
+    res.json({ success: true, phone_number: cleanPhone, expires_at: result.expires_at });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Revoke a manually-granted phone premium — does NOT touch whitelist status,
+// those are managed separately via /api/admin/whitelist-phone below.
+app.post('/api/admin/premium-numbers/revoke', requireAdmin, async (req, res) => {
+  try {
+    const { phone } = req.body || {};
+    const cleanPhone = String(phone || '').replace(/[^0-9]/g, '');
+    if (!cleanPhone) return res.status(400).json({ success: false, error: 'phone required' });
+    const { revokePremiumByPhone } = require('./lib/database');
+    const result = await revokePremiumByPhone(cleanPhone);
+    if (!result.ok) return res.status(400).json({ success: false, error: result.error });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // Admin whitelist (by session — legacy, still supported for one-off overrides)
 app.post('/api/admin/whitelist', requireAdmin, async (req, res) => {
   try {
@@ -1197,7 +1244,7 @@ app.post('/api/internal/send-dm', async (req, res) => {
 const {
   verifyDashboardLogin, createDashboardSession, getDashboardSession,
   getBotByName, createOtp, verifyOtp, setDashboardPassword,
-  listChats, listMessages, getBotRegistry
+  listChats, listMessages, disposeChat, getBotRegistry
 } = require('./lib/database');
 
 app.post('/api/dashboard/login', async (req, res) => {
@@ -1332,6 +1379,20 @@ app.get('/api/dashboard/messages', requireDashboardAuth, async (req, res) => {
     if (!chat) return res.status(400).json({ success: false, error: 'chat query param required' });
     const messages = await listMessages(req.dashboardSessionId, chat, 200);
     res.json({ success: true, messages });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Dispose (permanently delete) a chat's logged messages — for once you've
+// read it and don't need it cluttering the list anymore.
+app.delete('/api/dashboard/chats', requireDashboardAuth, async (req, res) => {
+  try {
+    const { chat } = req.query;
+    if (!chat) return res.status(400).json({ success: false, error: 'chat query param required' });
+    const result = await disposeChat(req.dashboardSessionId, chat);
+    if (!result.ok) return res.status(500).json({ success: false, error: result.error });
+    res.json({ success: true });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
