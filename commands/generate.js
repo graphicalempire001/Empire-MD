@@ -1,118 +1,107 @@
-// ─────────────────────────────────────────────
-// Real web photo search (Bing + DuckDuckGo)
-// No AI generation — only public search results
-// ─────────────────────────────────────────────
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const axios = require('axios');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegStatic = require('ffmpeg-static');
+const { EdgeTTS } = require('node-edge-tts');
+const config = require('../config');
 
-const AI_BLOCK = [
-  'pollinations', 'openai', 'midjourney', 'stable-diffusion',
-  'leonardo.ai', 'nightcafe', 'civitai', 'tensor.art',
-  'generated.photos', 'thispersondoesnotexist', 'artbreeder',
-  'lexica.art', 'playgroundai', 'imagine.art'
-];
+if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
 
-function isBlocked(url = '') {
-  const u = url.toLowerCase();
-  return AI_BLOCK.some(b => u.includes(b));
+function toWhatsappVoiceNote(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioCodec('libopus')
+      .audioChannels(1)
+      .audioFrequency(48000)
+      .audioBitrate('64k')
+      .format('ogg')
+      .on('error', reject)
+      .on('end', resolve)
+      .save(outputPath);
+  });
 }
 
-async function searchBingPhotos(query, limit = 20) {
-  const res = await axios.get('https://www.bing.com/images/async', {
+// ✅ Verified Edge TTS voices only
+const VOICES = {
+  ng: 'en-NG-AbeoNeural',
+  ngf: 'en-NG-EzinneNeural',
+  pidgin: 'en-NG-AbeoNeural',
+  pidginf: 'en-NG-EzinneNeural',
+  male: 'en-US-GuyNeural',
+  female: 'en-US-JennyNeural',
+  guy: 'en-US-GuyNeural',
+  jenny: 'en-US-JennyNeural',
+  aria: 'en-US-AriaNeural',
+  ana: 'en-US-AnaNeural',
+  chris: 'en-US-ChristopherNeural',
+  eric: 'en-US-EricNeural',
+  michelle: 'en-US-MichelleNeural',
+  roger: 'en-US-RogerNeural',
+  steffan: 'en-US-SteffanNeural',
+  uk: 'en-GB-RyanNeural',
+  ukf: 'en-GB-SoniaNeural',
+  ryan: 'en-GB-RyanNeural',
+  sonia: 'en-GB-SoniaNeural',
+  libby: 'en-GB-LibbyNeural',
+  thomas: 'en-GB-ThomasNeural',
+  au: 'en-AU-WilliamNeural',
+  auf: 'en-AU-NatashaNeural',
+  in: 'en-IN-PrabhatNeural',
+  inf: 'en-IN-NeerjaNeural',
+  za: 'en-ZA-LukeNeural',
+  zaf: 'en-ZA-LeahNeural',
+  ke: 'en-KE-ChilembaNeural',
+  kef: 'en-KE-AsiliaNeural',
+  ca: 'en-CA-LiamNeural',
+  caf: 'en-CA-ClaraNeural',
+};
+const DEFAULT_VOICE = VOICES.ngf;
+
+function langFromVoice(voice) {
+  const m = voice.match(/^([a-z]{2}-[A-Z]{2})/);
+  return m ? m[1] : 'en-US';
+}
+
+// ─────────────────────────────────────────────
+// Unsplash — real photography
+// ─────────────────────────────────────────────
+const UNSPLASH_KEY =
+  process.env.UNSPLASH_ACCESS_KEY ||
+  config.unsplashKey ||
+  'JPvZUN-pFifioWJQcWb0kaR1VPLW9kxtTkbEs3DVgz4';
+
+async function searchUnsplash(query, limit = 3) {
+  if (!UNSPLASH_KEY) throw new Error('Unsplash Access Key missing');
+
+  const res = await axios.get('https://api.unsplash.com/search/photos', {
     params: {
-      q: query,
-      first: 1,
-      count: 35,
-      mmasync: 1,
-      qft: '+filterui:photo-photo+filterui:imagesize-large', // photos + large
+      query,
+      per_page: limit,
+      orientation: 'landscape',
+      content_filter: 'high',
     },
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
+      Authorization: `Client-ID ${UNSPLASH_KEY}`,
+      'Accept-Version': 'v1',
     },
     timeout: 15000,
   });
 
-  const html = String(res.data);
-  const out = [];
-  const re = /m="({[^"]+})"/g;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    try {
-      const raw = m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-      const obj = JSON.parse(raw);
-      const url = obj.murl || obj.imgurl;
-      const w = parseInt(obj.w || 0, 10);
-      const h = parseInt(obj.h || 0, 10);
-      if (!url || !/^https?:\/\//i.test(url)) continue;
-      if (isBlocked(url) || isBlocked(obj.purl || '')) continue;
-      if (w < 600 || h < 400) continue; // only decent-sized real photos
-      out.push({ url, title: obj.t || query, w, h, source: 'bing' });
-    } catch (_) {}
-  }
-  return out.slice(0, limit);
-}
+  const results = (res.data?.results || [])
+    .map((p) => ({
+      url: p.urls?.regular || p.urls?.full || p.urls?.small,
+      title: p.alt_description || p.description || query,
+      photographer: p.user?.name || 'Unknown',
+      profile: p.user?.links?.html || 'https://unsplash.com',
+      w: p.width,
+      h: p.height,
+    }))
+    .filter((p) => p.url);
 
-async function searchDdgPhotos(query, limit = 15) {
-  try {
-    const home = await axios.get('https://duckduckgo.com/', {
-      params: { q: query },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      },
-      timeout: 12000,
-    });
-    const vqdMatch = String(home.data).match(/vqd=["']([^"']+)["']/i);
-    if (!vqdMatch) return [];
-
-    const imgRes = await axios.get('https://duckduckgo.com/i.js', {
-      params: {
-        l: 'us-en',
-        o: 'json',
-        q: query,
-        vqd: vqdMatch[1],
-        f: ',,,',
-        p: '1',
-      },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        Referer: 'https://duckduckgo.com/',
-      },
-      timeout: 15000,
-    });
-
-    return (imgRes.data?.results || [])
-      .filter(r => r.image && /^https?:\/\//i.test(r.image))
-      .filter(r => !isBlocked(r.image) && !isBlocked(r.url || ''))
-      .filter(r => (r.width || 0) >= 500 && (r.height || 0) >= 350)
-      .slice(0, limit)
-      .map(r => ({
-        url: r.image,
-        title: r.title || query,
-        w: r.width || 0,
-        h: r.height || 0,
-        source: 'ddg',
-      }));
-  } catch {
-    return [];
-  }
-}
-
-async function searchRealPhotos(query) {
-  const [bing, ddg] = await Promise.all([
-    searchBingPhotos(query, 20).catch(() => []),
-    searchDdgPhotos(query, 15).catch(() => []),
-  ]);
-
-  const seen = new Set();
-  const merged = [];
-  for (const item of [...bing, ...ddg]) {
-    if (seen.has(item.url)) continue;
-    seen.add(item.url);
-    merged.push(item);
-  }
-  // prefer larger images first
-  merged.sort((a, b) => (b.w * b.h) - (a.w * a.h));
-  if (!merged.length) throw new Error('No real photos found for that search');
-  return merged;
+  if (!results.length) throw new Error('No Unsplash photos found');
+  return results;
 }
 
 async function downloadImage(url) {
@@ -121,66 +110,109 @@ async function downloadImage(url) {
     timeout: 20000,
     maxContentLength: 15 * 1024 * 1024,
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      Accept: 'image/avif,image/webp,image/*,*/*;q=0.8',
-      Referer: 'https://www.bing.com/',
+      'User-Agent': 'Empire-MD/1.0',
+      Accept: 'image/*,*/*;q=0.8',
     },
-    validateStatus: s => s >= 200 && s < 400,
+    validateStatus: (s) => s >= 200 && s < 400,
   });
   const buf = Buffer.from(res.data);
-  if (buf.length < 8000) throw new Error('file too small');
+  if (buf.length < 3000) throw new Error('image too small');
   return buf;
 }
 
-// Replace the imagine command with this:
-imagine: async ({ sock, chatJid, mek, text }) => {
-  if (!text || !text.trim()) {
-    return sock.sendMessage(chatJid, {
-      text: '❌ Search for *real photos* online.\n\nExample:\n*.imagine lagos skyline*\n*.img messi 2022*\n*.pics abuja national mosque*'
-    }, { quoted: mek });
-  }
+module.exports = {
+  // 🔊 .tts
+  tts: async ({ sock, chatJid, mek, text }) => {
+    if (!text || !text.trim()) {
+      return sock.sendMessage(chatJid, {
+        text:
+          `❌ Give me text to speak!\n\n` +
+          `*Examples:*\n` +
+          `.tts How far, wetin dey happen?\n` +
+          `.tts pidgin | Abeg make we go\n` +
+          `.tts ngf | Good morning o\n` +
+          `.tts male | Hello world\n\n` +
+          `*Voices:* ${Object.keys(VOICES).join(', ')}`,
+      }, { quoted: mek });
+    }
 
-  const query = text.trim().slice(0, 180);
-  const TARGET = 3;
-
-  try {
-    await sock.sendMessage(chatJid, {
-      text: `🔍 Searching the web for real photos: *${query}*\nSending ${TARGET} images…`
-    }, { quoted: mek });
-
-    const candidates = await searchRealPhotos(query);
-    let sent = 0;
-
-    for (const item of candidates) {
-      if (sent >= TARGET) break;
-      try {
-        const buf = await downloadImage(item.url);
-        await sock.sendMessage(chatJid, {
-          image: buf,
-          caption: sent === 0
-            ? `📷 *\( {item.title}*\n_ \){item.w}×${item.h} • real web photo • \( {sent + 1}/ \){TARGET}_`
-            : `📷 \( {sent + 1}/ \){TARGET} • real web photo`
-        }, { quoted: mek });
-        sent++;
-        await new Promise(r => setTimeout(r, 800));
-      } catch (e) {
-        console.warn('Skip image:', e.message);
+    let voice = DEFAULT_VOICE;
+    let spoken = text.trim();
+    const pipeIdx = spoken.indexOf('|');
+    if (pipeIdx > -1) {
+      const key = spoken.slice(0, pipeIdx).trim().toLowerCase();
+      if (VOICES[key]) {
+        voice = VOICES[key];
+        spoken = spoken.slice(pipeIdx + 1).trim();
       }
     }
+    if (!spoken) {
+      return sock.sendMessage(chatJid, { text: '❌ No text after voice code.' }, { quoted: mek });
+    }
+    if (spoken.length > 1200) {
+      return sock.sendMessage(chatJid, { text: '❌ Max 1200 characters.' }, { quoted: mek });
+    }
 
-    if (sent === 0) {
+    const lang = langFromVoice(voice);
+    const tmpFile = path.join(os.tmpdir(), `tts-${Date.now()}.mp3`);
+    const oggFile = tmpFile.replace(/\.mp3$/, '.ogg');
+
+    try {
+      const tts = new EdgeTTS({
+        voice,
+        lang,
+        outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
+        timeout: 20000,
+      });
+      await tts.ttsPromise(spoken, tmpFile);
+      await toWhatsappVoiceNote(tmpFile, oggFile);
+      const buf = fs.readFileSync(oggFile);
       await sock.sendMessage(chatJid, {
-        text: '❌ Found links but none downloaded. Try a more specific search (e.g. “lagos island aerial photo”).'
+        audio: buf,
+        mimetype: 'audio/ogg; codecs=opus',
+        ptt: true,
       }, { quoted: mek });
-    } else if (sent < TARGET) {
+    } catch (err) {
+      console.error('TTS error:', err.message);
       await sock.sendMessage(chatJid, {
-        text: `⚠️ Only ${sent} working real photo(s) for that search.`
+        text: `❌ TTS failed (${voice}): ${err.message}`,
+      }, { quoted: mek });
+    } finally {
+      fs.unlink(tmpFile, () => {});
+      fs.unlink(oggFile, () => {});
+    }
+  },
+
+  // 📷 .imagine / .img / .pics — 3 real Unsplash photos
+  imagine: async ({ sock, chatJid, mek, text }) => {
+    if (!text || !text.trim()) {
+      return sock.sendMessage(chatJid, {
+        text:
+          '❌ Search real photos on Unsplash.\n\n' +
+          'Example:\n*.imagine lagos nigeria*\n*.img football stadium*\n*.pics mountain lake*',
       }, { quoted: mek });
     }
-  } catch (err) {
-    console.error('Image search error:', err.message);
-    await sock.sendMessage(chatJid, {
-      text: `❌ Search failed: ${err.message}`
-    }, { quoted: mek });
-  }
-},
+
+    const query = text.trim().slice(0, 120);
+    const TARGET = 3;
+
+    try {
+      await sock.sendMessage(chatJid, {
+        text: `🔍 Searching Unsplash for: *${query}*\nSending ${TARGET} real photos…`,
+      }, { quoted: mek });
+
+      const photos = await searchUnsplash(query, TARGET);
+      let sent = 0;
+
+      for (const photo of photos) {
+        try {
+          const buf = await downloadImage(photo.url);
+          await sock.sendMessage(chatJid, {
+            image: buf,
+            caption:
+              `📷 *${photo.title}*\n` +
+              `📸 Photo by ${photo.photographer} on Unsplash\n` +
+              `_\( {photo.w}× \){photo.h} · \( {sent + 1}/ \){photos.length}_`,
+          }, { quoted: mek });
+          sent++;
+          await new Promise((r) =>
