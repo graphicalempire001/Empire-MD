@@ -91,6 +91,9 @@ export default function AdminDashboard() {
   const [subLoading, setSubLoading] = useState(false)
   const [whitelistPhone, setWhitelistPhone] = useState('')
   const [whitelistReason, setWhitelistReason] = useState('')
+  const [grantPhone, setGrantPhone] = useState('')
+  const [grantDays, setGrantDays] = useState('30')
+  const [granting, setGranting] = useState(false)
 
   const [vcfFrom, setVcfFrom] = useState('')
   const [vcfTo, setVcfTo] = useState('')
@@ -218,6 +221,8 @@ export default function AdminDashboard() {
     if (tab === 'coupons') loadCoupons()
   }, [authed, tab, loadPayments, loadSubscribers, loadCoupons]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [justCreatedCoupon, setJustCreatedCoupon] = useState<{ code: string; days: number; maxUses: number } | null>(null)
+
   const createCoupon = async () => {
     const days = Number(newCouponDays)
     if (!days || days <= 0) return flash('Enter a valid number of days')
@@ -229,7 +234,7 @@ export default function AdminDashboard() {
       })
       const data = await res.json()
       if (data.success) {
-        flash(`Coupon created: ${data.code}`)
+        setJustCreatedCoupon({ code: data.code, days, maxUses: Number(newCouponUses) || 1 })
         setNewCouponDays('3')
         setNewCouponUses('1')
         setNewCouponNote('')
@@ -279,6 +284,43 @@ export default function AdminDashboard() {
     toggleWhitelist(clean, true, whitelistReason.trim() || 'admin')
     setWhitelistPhone('')
     setWhitelistReason('')
+  }
+
+  const grantPremium = async () => {
+    const clean = grantPhone.replace(/[^0-9]/g, '')
+    if (!clean) return flash('Enter a phone number')
+    const days = Number(grantDays)
+    if (!days || days <= 0) return flash('Enter a valid number of days')
+    setGranting(true)
+    try {
+      const res = await fetch('/api/admin/premium-numbers', {
+        method: 'POST', headers, body: JSON.stringify({ phone: clean, days }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        flash(`Granted ${days}d Premium to ${clean}`)
+        setGrantPhone('')
+        setGrantDays('30')
+        loadSubscribers(subSearch)
+      } else flash(data.error || 'Failed to grant premium')
+    } catch {
+      flash('Failed to grant premium')
+    } finally {
+      setGranting(false)
+    }
+  }
+
+  const revokePremiumNumber = async (phoneNumber: string) => {
+    try {
+      const res = await fetch('/api/admin/premium-numbers/revoke', {
+        method: 'POST', headers, body: JSON.stringify({ phone: phoneNumber }),
+      })
+      const data = await res.json()
+      if (data.success) { flash(`Revoked premium for ${phoneNumber}`); loadSubscribers(subSearch) }
+      else flash(data.error || 'Failed to revoke')
+    } catch {
+      flash('Failed to revoke')
+    }
   }
 
   const fmtDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
@@ -721,6 +763,32 @@ export default function AdminDashboard() {
               <p className="text-[11px] text-[#8e8e8e] mt-2">Grants Premium with no expiry, independent of any session — the number stays Premium across reconnects until removed.</p>
             </div>
 
+            <div className="glass-card rounded-2xl p-5 mb-5">
+              <h3 className="heading-md text-base text-[#1a1a1a] mb-1">Grant premium (with duration)</h3>
+              <p className="text-[11px] text-[#8e8e8e] mb-3">
+                For a fixed number of days instead of forever — same as a coupon, but applied directly. Stacks on any remaining time.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={grantPhone}
+                  onChange={(e) => setGrantPhone(e.target.value)}
+                  placeholder="2348012345678"
+                  className="flex-1 min-w-[160px] bg-white/80 border border-black/[0.06] rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-[#00A884] transition"
+                />
+                <input
+                  type="number" min={1}
+                  value={grantDays}
+                  onChange={(e) => setGrantDays(e.target.value)}
+                  placeholder="Days"
+                  className="w-24 bg-white/80 border border-black/[0.06] rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-[#00A884] transition"
+                />
+                <motion.button whileTap={{ scale: 0.97 }} onClick={grantPremium} disabled={granting}
+                  className="whatsapp-btn px-5 py-2.5 text-sm inline-flex items-center gap-1.5 disabled:opacity-50">
+                  <ShieldPlus size={14} /> {granting ? 'Granting…' : 'Grant'}
+                </motion.button>
+              </div>
+            </div>
+
             <div className="relative mb-4">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e8e8e]" />
               <input
@@ -755,17 +823,27 @@ export default function AdminDashboard() {
                         {s.status && ` · ${s.status}`}
                       </p>
                     </div>
-                    <button
-                      onClick={() => toggleWhitelist(s.phone_number, !s.is_whitelisted)}
-                      className={`text-[10px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 shrink-0 transition-colors ${
-                        s.is_whitelisted
-                          ? 'bg-[#e5484d]/10 text-[#e5484d] hover:bg-[#e5484d]/20'
-                          : 'bg-black/5 text-[#1a1a1a] hover:bg-black/10'
-                      }`}
-                    >
-                      {s.is_whitelisted ? <ShieldMinus size={12} /> : <ShieldPlus size={12} />}
-                      {s.is_whitelisted ? 'Remove whitelist' : 'Whitelist'}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!s.is_whitelisted && activePremium && (
+                        <button
+                          onClick={() => revokePremiumNumber(s.phone_number)}
+                          className="text-[10px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 bg-[#e5484d]/10 text-[#e5484d] hover:bg-[#e5484d]/20 transition-colors"
+                        >
+                          <Ban size={12} /> Revoke premium
+                        </button>
+                      )}
+                      <button
+                        onClick={() => toggleWhitelist(s.phone_number, !s.is_whitelisted)}
+                        className={`text-[10px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-colors ${
+                          s.is_whitelisted
+                            ? 'bg-[#e5484d]/10 text-[#e5484d] hover:bg-[#e5484d]/20'
+                            : 'bg-black/5 text-[#1a1a1a] hover:bg-black/10'
+                        }`}
+                      >
+                        {s.is_whitelisted ? <ShieldMinus size={12} /> : <ShieldPlus size={12} />}
+                        {s.is_whitelisted ? 'Remove whitelist' : 'Whitelist'}
+                      </button>
+                    </div>
                   </div>
                 )
               })}
@@ -779,6 +857,32 @@ export default function AdminDashboard() {
         {/* ---------- COUPONS TAB ---------- */}
         {tab === 'coupons' && (
           <div>
+            {justCreatedCoupon && (
+              <div className="rounded-2xl p-5 mb-5 border-2 border-[#00A884]/30 bg-[#00A884]/[0.06] relative">
+                <button
+                  onClick={() => setJustCreatedCoupon(null)}
+                  className="absolute top-3 right-3 text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors text-xs"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#00A884] mb-2">✅ Coupon created — copy it now</p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="font-mono font-bold text-xl text-[#1a1a1a]">{justCreatedCoupon.code}</span>
+                  <button
+                    onClick={() => copyCoupon(justCreatedCoupon.code)}
+                    className="whatsapp-btn px-4 py-2 text-xs inline-flex items-center gap-1.5"
+                  >
+                    <Copy size={13} /> Copy code
+                  </button>
+                  <span className="text-[11px] text-[#8e8e8e]">
+                    {justCreatedCoupon.days} day{justCreatedCoupon.days === 1 ? '' : 's'} · max {justCreatedCoupon.maxUses} use{justCreatedCoupon.maxUses === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#8e8e8e] mt-2">Share this in WhatsApp — users redeem it with <span className="font-mono">.free {justCreatedCoupon.code}</span></p>
+              </div>
+            )}
+
             <div className="glass-card rounded-2xl p-5 mb-5">
               <h3 className="heading-md text-base text-[#1a1a1a] mb-1">Create a coupon</h3>
               <p className="text-[11px] text-[#8e8e8e] mb-3">
