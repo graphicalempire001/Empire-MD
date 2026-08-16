@@ -7,15 +7,8 @@ const ffmpegStatic = require('ffmpeg-static');
 const { EdgeTTS } = require('node-edge-tts');
 const config = require('../config');
 
-// Use a bundled ffmpeg binary rather than relying on the host having one
-// installed on PATH — Railway's default Node build does NOT install ffmpeg
-// system-wide, which is why ".tts" was failing with "Cannot find ffmpeg".
 if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
 
-// Convert an mp3 file to Ogg/Opus mono 48kHz — the exact format WhatsApp
-// requires for a voice-note (ptt) bubble to actually play. Sending raw MP3
-// with ptt:true uploads fine but shows a broken/unplayable player on the
-// receiving end, which is the bug this fixes.
 function toWhatsappVoiceNote(inputPath, outputPath) {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
@@ -30,25 +23,116 @@ function toWhatsappVoiceNote(inputPath, outputPath) {
   });
 }
 
-// A small, friendly set of voices users can pick with a short code.
-// Full list: https://github.com/SchneeHertz/node-edge-tts (or `edge-tts --list-voices`)
+// ✅ Verified Edge TTS voices only
 const VOICES = {
-  male: 'en-US-GuyNeural',
-  female: 'en-US-JennyNeural',
-  uk: 'en-GB-RyanNeural',
-  ukf: 'en-GB-SoniaNeural',
   ng: 'en-NG-AbeoNeural',
   ngf: 'en-NG-EzinneNeural',
+  pidgin: 'en-NG-AbeoNeural',
+  pidginf: 'en-NG-EzinneNeural',
+  male: 'en-US-GuyNeural',
+  female: 'en-US-JennyNeural',
+  guy: 'en-US-GuyNeural',
+  jenny: 'en-US-JennyNeural',
+  aria: 'en-US-AriaNeural',
+  ana: 'en-US-AnaNeural',
+  chris: 'en-US-ChristopherNeural',
+  eric: 'en-US-EricNeural',
+  michelle: 'en-US-MichelleNeural',
+  roger: 'en-US-RogerNeural',
+  steffan: 'en-US-SteffanNeural',
+  uk: 'en-GB-RyanNeural',
+  ukf: 'en-GB-SoniaNeural',
+  ryan: 'en-GB-RyanNeural',
+  sonia: 'en-GB-SoniaNeural',
+  libby: 'en-GB-LibbyNeural',
+  thomas: 'en-GB-ThomasNeural',
+  au: 'en-AU-WilliamNeural',
+  auf: 'en-AU-NatashaNeural',
+  in: 'en-IN-PrabhatNeural',
+  inf: 'en-IN-NeerjaNeural',
+  za: 'en-ZA-LukeNeural',
+  zaf: 'en-ZA-LeahNeural',
+  ke: 'en-KE-ChilembaNeural',
+  kef: 'en-KE-AsiliaNeural',
+  ca: 'en-CA-LiamNeural',
+  caf: 'en-CA-ClaraNeural',
 };
-const DEFAULT_VOICE = VOICES.female;
+const DEFAULT_VOICE = VOICES.ngf;
+
+function langFromVoice(voice) {
+  const m = voice.match(/^([a-z]{2}-[A-Z]{2})/);
+  return m ? m[1] : 'en-US';
+}
+
+// ─────────────────────────────────────────────
+// Unsplash — real photography
+// ─────────────────────────────────────────────
+const UNSPLASH_KEY =
+  process.env.UNSPLASH_ACCESS_KEY ||
+  config.unsplashKey ||
+  'JPvZUN-pFifioWJQcWb0kaR1VPLW9kxtTkbEs3DVgz4';
+
+async function searchUnsplash(query, limit = 3) {
+  if (!UNSPLASH_KEY) throw new Error('Unsplash Access Key missing');
+
+  const res = await axios.get('https://api.unsplash.com/search/photos', {
+    params: {
+      query,
+      per_page: limit,
+      orientation: 'landscape',
+      content_filter: 'high',
+    },
+    headers: {
+      Authorization: `Client-ID ${UNSPLASH_KEY}`,
+      'Accept-Version': 'v1',
+    },
+    timeout: 15000,
+  });
+
+  const results = (res.data?.results || [])
+    .map((p) => ({
+      url: p.urls?.regular || p.urls?.full || p.urls?.small,
+      title: p.alt_description || p.description || query,
+      photographer: p.user?.name || 'Unknown',
+      profile: p.user?.links?.html || 'https://unsplash.com',
+      w: p.width,
+      h: p.height,
+    }))
+    .filter((p) => p.url);
+
+  if (!results.length) throw new Error('No Unsplash photos found');
+  return results;
+}
+
+async function downloadImage(url) {
+  const res = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 20000,
+    maxContentLength: 15 * 1024 * 1024,
+    headers: {
+      'User-Agent': 'Empire-MD/1.0',
+      Accept: 'image/*,*/*;q=0.8',
+    },
+    validateStatus: (s) => s >= 200 && s < 400,
+  });
+  const buf = Buffer.from(res.data);
+  if (buf.length < 3000) throw new Error('image too small');
+  return buf;
+}
 
 module.exports = {
-  // 🔊 .tts <text>  or  .tts <voice> | <text>
-  // Free command — Microsoft Edge TTS, no API key, no cost.
+  // 🔊 .tts
   tts: async ({ sock, chatJid, mek, text }) => {
     if (!text || !text.trim()) {
       return sock.sendMessage(chatJid, {
-        text: `❌ Give me some text to speak!\n\nExample: *.tts Hello there*\nOr pick a voice: *.tts ng | Bawo ni, how far?*\n\nVoices: ${Object.keys(VOICES).join(', ')}`
+        text:
+          `❌ Give me text to speak!\n\n` +
+          `*Examples:*\n` +
+          `.tts How far, wetin dey happen?\n` +
+          `.tts pidgin | Abeg make we go\n` +
+          `.tts ngf | Good morning o\n` +
+          `.tts male | Hello world\n\n` +
+          `*Voices:* ${Object.keys(VOICES).join(', ')}`,
       }, { quoted: mek });
     }
 
@@ -56,60 +140,79 @@ module.exports = {
     let spoken = text.trim();
     const pipeIdx = spoken.indexOf('|');
     if (pipeIdx > -1) {
-      const maybeVoiceKey = spoken.slice(0, pipeIdx).trim().toLowerCase();
-      if (VOICES[maybeVoiceKey]) {
-        voice = VOICES[maybeVoiceKey];
+      const key = spoken.slice(0, pipeIdx).trim().toLowerCase();
+      if (VOICES[key]) {
+        voice = VOICES[key];
         spoken = spoken.slice(pipeIdx + 1).trim();
       }
     }
     if (!spoken) {
-      return sock.sendMessage(chatJid, { text: "❌ There's no text left to speak after the voice code." }, { quoted: mek });
+      return sock.sendMessage(chatJid, { text: '❌ No text after voice code.' }, { quoted: mek });
     }
     if (spoken.length > 1200) {
-      return sock.sendMessage(chatJid, { text: "❌ That's too long — keep it under 1200 characters." }, { quoted: mek });
+      return sock.sendMessage(chatJid, { text: '❌ Max 1200 characters.' }, { quoted: mek });
     }
 
-    const tmpFile = path.join(os.tmpdir(), `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+    const lang = langFromVoice(voice);
+    const tmpFile = path.join(os.tmpdir(), `tts-${Date.now()}.mp3`);
     const oggFile = tmpFile.replace(/\.mp3$/, '.ogg');
+
     try {
-      const tts = new EdgeTTS({ voice, lang: 'en-US', outputFormat: 'audio-24khz-48kbitrate-mono-mp3', timeout: 15000 });
+      const tts = new EdgeTTS({
+        voice,
+        lang,
+        outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
+        timeout: 20000,
+      });
       await tts.ttsPromise(spoken, tmpFile);
       await toWhatsappVoiceNote(tmpFile, oggFile);
       const buf = fs.readFileSync(oggFile);
       await sock.sendMessage(chatJid, {
         audio: buf,
         mimetype: 'audio/ogg; codecs=opus',
-        ptt: true
+        ptt: true,
       }, { quoted: mek });
     } catch (err) {
       console.error('TTS error:', err.message);
-      await sock.sendMessage(chatJid, { text: `❌ Text-to-speech failed: ${err.message}` }, { quoted: mek });
+      await sock.sendMessage(chatJid, {
+        text: `❌ TTS failed (${voice}): ${err.message}`,
+      }, { quoted: mek });
     } finally {
       fs.unlink(tmpFile, () => {});
       fs.unlink(oggFile, () => {});
     }
   },
 
-  // 🎨 .imagine <prompt>
-  // Free command — Pollinations.ai image generation, no API key, no cost.
+  // 📷 .imagine / .img / .pics — 3 real Unsplash photos
   imagine: async ({ sock, chatJid, mek, text }) => {
     if (!text || !text.trim()) {
-      return sock.sendMessage(chatJid, { text: "❌ Describe what you want to see!\n\nExample: *.imagine a neon lion in a cyberpunk city*" }, { quoted: mek });
+      return sock.sendMessage(chatJid, {
+        text:
+          '❌ Search real photos on Unsplash.\n\n' +
+          'Example:\n*.imagine lagos nigeria*\n*.img football stadium*\n*.pics mountain lake*',
+      }, { quoted: mek });
     }
-    const prompt = text.trim().slice(0, 600);
-    const seed = Math.floor(Math.random() * 1_000_000);
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
+
+    const query = text.trim().slice(0, 120);
+    const TARGET = 3;
 
     try {
-      await sock.sendMessage(chatJid, { text: `🎨 Generating: _${prompt}_ — give it a moment…` }, { quoted: mek });
-      const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
       await sock.sendMessage(chatJid, {
-        image: Buffer.from(res.data),
-        caption: `🎨 *${prompt}*\n_Powered by ${config.botName}_`
+        text: `🔍 Searching Unsplash for: *${query}*\nSending ${TARGET} real photos…`,
       }, { quoted: mek });
-    } catch (err) {
-      console.error('Imagine error:', err.message);
-      await sock.sendMessage(chatJid, { text: `❌ Image generation failed, try again in a moment: ${err.message}` }, { quoted: mek });
-    }
-  },
-};
+
+      const photos = await searchUnsplash(query, TARGET);
+      let sent = 0;
+
+      for (const photo of photos) {
+        try {
+          const buf = await downloadImage(photo.url);
+          await sock.sendMessage(chatJid, {
+            image: buf,
+            caption:
+              `📷 *${photo.title}*\n` +
+              `📸 Photo by ${photo.photographer} on Unsplash\n` +
+              `_\( {photo.w}× \){photo.h} · \( {sent + 1}/ \){photos.length}_`,
+          }, { quoted: mek });
+          sent++;
+          await new Promise((r) =>

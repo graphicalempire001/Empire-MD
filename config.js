@@ -25,6 +25,7 @@ module.exports = {
     premiumDurationDays: 30,
     upgradeLink: process.env.UPGRADE_LINK || "https://empirebot.space/upgrade",
 
+    unsplashKey: process.env.UNSPLASH_ACCESS_KEY || "JPvZUN-pFifioWJQcWb0kaR1VPLW9kxtTkbEs3DVgz4"
     // Inactive session cleanup (saves RAM)
     inactiveKillDays: 3,                // kill process after 3 days of no activity
     inactiveDeleteDays: 14,             // delete session folder after 14 days
