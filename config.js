@@ -20,16 +20,18 @@ module.exports = {
     channelName: "Empire BOT-WAN",
     newsletterJid: "120363213059253232@newsletter",
 
-    // ─── Monetization ───────────────────────────────────────
-    premiumPrice: 1500,                 // NGN per month
-    premiumDurationDays: 30,
-    upgradeLink: process.env.UPGRADE_LINK || "https://empirebot.space/upgrade",
+   // ─── Monetization ───────────────────────────────────────
+premiumPrice: 1500,                 // NGN per month
+premiumDurationDays: 30,
+upgradeLink: process.env.UPGRADE_LINK || "https://empirebot.space/upgrade",
 
-    unsplashKey: process.env.UNSPLASH_ACCESS_KEY || "JPvZUN-pFifioWJQcWb0kaR1VPLW9kxtTkbEs3DVgz4"
-    // Inactive session cleanup (saves RAM)
-    inactiveKillDays: 3,                // kill process after 3 days of no activity
-    inactiveDeleteDays: 14,             // delete session folder after 14 days
+unsplashKey: process.env.UNSPLASH_ACCESS_KEY || "JPvZUN-pFifioWJQcWb0kaR1VPLW9kxtTkbEs3DVgz4",
+pexelsKey: process.env.PEXELS_API_KEY || "",
+pixabayKey: process.env.PIXABAY_API_KEY || "",
 
+// Inactive session cleanup (saves RAM)
+inactiveKillDays: 3,                // kill process after 3 days of no activity
+inactiveDeleteDays: 14,             // delete session folder after 14 days
     settings: {
         autostatusview: true,
         autostatusreact: true,
