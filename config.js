@@ -26,8 +26,8 @@ premiumDurationDays: 30,
 upgradeLink: process.env.UPGRADE_LINK || "https://empirebot.space/upgrade",
 
 unsplashKey: process.env.UNSPLASH_ACCESS_KEY || "JPvZUN-pFifioWJQcWb0kaR1VPLW9kxtTkbEs3DVgz4",
-pexelsKey: process.env.PEXELS_API_KEY || "",
-pixabayKey: process.env.PIXABAY_API_KEY || "",
+pexelsKey: process.env.PEXELS_API_KEY || "78Sa8QT6TlWwWdr55IK8RXpt1GgIyI5bPCngTcUG9xOA7PmSJfGKfxws",
+pixabayKey: process.env.PIXABAY_API_KEY || "57159830-6a3392bc936699a0706216e9e",
 
 // Inactive session cleanup (saves RAM)
 inactiveKillDays: 3,                // kill process after 3 days of no activity
