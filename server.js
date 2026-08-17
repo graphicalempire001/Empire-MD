@@ -816,7 +816,7 @@ app.post('/api/botwan/chat', async (req, res) => {
 
 app.post('/api/payment/initialize', async (req, res) => {
   try {
-    const secret = process.env.FLW_SECRET_KEY
+    const secret = (process.env.FLW_SECRET_KEY || '').trim()
     if (!secret) {
       return res.status(503).json({
         success: false,
@@ -825,15 +825,30 @@ app.post('/api/payment/initialize', async (req, res) => {
     }
 
     const {
-      amount = 1500,
       email = 'user@empirebot.space',
       phone,
       botName,
       plan = 'premium',
       months = 1,
+      currency = 'NGN',
     } = req.body || {}
 
-    const tx_ref = `EMPIRE_\( {Date.now()}_ \){Math.random().toString(36).slice(2, 8).toUpperCase()}`
+    // NEVER trust a client-sent amount — recompute it server-side from
+    // months + currency, same discipline as /api/payment/verify (this
+    // endpoint previously took `amount` directly from req.body with zero
+    // validation, meaning anyone could request whatever price they liked).
+    const { calcPlanPriceFor, isValidCurrency } = require('./lib/premium')
+    const currencyCode = String(currency || 'NGN').toUpperCase()
+    if (!isValidCurrency(currencyCode)) {
+      return res.status(400).json({ success: false, error: `Unsupported currency: ${currencyCode}` })
+    }
+    const tier = calcPlanPriceFor(currencyCode, months)
+
+    // Was previously a corrupted template literal (`\( ... \)` instead of
+    // `${...}`) which meant EVERY payment through this endpoint got the
+    // exact same literal tx_ref string — no unique reference was ever
+    // actually generated. Fixed to real interpolation below.
+    const tx_ref = `EMPIRE_${Date.now()}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`
     const redirectUrl = process.env.FLW_REDIRECT_URL || 'https://empirebot.space/'
 
     const flwRes = await fetch('https://api.flutterwave.com/v3/payments', {
@@ -844,9 +859,13 @@ app.post('/api/payment/initialize', async (req, res) => {
       },
       body: JSON.stringify({
         tx_ref,
-        amount: Number(amount),
-        currency: 'NGN',
+        amount: tier.price,
+        currency: currencyCode,
         redirect_url: redirectUrl,
+        // Bank/mobile-money-first display order, matching the /upgrade page.
+        payment_options: currencyCode === 'NGN'
+          ? 'banktransfer,ussd,card,mobilemoney'
+          : currencyCode === 'GHS' ? 'mobilemoneyghana,card' : 'mobilemoneyfranco,card',
         customer: {
           email,
           phonenumber: phone || undefined,
@@ -854,14 +873,15 @@ app.post('/api/payment/initialize', async (req, res) => {
         },
         customizations: {
           title: 'Empire MD Premium',
-          description: `Premium — ${months} month(s)`,
+          description: `Empire MD WhatsApp bot — Premium subscription, ${tier.months} month${tier.months > 1 ? 's' : ''}`,
           logo: 'https://empirebot.space/robot-mascot.png',
         },
         meta: {
           phone: phone || '',
           botName: botName || '',
           plan,
-          months: Number(months) || 1,
+          months: tier.months,
+          currency: currencyCode,
         },
       }),
     })
