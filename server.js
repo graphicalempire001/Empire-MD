@@ -108,8 +108,32 @@ function isSessionLockedByLiveProcess(sessionId) {
   return false;
 }
 
-// 🚦 EMERGENCY SWITCH
-let pairingPaused = false;
+// 🚦 EMERGENCY SWITCH — persisted to disk so it survives server restarts.
+// Previously this was a plain in-memory variable: every Railway restart
+// (deploy, crash, OOM kill) silently reset it to false, un-pausing pairing
+// without any admin action — this is the "auto reactivates on its own" bug.
+const PAIRING_PAUSE_FILE = path.join(SESSIONS_ROOT, '.pairing-paused');
+
+function loadPairingPaused() {
+  try {
+    return fs.existsSync(PAIRING_PAUSE_FILE);
+  } catch (_) {
+    return false;
+  }
+}
+
+function savePairingPaused(paused) {
+  try {
+    if (!fs.existsSync(SESSIONS_ROOT)) fs.mkdirSync(SESSIONS_ROOT, { recursive: true });
+    if (paused) fs.writeFileSync(PAIRING_PAUSE_FILE, String(Date.now()));
+    else fs.rmSync(PAIRING_PAUSE_FILE, { force: true });
+  } catch (e) {
+    console.error('Failed to persist pairingPaused state:', e.message);
+  }
+}
+
+let pairingPaused = loadPairingPaused();
+console.log(pairingPaused ? '🚦 Pairing starts PAUSED (persisted from a previous session).' : '🚦 Pairing starts active.');
 
 // Reserve threshold: warn/act when the volume is this % full (keep 10% free).
 const RESERVE_PERCENT = 10;
@@ -527,7 +551,8 @@ app.get('/api/admin/status', requireAdmin, (req, res) => {
 
 app.post('/api/admin/pause', requireAdmin, (req, res) => {
   pairingPaused = req.body?.paused === true || req.body?.paused === 'true';
-  console.log(`🚦 Pairing ${pairingPaused ? 'PAUSED (emergency mode)' : 'RESUMED'}`);
+  savePairingPaused(pairingPaused);
+  console.log(`🚦 Pairing ${pairingPaused ? 'PAUSED (emergency mode)' : 'RESUMED'} — persisted to disk.`);
   res.json({ success: true, pairingPaused });
 });
 
