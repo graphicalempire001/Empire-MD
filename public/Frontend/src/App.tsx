@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
@@ -49,6 +49,21 @@ function Landing({
 export default function App() {
   const [pairingOpen, setPairingOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [initialPairPhone, setInitialPairPhone] = useState('')
+
+  // Bridge for "pay -> pair" — the Upgrade page can't reach into this
+  // component's state directly (it's a separate route), so it redirects
+  // here with ?pair=1&phone=... and we pick that up to auto-open the
+  // pairing modal with the number pre-filled, right after a successful
+  // payment for someone who wasn't paired yet.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('pair') === '1') {
+      setInitialPairPhone(params.get('phone') || '')
+      setPairingOpen(true)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
 
   return (
     <BrowserRouter>
@@ -74,7 +89,7 @@ export default function App() {
         <Route path="/plugins" element={<Plugins />} />
       </Routes>
 
-      <PairingFlow open={pairingOpen} onClose={() => setPairingOpen(false)} />
+      <PairingFlow open={pairingOpen} onClose={() => setPairingOpen(false)} initialPhone={initialPairPhone} />
       <WhatsAppChat open={chatOpen} onOpenChange={setChatOpen} />
     </BrowserRouter>
   )
