@@ -17,6 +17,7 @@ import {
 interface PairingFlowProps {
   open: boolean
   onClose: () => void
+  initialPhone?: string
 }
 
 type Step = 1 | 2 | 3
@@ -44,14 +45,18 @@ function formatNaira(n: number) {
   return `₦${n.toLocaleString('en-NG')}`
 }
 
-export default function PairingFlow({ open, onClose }: PairingFlowProps) {
+export default function PairingFlow({ open, onClose, initialPhone }: PairingFlowProps) {
   const [step, setStep] = useState<Step>(1)
   const [pairingFormat, setPairingFormat] = useState<PairingFormat>('code')
   const [plan, setPlan] = useState<Plan>('free')
   const [months, setMonths] = useState<number>(1)
 
   const [botName, setBotName] = useState('')
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState(initialPhone || '')
+
+  useEffect(() => {
+    if (open && initialPhone) setPhone(initialPhone)
+  }, [open, initialPhone])
 
   const [sessionId, setSessionId] = useState('')
   const [pairingCode, setPairingCode] = useState('')
