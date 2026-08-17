@@ -27,7 +27,7 @@ function getSupabase() {
 }
 
 async function verifyWithFlutterwave(transactionId) {
-  const secret = process.env.FLW_SECRET_KEY;
+  const secret = (process.env.FLW_SECRET_KEY || '').trim();
   if (!secret) throw new Error('FLW_SECRET_KEY not configured');
   const res = await fetch(
     `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(transactionId)}/verify`,
