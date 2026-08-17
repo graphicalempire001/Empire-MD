@@ -9,7 +9,7 @@ declare global {
 }
 
 const FLW_SCRIPT_SRC = 'https://checkout.flutterwave.com/v3.js'
-const FLW_PUBLIC_KEY = import.meta.env.VITE_FLW_PUBLIC_KEY as string | undefined
+const FLW_PUBLIC_KEY = (import.meta.env.VITE_FLW_PUBLIC_KEY as string | undefined)?.trim()
 
 function loadFlutterwaveScript(): Promise<void> {
   return new Promise((resolve, reject) => {
