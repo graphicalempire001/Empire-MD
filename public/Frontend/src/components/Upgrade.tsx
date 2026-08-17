@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
-import { PLAN_TIERS, formatNaira, type PlanTier } from '../lib/pricing'
+import { useNavigate, Link } from 'react-router'
+import { CURRENCIES, calcPlanPriceFor, formatCurrency, PLAN_MONTH_OPTIONS, type PlanTier } from '../lib/pricing'
 
 declare global {
   interface Window {
@@ -33,11 +33,15 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'paying' }
   | { kind: 'verifying' }
-  | { kind: 'success'; expiresAt: string; botName?: string; months: number }
+  | { kind: 'success'; expiresAt: string; botName?: string; months: number; paired: boolean }
   | { kind: 'error'; message: string }
 
+type CurrencyCode = keyof typeof CURRENCIES
+
 export default function Upgrade() {
-  const [selected, setSelected] = useState<PlanTier>(PLAN_TIERS[0])
+  const navigate = useNavigate()
+  const [currency, setCurrency] = useState<CurrencyCode>('NGN')
+  const [months, setMonths] = useState<number>(1)
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
@@ -48,6 +52,9 @@ export default function Upgrade() {
       .then(() => setScriptReady(true))
       .catch(() => setStatus({ kind: 'error', message: 'Could not load the payment page. Check your connection and reload.' }))
   }, [])
+
+  const selected: PlanTier = calcPlanPriceFor(currency, months)
+  const cfg = CURRENCIES[currency]
 
   const cleanPhone = phone.replace(/[^0-9]/g, '')
   const phoneValid = cleanPhone.length >= 10 && cleanPhone.length <= 14
@@ -69,7 +76,21 @@ export default function Upgrade() {
       })
       const data = await res.json()
       if (data?.success) {
-        setStatus({ kind: 'success', expiresAt: data.expires_at, botName: data.bot_name, months: data.months })
+        setStatus({
+          kind: 'success',
+          expiresAt: data.expires_at,
+          botName: data.bot_name,
+          months: data.months,
+          paired: !!data.paired,
+        })
+        // Not paired yet — send them straight into the pairing flow instead
+        // of leaving them on a page with nothing left to do. Paired users
+        // stay here and get the "Open Dashboard" link below instead.
+        if (!data.paired) {
+          setTimeout(() => {
+            navigate(`/?pair=1&phone=${encodeURIComponent(cleanPhone)}`)
+          }, 2500)
+        }
       } else {
         setStatus({ kind: 'error', message: data?.error || 'Verification failed. Contact support with your payment reference.' })
       }
@@ -102,13 +123,15 @@ export default function Upgrade() {
       public_key: FLW_PUBLIC_KEY,
       tx_ref,
       amount: selected.price,
-      currency: 'NGN',
-      payment_options: 'card,banktransfer,ussd,mobilemoney',
+      currency: cfg.code,
+      // Order here is DISPLAY order in Flutterwave's checkout modal — bank
+      // transfer / mobile money listed first, card last, per product decision.
+      payment_options: cfg.paymentOptions,
       meta: { months: selected.months, phone: cleanPhone },
       customer: { phone_number: cleanPhone, email: effectiveEmail, name: 'Empire MD Customer' },
       customizations: {
         title: 'Empire MD Premium',
-        description: `${selected.months} month${selected.months > 1 ? 's' : ''} of Premium`,
+        description: `Empire MD WhatsApp bot — Premium subscription, ${selected.months} month${selected.months > 1 ? 's' : ''}`,
         logo: 'https://i.ibb.co/8LMKhwqt/download.jpg',
       },
       callback: (response: { transaction_id?: string | number; status?: string }) => {
@@ -130,30 +153,50 @@ export default function Upgrade() {
         <h1 className="text-3xl md:text-4xl font-bold text-center mb-2">
           Upgrade to <span className="text-[#C6FF3D]">Premium</span>
         </h1>
-        <p className="text-center text-white/60 mb-10">
-          Longer plans cost less per month — the discount compounds the more you commit.
+        <p className="text-center text-white/60 mb-2">
+          Empire MD WhatsApp automation — Premium subscription. Longer plans cost less per month.
         </p>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          {PLAN_TIERS.map((tier) => (
+        {/* Country / currency selector */}
+        <div className="flex items-center justify-center gap-2 mb-8">
+          {(Object.keys(CURRENCIES) as CurrencyCode[]).map((code) => (
             <button
-              key={tier.months}
-              onClick={() => setSelected(tier)}
-              className={`rounded-2xl border p-4 text-left transition ${
-                selected.months === tier.months
-                  ? 'border-[#C6FF3D] bg-[#C6FF3D]/10'
-                  : 'border-white/15 bg-white/5 hover:border-white/30'
+              key={code}
+              onClick={() => setCurrency(code)}
+              className={`text-xs font-semibold px-3.5 py-2 rounded-full border transition ${
+                currency === code
+                  ? 'border-[#C6FF3D] bg-[#C6FF3D]/10 text-[#C6FF3D]'
+                  : 'border-white/15 text-white/60 hover:border-white/30'
               }`}
             >
-              <div className="text-sm text-white/60">
-                {tier.months === 1 ? '1 month' : `${tier.months} months`}
-              </div>
-              <div className="text-xl font-bold mt-1">{formatNaira(tier.price)}</div>
-              {tier.savingsPct > 0 && (
-                <div className="text-xs text-[#FFD23F] mt-1">Save {tier.savingsPct}%</div>
-              )}
+              {CURRENCIES[code].country}
             </button>
           ))}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+          {PLAN_MONTH_OPTIONS.map((m) => {
+            const tier = calcPlanPriceFor(currency, m)
+            return (
+              <button
+                key={m}
+                onClick={() => setMonths(m)}
+                className={`rounded-2xl border p-4 text-left transition ${
+                  months === m
+                    ? 'border-[#C6FF3D] bg-[#C6FF3D]/10'
+                    : 'border-white/15 bg-white/5 hover:border-white/30'
+                }`}
+              >
+                <div className="text-sm text-white/60">
+                  {m === 1 ? '1 month' : `${m} months`}
+                </div>
+                <div className="text-xl font-bold mt-1">{formatCurrency(tier.price, currency)}</div>
+                {tier.savingsPct > 0 && (
+                  <div className="text-xs text-[#FFD23F] mt-1">Save {tier.savingsPct}%</div>
+                )}
+              </button>
+            )
+          })}
         </div>
 
         <div className="rounded-2xl border border-white/15 bg-white/5 p-6 max-w-md mx-auto">
@@ -188,7 +231,7 @@ export default function Upgrade() {
               ? 'Confirming payment…'
               : status.kind === 'paying'
                 ? 'Opening payment page…'
-                : `Pay ${formatNaira(selected.price)}`}
+                : `Pay ${formatCurrency(selected.price, currency)}`}
           </button>
 
           {status.kind === 'success' && (
@@ -198,15 +241,23 @@ export default function Upgrade() {
                 {status.months > 1 ? 's' : ''}, valid until{' '}
                 {new Date(status.expiresAt).toLocaleDateString()}.
               </p>
-              <p className="text-white/70">
-                Check your WhatsApp — we've sent your dashboard login (bot name + password) to your own chat.
-              </p>
-              <Link
-                to="/dashboard"
-                className="inline-block mt-1 rounded-lg bg-[#C6FF3D] text-black text-xs font-semibold px-4 py-2 hover:bg-[#d9ff70] transition-colors"
-              >
-                Open Dashboard →
-              </Link>
+              {status.paired ? (
+                <>
+                  <p className="text-white/70">
+                    Check your WhatsApp — we've sent your dashboard login (bot name + password) to your own chat.
+                  </p>
+                  <Link
+                    to="/dashboard"
+                    className="inline-block mt-1 rounded-lg bg-[#C6FF3D] text-black text-xs font-semibold px-4 py-2 hover:bg-[#d9ff70] transition-colors"
+                  >
+                    Open Dashboard →
+                  </Link>
+                </>
+              ) : (
+                <p className="text-white/70">
+                  You're not paired yet — taking you to pairing now, with Premium already active the moment you connect…
+                </p>
+              )}
             </div>
           )}
           {status.kind === 'error' && (
