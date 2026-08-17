@@ -6,8 +6,9 @@
 //     a client-sent amount — that's how people 1-naira their way to Premium).
 //  2. Verify the transaction with Flutterwave using the SECRET key
 //     (server-side only, never exposed to the browser).
-//  3. Confirm status === 'successful', currency === 'NGN', amount paid >=
-//     expected price.
+//  3. Confirm status === 'successful', currency is one of the supported
+//     currencies (NGN/GHS/XAF), amount paid >= expected price IN THAT
+//     currency (never compare a GHS payment against the NGN price table).
 //  4. Look up the bot registered under that phone number in Supabase.
 //  5. Extend/activate Premium for `months` worth of days, log the payment.
 //
@@ -17,7 +18,7 @@
 //   SUPABASE_KEY        - service_role key (RLS denies anon/auth writes)
 
 import { createClient } from '@supabase/supabase-js';
-import { calcPlanPrice, isValidMonths, PREMIUM_DURATION_DAYS } from '../_shared/pricing.js';
+import { calcPlanPriceFor, isValidMonths, isValidCurrency, PREMIUM_DURATION_DAYS } from '../_shared/pricing.js';
 
 function getSupabase() {
   const url = process.env.SUPABASE_URL;
@@ -64,7 +65,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'transaction_id is required' });
     }
 
-    const expected = calcPlanPrice(months);
 
     // 1. Verify with Flutterwave — source of truth for what was actually paid.
     let txn;
@@ -84,11 +84,18 @@ export default async function handler(req, res) {
         error: `Payment not completed (status: ${txn.status}). If money left your account, it should reverse automatically within a few minutes.`,
       });
     }
-    if (String(txn.currency).toUpperCase() !== 'NGN') {
-      return res.status(400).json({ success: false, error: 'Unexpected currency on transaction' });
+    // Multi-country: validate against whatever currency Flutterwave actually
+    // reports the transaction was paid in (NEVER trust a client-sent currency
+    // — same anti-tampering discipline as the price check below), then
+    // recompute the expected price IN THAT CURRENCY. A GHS or XAF payment is
+    // never compared against the NGN price table.
+    const txnCurrency = String(txn.currency || '').toUpperCase();
+    if (!isValidCurrency(txnCurrency)) {
+      return res.status(400).json({ success: false, error: `Unsupported currency on transaction: ${txnCurrency}` });
     }
-    if (Number(txn.amount) < expected.price) {
-      console.error('[payment/verify] amount mismatch', { paid: txn.amount, expected: expected.price });
+    const expectedForCurrency = calcPlanPriceFor(txnCurrency, months);
+    if (Number(txn.amount) < expectedForCurrency.price) {
+      console.error('[payment/verify] amount mismatch', { currency: txnCurrency, paid: txn.amount, expected: expectedForCurrency.price });
       return res.status(400).json({ success: false, error: 'Amount paid does not match the selected plan' });
     }
 
@@ -125,7 +132,7 @@ export default async function handler(req, res) {
         session_id: null,
         phone_number: cleanPhone,
         amount: txn.amount,
-        currency: 'NGN',
+        currency: txnCurrency,
         provider: 'flutterwave',
         reference: String(transaction_id),
         status: 'success',
@@ -149,6 +156,8 @@ export default async function handler(req, res) {
         expires_at: activation.expires_at,
         months,
         amount_paid: txn.amount,
+        currency: txnCurrency,
+        paired: false,
         note: 'Premium is active on your number — pair your bot now and it will pick this up automatically.',
       });
     }
@@ -185,7 +194,7 @@ export default async function handler(req, res) {
       session_id: bot.session_id,
       phone_number: cleanPhone,
       amount: txn.amount,
-      currency: 'NGN',
+      currency: txnCurrency,
       provider: 'flutterwave',
       reference: String(transaction_id),
       status: 'success',
@@ -230,6 +239,8 @@ export default async function handler(req, res) {
       expires_at: activation.expires_at,
       months,
       amount_paid: txn.amount,
+      currency: txnCurrency,
+      paired: true,
       dashboard_url: '/dashboard',
     });
   } catch (e) {
