@@ -64,7 +64,7 @@ type StatusFilter = 'all' | 'online' | 'offline'
 type Tab = 'bots' | 'payments' | 'subscribers' | 'coupons'
 
 export default function AdminDashboard() {
-  const [key, setKey] = useState('')
+  const [key, setKey] = useState(() => sessionStorage.getItem('empiremd_admin_key') || '')
   const [authed, setAuthed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -145,17 +145,27 @@ export default function AdminDashboard() {
       if (botsData.success) {
         setBots(botsData.bots || [])
         setAuthed(true)
+        sessionStorage.setItem('empiremd_admin_key', key)
       } else {
         setError(botsData.error || 'Failed to load bots')
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Network error.'
       setError(msg)
-      if (msg.includes('Wrong admin password')) setAuthed(false)
+      if (msg.includes('Wrong admin password')) { setAuthed(false); sessionStorage.removeItem('empiremd_admin_key') }
     } finally {
       setLoading(false)
     }
   }, [key, statusFilter])
+
+  // Re-authenticate silently on refresh if a key was saved from a previous
+  // successful login — fixes "refreshing logs me out". Kept in sessionStorage
+  // (cleared when the tab/browser closes) rather than localStorage (persists
+  // indefinitely), so a refresh survives but the key doesn't linger forever
+  // on a shared device.
+  useEffect(() => {
+    if (key) loadAll()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!authed) return
@@ -481,7 +491,7 @@ export default function AdminDashboard() {
 
   /* ---------- DASHBOARD ---------- */
   return (
-    <section className="min-h-screen section-padding py-10 md:py-16" style={{ backgroundColor: '#EDEEF5' }}>
+    <section className="min-h-screen overflow-x-hidden section-padding py-10 md:py-16" style={{ backgroundColor: '#EDEEF5' }}>
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div>
@@ -498,7 +508,7 @@ export default function AdminDashboard() {
               <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
             </motion.button>
             <button
-              onClick={() => { setAuthed(false); setKey(''); setBots([]) }}
+              onClick={() => { setAuthed(false); setKey(''); setBots([]); sessionStorage.removeItem('empiremd_admin_key') }}
               className="glass-card rounded-full px-4 py-2 text-sm text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors"
             >
               Lock
@@ -512,8 +522,9 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-5">
+        {/* Tabs — horizontally scrollable so it never pushes the whole page
+            sideways on narrow phone screens; scrolls within itself instead. */}
+        <div className="flex gap-2 mb-5 overflow-x-auto -mx-1 px-1 pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
           {([
             { id: 'bots' as Tab, label: 'Bots', icon: BotIcon },
             { id: 'payments' as Tab, label: 'Payments', icon: CreditCard },
@@ -523,7 +534,7 @@ export default function AdminDashboard() {
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`text-xs font-semibold px-4 py-2.5 rounded-full inline-flex items-center gap-1.5 transition-colors ${
+              className={`text-xs font-semibold px-4 py-2.5 rounded-full inline-flex items-center gap-1.5 transition-colors shrink-0 ${
                 tab === id ? 'bg-[#1a1a1a] text-white' : 'glass-card text-[#8e8e8e] hover:text-[#1a1a1a]'
               }`}
             >
