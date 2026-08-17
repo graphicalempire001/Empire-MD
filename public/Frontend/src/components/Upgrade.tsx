@@ -39,6 +39,7 @@ type Status =
 export default function Upgrade() {
   const [selected, setSelected] = useState<PlanTier>(PLAN_TIERS[0])
   const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [scriptReady, setScriptReady] = useState(false)
 
@@ -50,6 +51,13 @@ export default function Upgrade() {
 
   const cleanPhone = phone.replace(/[^0-9]/g, '')
   const phoneValid = cleanPhone.length >= 10 && cleanPhone.length <= 14
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  // Flutterwave's checkout requires customer.email — this is a real, required
+  // field on their side, not something we can omit. Since this product is
+  // deliberately phone-first, the input is optional: if the user skips it we
+  // fall back to a syntactically valid placeholder so checkout never breaks,
+  // but a real email means they'll actually get Flutterwave's own receipt.
+  const effectiveEmail = emailValid ? email.trim() : `${cleanPhone || 'customer'}@empirebot.space`
 
   async function verifyPayment(transactionId: string | number) {
     setStatus({ kind: 'verifying' })
@@ -97,7 +105,7 @@ export default function Upgrade() {
       currency: 'NGN',
       payment_options: 'card,banktransfer,ussd,mobilemoney',
       meta: { months: selected.months, phone: cleanPhone },
-      customer: { phone_number: cleanPhone, name: 'Empire MD Customer' },
+      customer: { phone_number: cleanPhone, email: effectiveEmail, name: 'Empire MD Customer' },
       customizations: {
         title: 'Empire MD Premium',
         description: `${selected.months} month${selected.months > 1 ? 's' : ''} of Premium`,
@@ -157,6 +165,17 @@ export default function Upgrade() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="2348012345678"
+            className="w-full rounded-lg bg-black border border-white/20 px-3 py-2 mb-4 outline-none focus:border-[#C6FF3D]"
+          />
+
+          <label className="block text-sm text-white/70 mb-2">
+            Email <span className="text-white/40">(optional — for your payment receipt)</span>
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
             className="w-full rounded-lg bg-black border border-white/20 px-3 py-2 mb-4 outline-none focus:border-[#C6FF3D]"
           />
 
