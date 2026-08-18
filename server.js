@@ -240,7 +240,7 @@ function spawnBotProcess(sessionId, botName, cleanPhone, mode, _crashInfo = {}) 
     if (!s) return;
     if (msg.type === 'pairingCode') s.pairingCode = msg.code;
     if (msg.type === 'qr') s.qr = msg.qr;
-    if (msg.type === 'connected') { s.status = 'connected'; s.qr = null; }
+    if (msg.type === 'connected') { s.status = 'connected'; s.qr = null; s.connectedAt = Date.now(); }
     if (msg.type === 'loggedOut') delete activeSessions[sessionId];
     if (msg.type === 'error') s.error = msg.error;
   });
@@ -1371,17 +1371,38 @@ app.get('/api/dashboard/me', requireDashboardAuth, async (req, res) => {
     const registry = await getBotRegistry(sessionId);
     if (!registry) return res.status(404).json({ success: false, error: 'Bot not found' });
     const live = activeSessions[sessionId];
+    const connected = live?.status === 'connected';
+
+    let premiumRemainingMs = null;
+    const premiumExpiresAt = registry.plan_expires_at || null;
+    if (registry.is_whitelisted) {
+      premiumRemainingMs = null; // unlimited
+    } else if (premiumExpiresAt) {
+      premiumRemainingMs = Math.max(0, new Date(premiumExpiresAt).getTime() - Date.now());
+    }
+
+    const disk = typeof getDiskStatus === 'function' ? getDiskStatus() : null;
+    const ram = typeof getRamStatus === 'function' ? getRamStatus() : null;
+
     res.json({
       success: true,
       bot: {
         session_id: sessionId,
         bot_name: registry.bot_name,
         phone_number: registry.phone_number,
-        status: live?.status === 'connected' ? 'online' : (registry.status || 'offline'),
+        status: connected ? 'online' : (registry.status || 'offline'),
         plan: registry.plan,
-        plan_expires_at: registry.plan_expires_at,
-        is_whitelisted: registry.is_whitelisted,
+        plan_expires_at: premiumExpiresAt,
+        is_whitelisted: !!registry.is_whitelisted,
         ghost_mode: !!registry.settings?.ghostMode,
+        health: connected ? 'healthy' : 'offline',
+        uptime_ms: live?.connectedAt ? (Date.now() - live.connectedAt) : null,
+        started_at: live?.connectedAt ? new Date(live.connectedAt).toISOString() : null,
+        capacity: {
+          disk_use_percent: disk?.usePercent ?? null,
+          ram_use_percent: ram?.usePercent ?? null,
+        },
+        premium_remaining_ms: premiumRemainingMs,
       }
     });
   } catch (e) {
@@ -1441,6 +1462,74 @@ app.delete('/api/dashboard/chats', requireDashboardAuth, async (req, res) => {
     const result = await disposeChat(req.dashboardSessionId, chat);
     if (!result.ok) return res.status(500).json({ success: false, error: result.error });
     res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Dashboard: reply to a chat (blue-ticks WhatsApp only after send) ──
+app.post('/api/dashboard/reply', requireDashboardAuth, async (req, res) => {
+  try {
+    const sessionId = req.dashboardSessionId;
+    const { chatJid, text } = req.body || {};
+    const cleanText = String(text || '').trim();
+    if (!chatJid || !cleanText) {
+      return res.status(400).json({ success: false, error: 'chatJid and text required' });
+    }
+    if (cleanText.length > 4000) {
+      return res.status(400).json({ success: false, error: 'Message too long' });
+    }
+
+    const live = activeSessions[sessionId];
+    if (!live?.process || live.status !== 'connected') {
+      return res.status(503).json({ success: false, error: 'Bot is offline — refresh/reconnect first.' });
+    }
+
+    live.process.send({ type: 'sendReply', chatJid, text: cleanText });
+
+    // Clear dashboard unread counters after a real reply
+    try {
+      const { markChatReadDashboard } = require('./lib/database');
+      await markChatReadDashboard(sessionId, chatJid);
+    } catch (_) {}
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Dashboard: restart this bot process only ─────────────────────────
+// Does NOT delete session files — only kills the worker and respawns it.
+app.post('/api/dashboard/restart', requireDashboardAuth, async (req, res) => {
+  try {
+    const sessionId = req.dashboardSessionId;
+    const registry = await getBotRegistry(sessionId);
+    if (!registry) return res.status(404).json({ success: false, error: 'Bot not found' });
+
+    // Soft kill: stop process + clear in-memory state, keep auth folder
+    const live = activeSessions[sessionId];
+    if (live?.process) {
+      try { live.process.kill('SIGTERM'); } catch (_) {}
+    }
+    delete activeSessions[sessionId];
+    try { removeLock(sessionId); } catch (_) {}
+
+    await startSession(sessionId, registry.bot_name, registry.phone_number, 'pair');
+
+    const started = Date.now();
+    while (Date.now() - started < 15000) {
+      const s = activeSessions[sessionId];
+      if (s?.status === 'connected') {
+        return res.json({ success: true, status: 'online' });
+      }
+      if (s?.pairingCode) {
+        return res.json({ success: true, status: 'pairing', code: s.pairingCode });
+      }
+      if (s?.error) return res.status(500).json({ success: false, error: s.error });
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return res.json({ success: true, status: 'starting' });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
