@@ -1,6 +1,6 @@
 /**
- * Empire MD — Business tools (styled PDF invoices, OCR, Word, bank, away)
- * npm i pdfkit docx form-data
+ * Empire MD — Business tools (styled PDF invoices, OCR, Word, Excel, bank, away)
+ * npm i pdfkit docx exceljs form-data
  * OCR_API_KEY in .env (optional; demo key works with limits)
  */
 const axios = require('axios');
@@ -122,6 +122,81 @@ async function makeDocxBuffer(title, bodyText, settings) {
   });
   const doc = new Document({ sections: [{ properties: {}, children }] });
   return Buffer.from(await Packer.toBuffer(doc));
+}
+
+/** Build .xlsx from array of plain objects */
+async function makeXlsxBuffer({ title, rows, sheetName = 'Sheet1', settings }) {
+  let ExcelJS;
+  try {
+    ExcelJS = require('exceljs');
+  } catch (_) {
+    return null;
+  }
+  const h = getHeader(settings || {});
+  const wb = new ExcelJS.Workbook();
+  wb.creator = h.title || 'Empire MD';
+  wb.created = new Date();
+  const ws = wb.addWorksheet(String(sheetName || 'Sheet1').slice(0, 31));
+
+  const cols = rows.length ? Object.keys(rows[0]) : ['A', 'B', 'C'];
+
+  ws.addRow([h.title || title || 'Empire MD']);
+  ws.getRow(1).font = { bold: true, size: 14 };
+  if (h.subtitle) {
+    ws.addRow([h.subtitle]);
+    ws.getRow(2).font = { italic: true, color: { argb: 'FF64748B' } };
+  }
+  ws.addRow([]);
+
+  const headerRow = ws.addRow(cols.map((c) => String(c).toUpperCase()));
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF0F766E' },
+  };
+
+  for (const r of rows) {
+    ws.addRow(cols.map((c) => (r[c] != null ? r[c] : '')));
+  }
+
+  cols.forEach((_, i) => {
+    ws.getColumn(i + 1).width = 18;
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+/**
+ * Parse spreadsheet lines:
+ *   Item | qty | price ; Item2 | qty | price  → Item/Qty/Price/Subtotal
+ *   Name | value | note ; ...                 → Name/Value/Note
+ */
+function parseExcelRows(text) {
+  const lines = String(text || '').split(';').map((l) => l.trim()).filter(Boolean);
+  const rows = [];
+  for (const line of lines) {
+    const p = line.split('|').map((x) => x.trim());
+    if (!p[0]) continue;
+    if (p.length >= 3 && !Number.isNaN(Number(String(p[1]).replace(/,/g, '')))) {
+      const qty = Number(String(p[1]).replace(/,/g, '')) || 1;
+      const price = Number(String(p[2]).replace(/,/g, '')) || 0;
+      rows.push({
+        Item: p[0],
+        Qty: qty,
+        Price: price,
+        Subtotal: qty * price,
+      });
+    } else {
+      rows.push({
+        Name: p[0] || '',
+        Value: p[1] || '',
+        Note: p[2] || '',
+      });
+    }
+  }
+  return rows;
 }
 
 async function downloadQuotedImage(mek) {
@@ -280,7 +355,7 @@ module.exports = {
     };
     await persist(sock, s, { docHeader });
     return sock.sendMessage(chatJid, {
-      text: `✅ Header saved for invoices / PDF / Word.\n*${docHeader.title}*`
+      text: `✅ Header saved for invoices / PDF / Word / Excel.\n*${docHeader.title}*`
     }, { quoted: mek });
   },
 
@@ -440,5 +515,54 @@ module.exports = {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   },
   word: async (a) => module.exports.doc(a),
-  docx: async (a) => module.exports.doc(a)
+  docx: async (a) => module.exports.doc(a),
+
+  // ── Excel (.xlsx) ────────────────────────────────────────────────
+  // .excel Item | qty | price ; Item2 | qty | price
+  // .excel Name | value | note ; ...
+  excel: async ({ sock, chatJid, mek, text, settings }) => {
+    const s = settings || sock.botSettings || {};
+    const arg = (text || '').trim();
+    if (!arg) {
+      return sock.sendMessage(chatJid, {
+        text:
+          `📊 *Excel*\n` +
+          `*.excel Item | qty | price ; Item2 | qty | price*\n` +
+          `*.excel Name | value | note ; Name2 | value2*\n\n` +
+          `Aliases: *.xlsx* *.sheet*\n` +
+          `Uses your *.header* brand on the sheet title.`,
+      }, { quoted: mek });
+    }
+
+    const rows = parseExcelRows(arg);
+    if (!rows.length) {
+      return sock.sendMessage(chatJid, {
+        text: '❌ Use: *Name | value* or *Item | qty | price* (separate rows with `;`)',
+      }, { quoted: mek });
+    }
+
+    const buf = await makeXlsxBuffer({
+      title: 'Export',
+      rows,
+      sheetName: 'Data',
+      settings: s,
+    });
+
+    if (!buf) {
+      return sock.sendMessage(chatJid, {
+        text: '❌ Run: `npm install exceljs` then restart the bot.',
+      }, { quoted: mek });
+    }
+
+    await sendDoc(
+      sock,
+      chatJid,
+      mek,
+      buf,
+      `export-${Date.now()}.xlsx`,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+  },
+  xlsx: async (a) => module.exports.excel(a),
+  sheet: async (a) => module.exports.excel(a),
 };
