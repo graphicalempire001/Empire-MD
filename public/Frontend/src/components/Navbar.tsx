@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 const navLinks = [
   { label: 'features', to: '/#features' },
   { label: 'pricing', to: '/#pricing' },
+  { label: 'class', to: '/class' },
   { label: 'commands', to: '/help' },
   { label: 'support', to: '/#support' },
   { label: 'reconnect', to: '/reconnect' },
@@ -21,14 +22,16 @@ export default function Navbar() {
         <div className="grid grid-cols-12 items-center gap-4">
           {/* Logo */}
           <div className="col-span-6 md:col-span-3 flex items-center gap-2">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="shrink-0">
-              <path d="M14 2C8.477 2 4 6.477 4 12c0 2.755 1.056 5.263 2.786 7.143L6 26l6.5-2.5C13.62 23.814 14.297 24 15 24c5.523 0 10-4.477 10-10S20.523 4 15 4" fill="#1a1a1a"/>
-              <circle cx="14" cy="12" r="8" fill="#1a1a1a"/>
-              <circle cx="14" cy="12" r="3" fill="#9fff00"/>
-            </svg>
-            <span className="font-display font-bold text-lg tracking-tight text-[#1a1a1a]">
-              Empire<span className="text-[#00A884]">MD</span>
-            </span>
+            <Link to="/" className="flex items-center gap-2">
+              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="shrink-0">
+                <path d="M14 2C8.477 2 4 6.477 4 12c0 2.755 1.056 5.263 2.786 7.143L6 26l6.5-2.5C13.62 23.814 14.297 24 15 24c5.523 0 10-4.477 10-10S20.523 4 15 4" fill="#1a1a1a"/>
+                <circle cx="14" cy="12" r="8" fill="#1a1a1a"/>
+                <circle cx="14" cy="12" r="3" fill="#9fff00"/>
+              </svg>
+              <span className="font-display font-bold text-lg tracking-tight text-[#1a1a1a]">
+                Empire<span className="text-[#00A884]">MD</span>
+              </span>
+            </Link>
           </div>
 
           {/* Desktop Nav Links */}
@@ -37,7 +40,11 @@ export default function Navbar() {
               <Link
                 key={link.label}
                 to={link.to}
-                className="text-xs font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase tracking-wide"
+                className={`text-xs font-medium transition-colors lowercase tracking-wide ${
+                  link.label === 'class'
+                    ? 'text-[#00A884] hover:text-[#008f72] font-semibold'
+                    : 'text-[#8e8e8e] hover:text-[#1a1a1a]'
+                }`}
               >
                 {link.label}
               </Link>
@@ -109,7 +116,11 @@ export default function Navbar() {
                   key={link.label}
                   to={link.to}
                   onClick={() => setMobileOpen(false)}
-                  className="block text-sm font-medium text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors lowercase"
+                  className={`block text-sm font-medium transition-colors lowercase ${
+                    link.label === 'class'
+                      ? 'text-[#00A884] font-semibold'
+                      : 'text-[#8e8e8e] hover:text-[#1a1a1a]'
+                  }`}
                 >
                   {link.label}
                 </Link>
