@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router'
+import { motion, AnimatePresence } from 'framer-motion'
 
 declare global {
   interface Window {
@@ -10,7 +11,6 @@ declare global {
 const FLW_SCRIPT_SRC = 'https://checkout.flutterwave.com/v3.js'
 const FLW_PUBLIC_KEY = (import.meta.env.VITE_FLW_PUBLIC_KEY as string | undefined)?.trim()
 
-// Class price (fixed, not subscription)
 const CLASS_PRICES = {
   NGN: { code: 'NGN', country: 'Nigeria', symbol: '₦', amount: 1000, paymentOptions: 'banktransfer,ussd,card,mobilemoney' },
   GHS: { code: 'GHS', country: 'Ghana', symbol: 'GH₵', amount: 10, paymentOptions: 'mobilemoneyghana,card' },
@@ -21,7 +21,7 @@ type CurrencyCode = keyof typeof CLASS_PRICES
 
 const TARGET_DATE = new Date('2026-08-20T20:00:00+01:00') // 8pm WAT
 const WHATSAPP_NUMBER = '2348142646848'
-const POLL_VOTES = 137 // "over 130"
+const POLL_VOTES = 137
 
 function loadFlutterwaveScript(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -48,12 +48,13 @@ function generateSerial(): string {
   return `${prefix}-${ts}-${rand}`
 }
 
+/* ---------- Countdown ---------- */
 function Countdown() {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 })
 
   useEffect(() => {
     const tick = () => {
-      const now = new Date().getTime()
+      const now = Date.now()
       const distance = TARGET_DATE.getTime() - now
       if (distance <= 0) {
         setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 })
@@ -79,25 +80,29 @@ function Countdown() {
   ]
 
   return (
-    <div className="flex justify-center gap-3 sm:gap-4 md:gap-6">
-      {units.map((u) => (
-        <div
+    <div className="flex justify-center gap-3 sm:gap-4">
+      {units.map((u, i) => (
+        <motion.div
           key={u.label}
-          className="relative flex flex-col items-center justify-center w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-2xl bg-black/80 border border-[#9fff00]/30 shadow-[0_0_30px_rgba(159,255,0,0.15)] overflow-hidden"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 + i * 0.08, type: 'spring', stiffness: 120 }}
+          className="relative flex flex-col items-center justify-center w-[68px] h-[72px] sm:w-20 sm:h-[84px] rounded-2xl bg-white border border-black/[0.06] shadow-sm overflow-hidden"
         >
-          <div className="absolute inset-0 bg-gradient-to-b from-[#9fff00]/10 to-transparent pointer-events-none" />
-          <span className="font-display text-2xl sm:text-3xl md:text-4xl font-bold text-[#9fff00] tabular-nums leading-none">
+          <div className="absolute inset-0 bg-gradient-to-b from-[#9fff00]/8 to-transparent pointer-events-none" />
+          <span className="font-display text-2xl sm:text-3xl font-bold text-[#1a1a1a] tabular-nums leading-none">
             {String(u.value).padStart(2, '0')}
           </span>
-          <span className="text-[10px] sm:text-xs uppercase tracking-widest text-white/50 mt-1">
+          <span className="text-[10px] sm:text-[11px] uppercase tracking-widest text-[#8e8e8e] mt-1.5">
             {u.label}
           </span>
-        </div>
+        </motion.div>
       ))}
     </div>
   )
 }
 
+/* ---------- Animated Poll ---------- */
 function AnimatedPoll() {
   const [displayVotes, setDisplayVotes] = useState(0)
   const [barWidth, setBarWidth] = useState(0)
@@ -109,7 +114,7 @@ function AnimatedPoll() {
       const progress = Math.min((now - start) / duration, 1)
       const ease = 1 - Math.pow(1 - progress, 3)
       setDisplayVotes(Math.floor(ease * POLL_VOTES))
-      setBarWidth(ease * 92) // 92% visual fill
+      setBarWidth(ease * 92)
       if (progress < 1) requestAnimationFrame(animate)
     }
     const id = requestAnimationFrame(animate)
@@ -117,64 +122,91 @@ function AnimatedPoll() {
   }, [])
 
   return (
-    <div className="w-full max-w-md mx-auto">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium text-white/80">WhatsApp Class</span>
-        <span className="text-sm font-bold text-[#9fff00] tabular-nums">{displayVotes}+ votes</span>
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.35 }}
+      className="w-full max-w-md mx-auto"
+    >
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-sm font-medium text-[#5a5a5a]">WhatsApp Class</span>
+        <span className="text-sm font-bold text-[#00A884] tabular-nums">{displayVotes}+ votes</span>
       </div>
-      <div className="h-3 rounded-full bg-white/10 overflow-hidden">
+      <div className="h-2.5 rounded-full bg-black/[0.06] overflow-hidden">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-[#00A884] to-[#9fff00] transition-all duration-75 ease-out relative"
-          style={{ width: `${barWidth}%` }}
+          className="h-full rounded-full bg-gradient-to-r from-[#00A884] to-[#9fff00] relative"
+          style={{ width: `${barWidth}%`, transition: 'width 50ms linear' }}
         >
-          <div className="absolute inset-0 bg-white/20 animate-pulse" />
+          <div className="absolute inset-0 bg-white/25 animate-pulse" />
         </div>
       </div>
-      <p className="text-xs text-white/40 mt-2 text-center">
+      <p className="text-xs text-[#8e8e8e] mt-2.5 text-center">
         Over 130 people already chose WhatsApp for the class
       </p>
-    </div>
+    </motion.div>
   )
 }
 
-function ThumbprintButton({ onClick }: { onClick: () => void }) {
+/* ---------- Modern Fingerprint Button ---------- */
+function FingerprintButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
+    <motion.button
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay: 0.45, type: 'spring', stiffness: 140 }}
+      whileHover={{ scale: 1.04 }}
+      whileTap={{ scale: 0.97 }}
       onClick={onClick}
-      className="group relative flex flex-col items-center gap-3 focus:outline-none"
-      aria-label="Join the class now"
+      className="group relative flex flex-col items-center gap-4 focus:outline-none"
+      aria-label="Tap to join class"
     >
-      <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-[#9fff00]/20 to-[#00A884]/10 border-2 border-[#9fff00]/50 flex items-center justify-center transition-all duration-300 group-hover:scale-105 group-hover:border-[#9fff00] group-hover:shadow-[0_0_40px_rgba(159,255,0,0.35)]">
-        {/* Fingerprint SVG */}
+      <div className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-white border-2 border-[#00A884]/25 shadow-[0_8px_40px_rgba(0,168,132,0.12)] flex items-center justify-center transition-all duration-300 group-hover:border-[#00A884] group-hover:shadow-[0_12px_48px_rgba(0,168,132,0.22)]">
+        {/* Modern fingerprint lines */}
         <svg
-          viewBox="0 0 64 64"
-          className="w-16 h-16 sm:w-20 sm:h-20 text-[#9fff00] opacity-90 group-hover:opacity-100 transition-opacity"
+          viewBox="0 0 80 80"
+          className="w-20 h-20 sm:w-[88px] sm:h-[88px] text-[#00A884] opacity-90 group-hover:opacity-100 transition-opacity"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.8"
+          strokeWidth="1.6"
           strokeLinecap="round"
         >
-          <path d="M32 8c-8 0-14 6-14 14v8c0 2 1 4 2 5" />
-          <path d="M32 8c8 0 14 6 14 14v6c0 3-1 5-3 7" />
-          <path d="M20 30c0 8 4 14 10 18" />
-          <path d="M44 28c0 10-6 18-14 22" />
-          <path d="M24 38c2 6 6 10 10 12" />
-          <path d="M40 36c-2 7-6 12-12 14" />
-          <path d="M28 46c2 3 4 5 6 6" />
-          <path d="M36 44c-1 3-3 5-6 6" />
-          <circle cx="32" cy="32" r="3" fill="currentColor" opacity="0.6" />
+          {/* Outer arcs */}
+          <path d="M28 18c-9 4-15 13-15 23 0 6 2 12 5 16" />
+          <path d="M52 18c9 4 15 13 15 23 0 6-2 12-5 16" />
+          {/* Mid arcs */}
+          <path d="M32 22c-6 4-10 11-10 19 0 5 1.5 10 4 14" />
+          <path d="M48 22c6 4 10 11 10 19 0 5-1.5 10-4 14" />
+          {/* Inner arcs */}
+          <path d="M36 28c-3.5 3-5.5 8-5.5 13.5 0 4 1 7.5 2.5 10.5" />
+          <path d="M44 28c3.5 3 5.5 8 5.5 13.5 0 4-1 7.5-2.5 10.5" />
+          {/* Center swirl */}
+          <path d="M40 34c-2 2-3 5-3 8.5 0 3 1 5.5 2 7.5" />
+          <path d="M40 34c2 2 3 5 3 8.5 0 3-1 5.5-2 7.5" />
+          {/* Core */}
+          <circle cx="40" cy="42" r="2.2" fill="currentColor" opacity="0.7" />
+          {/* Extra detail lines */}
+          <path d="M24 32c-3 5-4 11-2 17" opacity="0.5" />
+          <path d="M56 32c3 5 4 11 2 17" opacity="0.5" />
+          <path d="M30 48c2 4 5 7 10 8" opacity="0.45" />
+          <path d="M50 48c-2 4-5 7-10 8" opacity="0.45" />
         </svg>
-        {/* Pulse rings */}
-        <span className="absolute inset-0 rounded-full border border-[#9fff00]/40 animate-ping opacity-30" />
-        <span className="absolute inset-[-6px] rounded-full border border-[#9fff00]/20 animate-pulse" />
+
+        {/* Soft pulse rings */}
+        <span className="absolute inset-0 rounded-full border border-[#00A884]/30 animate-ping opacity-20" />
+        <span className="absolute inset-[-8px] rounded-full border border-[#00A884]/15 group-hover:border-[#00A884]/30 transition-colors" />
       </div>
-      <span className="text-sm font-semibold text-[#9fff00] tracking-wide group-hover:text-white transition-colors">
-        Join the class now
-      </span>
-    </button>
+
+      <div className="text-center">
+        <span className="block text-sm font-semibold text-[#1a1a1a] tracking-wide group-hover:text-[#00A884] transition-colors">
+          Tap to join class
+        </span>
+        <span className="block text-[11px] text-[#8e8e8e] mt-0.5">Secure · Instant access</span>
+      </div>
+    </motion.button>
   )
 }
 
+/* ---------- Confetti ---------- */
 function Confetti({ active }: { active: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -188,26 +220,23 @@ function Confetti({ active }: { active: boolean }) {
     canvas.height = window.innerHeight
 
     const particles: {
-      x: number
-      y: number
-      vx: number
-      vy: number
-      color: string
-      size: number
-      life: number
+      x: number; y: number; vx: number; vy: number
+      color: string; size: number; life: number; rot: number; vr: number
     }[] = []
 
-    const colors = ['#9fff00', '#00A884', '#FFD23F', '#ffffff', '#C6FF3D']
+    const colors = ['#9fff00', '#00A884', '#FFD23F', '#1a1a1a', '#C6FF3D']
 
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 140; i++) {
       particles.push({
         x: Math.random() * canvas.width,
-        y: -20 - Math.random() * 100,
-        vx: (Math.random() - 0.5) * 8,
-        vy: 2 + Math.random() * 6,
+        y: -30 - Math.random() * 120,
+        vx: (Math.random() - 0.5) * 7,
+        vy: 2.5 + Math.random() * 5,
         color: colors[Math.floor(Math.random() * colors.length)],
-        size: 4 + Math.random() * 6,
+        size: 5 + Math.random() * 7,
         life: 1,
+        rot: Math.random() * 360,
+        vr: (Math.random() - 0.5) * 8,
       })
     }
 
@@ -220,13 +249,17 @@ function Confetti({ active }: { active: boolean }) {
         alive = true
         p.x += p.vx
         p.y += p.vy
-        p.vy += 0.12
-        p.life -= 0.008
+        p.vy += 0.11
+        p.rot += p.vr
+        p.life -= 0.007
+        ctx.save()
         ctx.globalAlpha = Math.max(0, p.life)
+        ctx.translate(p.x, p.y)
+        ctx.rotate((p.rot * Math.PI) / 180)
         ctx.fillStyle = p.color
-        ctx.fillRect(p.x, p.y, p.size, p.size * 0.6)
+        ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size * 0.55)
+        ctx.restore()
       }
-      ctx.globalAlpha = 1
       if (alive) frame = requestAnimationFrame(animate)
     }
     frame = requestAnimationFrame(animate)
@@ -241,6 +274,13 @@ function Confetti({ active }: { active: boolean }) {
       style={{ width: '100%', height: '100%' }}
     />
   )
+}
+
+/* ---------- Modal content variants with phase animation ---------- */
+const phase = {
+  initial: { opacity: 0, y: 18, scale: 0.97 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: -14, scale: 0.97 },
 }
 
 type ModalState =
@@ -268,7 +308,6 @@ export default function ClassPage() {
       .catch(() => setErrorMsg('Could not load payment. Check connection.'))
   }, [])
 
-  // Miss countdown
   useEffect(() => {
     if (modal !== 'miss-countdown') return
     setMissSeconds(3)
@@ -286,7 +325,6 @@ export default function ClassPage() {
     return () => clearInterval(id)
   }, [modal])
 
-  // Success redirect countdown
   useEffect(() => {
     if (modal !== 'success') return
     setRedirectSeconds(5)
@@ -356,302 +394,377 @@ export default function ClassPage() {
   }, [currency, scriptReady])
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full bg-[#9fff00]/[0.07] blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-[400px] h-[400px] rounded-full bg-[#00A884]/[0.06] blur-[100px] pointer-events-none" />
+    <div className="min-h-screen bg-[#EDEEF5] text-[#1a1a1a] relative overflow-hidden">
+      {/* Soft ambient glow */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[500px] rounded-full bg-[#9fff00]/[0.06] blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-20 right-0 w-[320px] h-[320px] rounded-full bg-[#00A884]/[0.05] blur-[80px] pointer-events-none" />
 
       <Confetti active={showConfetti} />
 
       {/* Header */}
       <header className="relative z-10 flex items-center justify-between px-6 py-5 max-w-5xl mx-auto">
-        <Link to="/" className="font-display font-bold text-lg tracking-tight text-white/90 hover:text-[#9fff00] transition">
-          Empire MD
+        <Link
+          to="/"
+          className="flex items-center gap-2 font-display font-bold text-lg tracking-tight text-[#1a1a1a] hover:opacity-80 transition"
+        >
+          <svg width="24" height="24" viewBox="0 0 28 28" fill="none" className="shrink-0">
+            <circle cx="14" cy="14" r="10" fill="#1a1a1a" />
+            <circle cx="14" cy="14" r="3" fill="#9fff00" />
+          </svg>
+          Empire<span className="text-[#00A884]">MD</span>
         </Link>
-        <span className="text-xs uppercase tracking-widest text-white/40">Official Class</span>
+        <span className="text-[11px] uppercase tracking-widest text-[#8e8e8e]">Official Class</span>
       </header>
 
-      <main className="relative z-10 max-w-3xl mx-auto px-6 pb-20 pt-6">
-        {/* Title */}
-        <div className="text-center mb-10">
-          <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#9fff00]/15 text-[#9fff00] text-[11px] font-bold uppercase tracking-widest mb-5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#9fff00] animate-pulse" />
+      <main className="relative z-10 max-w-3xl mx-auto px-6 pb-24 pt-4">
+        {/* Title block */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55 }}
+          className="text-center mb-10"
+        >
+          <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#9fff00]/15 text-[#5a9900] text-[11px] font-bold uppercase tracking-widest mb-5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#00A884] animate-pulse" />
             Limited Seats
           </span>
-          <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold leading-[1.08] tracking-tight mb-4">
+
+          <h1 className="font-display text-4xl sm:text-5xl md:text-[3.4rem] font-bold leading-[1.08] tracking-tight mb-4 text-[#1a1a1a]">
             Robot Training{' '}
-            <span className="bg-gradient-to-r from-[#9fff00] to-[#00A884] bg-clip-text text-transparent">
-              Class
-            </span>
+            <span className="text-gradient-green">Class</span>
           </h1>
-          <p className="text-white/60 text-base sm:text-lg max-w-lg mx-auto leading-relaxed">
+
+          <p className="text-[#5a5a5a] text-base sm:text-lg max-w-lg mx-auto leading-relaxed">
             Start creating your own robots by yourself.
             <br />
-            <span className="text-[#9fff00]/90 font-medium">We promise you can — in just 2 weeks.</span>
+            <span className="text-[#00A884] font-semibold">We promise you can — in just 2 weeks.</span>
           </p>
-        </div>
+        </motion.div>
+
+        {/* Mascot */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.85, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ delay: 0.15, type: 'spring', stiffness: 100 }}
+          className="flex justify-center mb-8"
+        >
+          <img
+            src="/robot-mascot.png"
+            alt="Empire MD Robot Mascot"
+            className="w-36 sm:w-44 h-auto floating drop-shadow-[0_16px_32px_rgba(0,0,0,0.12)]"
+          />
+        </motion.div>
 
         {/* Venue + Date card */}
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur-xl p-6 sm:p-8 mb-10 text-center">
-          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 mb-8">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-[#25D366]/15 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="rounded-3xl border border-black/[0.06] bg-white/80 backdrop-blur-xl p-6 sm:p-8 mb-10 text-center shadow-sm"
+        >
+          <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-10 mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-[#25D366]/12 flex items-center justify-center">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="#25D366">
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
                 </svg>
               </div>
               <div className="text-left">
-                <p className="text-[11px] uppercase tracking-wider text-white/40">Venue</p>
-                <p className="font-semibold text-white">WhatsApp</p>
+                <p className="text-[11px] uppercase tracking-wider text-[#8e8e8e]">Venue</p>
+                <p className="font-semibold text-[#1a1a1a]">WhatsApp</p>
               </div>
             </div>
-            <div className="w-px h-10 bg-white/10 hidden sm:block" />
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-[#9fff00]/15 flex items-center justify-center">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9fff00" strokeWidth="2">
+            <div className="w-px h-10 bg-black/[0.08] hidden sm:block" />
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-[#9fff00]/15 flex items-center justify-center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5a9900" strokeWidth="2">
                   <rect x="3" y="4" width="18" height="18" rx="2" />
                   <path d="M16 2v4M8 2v4M3 10h18" />
                 </svg>
               </div>
               <div className="text-left">
-                <p className="text-[11px] uppercase tracking-wider text-white/40">Date & Time</p>
-                <p className="font-semibold text-white">20 Aug 2026 · 8:00 PM</p>
+                <p className="text-[11px] uppercase tracking-wider text-[#8e8e8e]">Date & Time</p>
+                <p className="font-semibold text-[#1a1a1a]">20 Aug 2026 · 8:00 PM</p>
               </div>
             </div>
           </div>
 
-          <p className="text-xs uppercase tracking-widest text-white/40 mb-4">Class starts in</p>
+          <p className="text-xs uppercase tracking-widest text-[#8e8e8e] mb-4">Class starts in</p>
           <Countdown />
-        </div>
+        </motion.div>
 
-        {/* Animated Poll */}
+        {/* Poll */}
         <div className="mb-12">
           <AnimatedPoll />
         </div>
 
-        {/* Thumbprint CTA */}
-        <div className="flex flex-col items-center gap-6">
-          <ThumbprintButton onClick={() => setModal('invite')} />
-          <p className="text-xs text-white/30 max-w-xs text-center">
-            Tap the fingerprint to unlock your seat. Over 130 people already voted for WhatsApp.
-          </p>
+        {/* Fingerprint CTA */}
+        <div className="flex flex-col items-center gap-5">
+          <FingerprintButton onClick={() => setModal('invite')} />
         </div>
       </main>
 
-      {/* ========== MODALS ========== */}
-      {modal !== 'closed' && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && modal === 'invite') setModal('closed')
-          }}
-        >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-[fadeIn_0.25s_ease-out]" />
-
-          {/* Glass card */}
-          <div
-            className={`relative w-full max-w-md rounded-3xl border border-white/15 bg-white/[0.08] backdrop-blur-2xl shadow-2xl overflow-hidden animate-[slideUp_0.35s_ease-out]
-              ${modal === 'success' || modal === 'miss-final' ? 'border-[#9fff00]/40' : ''}`}
+      {/* ========== MODAL ========== */}
+      <AnimatePresence>
+        {modal !== 'closed' && (
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && modal === 'invite') setModal('closed')
+            }}
           >
-            {/* Glow top */}
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#9fff00]/60 to-transparent" />
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-md" />
 
-            <div className="p-7 sm:p-8">
-              {/* INVITE */}
-              {modal === 'invite' && (
-                <>
-                  <div className="text-center mb-6">
-                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#9fff00]/15 mb-4">
-                      <span className="text-3xl">🤖</span>
-                    </div>
-                    <h2 className="font-display text-2xl font-bold mb-2">
-                      Start creating your own robots
-                    </h2>
-                    <p className="text-white/60 text-sm leading-relaxed">
-                      by yourself. We promise you can — in just{' '}
-                      <span className="text-[#9fff00] font-semibold">2 weeks</span>.
-                    </p>
-                  </div>
+            <motion.div
+              key="card"
+              initial={{ opacity: 0, y: 28, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.97 }}
+              transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+              className={`relative w-full max-w-md rounded-3xl border border-black/[0.06] bg-white shadow-2xl overflow-hidden
+                ${modal === 'success' || modal === 'miss-final' ? 'ring-2 ring-[#9fff00]/40' : ''}`}
+            >
+              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#00A884] to-transparent" />
 
-                  {/* Currency selector */}
-                  <div className="flex justify-center gap-2 mb-6">
-                    {(Object.keys(CLASS_PRICES) as CurrencyCode[]).map((code) => (
-                      <button
-                        key={code}
-                        onClick={() => setCurrency(code)}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
-                          currency === code
-                            ? 'border-[#9fff00] bg-[#9fff00]/15 text-[#9fff00]'
-                            : 'border-white/15 text-white/50 hover:border-white/30'
-                        }`}
-                      >
-                        {CLASS_PRICES[code].country}
-                      </button>
-                    ))}
-                  </div>
+              <div className="p-7 sm:p-8 relative min-h-[280px]">
+                <AnimatePresence mode="wait">
+                  {/* INVITE */}
+                  {modal === 'invite' && (
+                    <motion.div
+                      key="invite"
+                      variants={phase}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      transition={{ duration: 0.28 }}
+                    >
+                      <div className="text-center mb-6">
+                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#9fff00]/12 mb-4 overflow-hidden">
+                          <img src="/robot-mascot.png" alt="" className="w-12 h-12 object-contain" />
+                        </div>
+                        <h2 className="font-display text-2xl font-bold text-[#1a1a1a] mb-2">
+                          Start creating your own robots
+                        </h2>
+                        <p className="text-[#5a5a5a] text-sm leading-relaxed">
+                          by yourself. We promise you can — in just{' '}
+                          <span className="text-[#00A884] font-semibold">2 weeks</span>.
+                        </p>
+                      </div>
 
-                  <div className="text-center mb-6">
-                    <p className="text-3xl font-display font-bold text-[#9fff00]">
-                      {CLASS_PRICES[currency].symbol}
-                      {CLASS_PRICES[currency].amount.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-white/40 mt-1">One-time · Full access</p>
-                  </div>
+                      <div className="flex justify-center gap-2 mb-6">
+                        {(Object.keys(CLASS_PRICES) as CurrencyCode[]).map((code) => (
+                          <button
+                            key={code}
+                            onClick={() => setCurrency(code)}
+                            className={`text-xs font-semibold px-3.5 py-1.5 rounded-full border transition ${
+                              currency === code
+                                ? 'border-[#00A884] bg-[#00A884]/10 text-[#00A884]'
+                                : 'border-black/[0.08] text-[#8e8e8e] hover:border-black/20'
+                            }`}
+                          >
+                            {CLASS_PRICES[code].country}
+                          </button>
+                        ))}
+                      </div>
 
-                  {errorMsg && (
-                    <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2 mb-4 text-center">
-                      {errorMsg}
-                    </p>
+                      <div className="text-center mb-6">
+                        <p className="text-3xl font-display font-bold text-[#1a1a1a]">
+                          {CLASS_PRICES[currency].symbol}
+                          {CLASS_PRICES[currency].amount.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-[#8e8e8e] mt-1">One-time · Full access</p>
+                      </div>
+
+                      {errorMsg && (
+                        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-4 text-center">
+                          {errorMsg}
+                        </p>
+                      )}
+
+                      <div className="space-y-3">
+                        <button
+                          onClick={startPayment}
+                          className="w-full py-3.5 rounded-2xl bg-[#1a1a1a] text-white font-bold text-sm hover:bg-[#333] transition-all active:scale-[0.98]"
+                        >
+                          Pay now & access class
+                        </button>
+                        <button
+                          onClick={() => setModal('no-money')}
+                          className="w-full py-3.5 rounded-2xl border border-black/[0.08] text-[#5a5a5a] font-medium text-sm hover:bg-black/[0.03] transition-all"
+                        >
+                          I don’t have money now
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-[#8e8e8e] text-center mt-5 leading-relaxed">
+                        Bank transfer & mobile money available.
+                        <br />
+                        After “Pay now”, choose <strong className="text-[#5a5a5a]">Bank Transfer</strong> inside Flutterwave.
+                      </p>
+                    </motion.div>
                   )}
 
-                  <div className="space-y-3">
-                    <button
-                      onClick={startPayment}
-                      className="w-full py-3.5 rounded-2xl bg-[#9fff00] text-black font-bold text-sm hover:bg-[#b3ff33] transition-all active:scale-[0.98]"
+                  {/* NO MONEY */}
+                  {modal === 'no-money' && (
+                    <motion.div
+                      key="no-money"
+                      variants={phase}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      transition={{ duration: 0.28 }}
+                      className="text-center"
                     >
-                      Pay now & access class
-                    </button>
-                    <button
-                      onClick={() => setModal('no-money')}
-                      className="w-full py-3.5 rounded-2xl border border-white/15 text-white/70 font-medium text-sm hover:bg-white/5 transition-all"
+                      <div className="text-5xl mb-4">🥺</div>
+                      <h2 className="font-display text-xl font-bold text-[#1a1a1a] mb-3">
+                        Don’t undermine yourself
+                      </h2>
+                      <p className="text-[#5a5a5a] text-sm leading-relaxed mb-6">
+                        You’re more capable than you know.
+                        <br />
+                        Are you sure you’re giving up this opportunity?
+                      </p>
+                      <div className="space-y-3">
+                        <button
+                          onClick={() => {
+                            setModal('invite')
+                            // small delay so phase can settle then open payment
+                            setTimeout(() => startPayment(), 320)
+                          }}
+                          className="w-full py-3.5 rounded-2xl bg-[#1a1a1a] text-white font-bold text-sm hover:bg-[#333] transition"
+                        >
+                          I’ll pay the {CLASS_PRICES[currency].symbol}
+                          {CLASS_PRICES[currency].amount.toLocaleString()}
+                        </button>
+                        <button
+                          onClick={() => setModal('miss-countdown')}
+                          className="w-full py-3.5 rounded-2xl border border-black/[0.08] text-[#8e8e8e] font-medium text-sm hover:bg-black/[0.03] transition"
+                        >
+                          I will miss this chance
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* MISS COUNTDOWN */}
+                  {modal === 'miss-countdown' && (
+                    <motion.div
+                      key="miss-countdown"
+                      variants={phase}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      transition={{ duration: 0.25 }}
+                      className="text-center py-8"
                     >
-                      I don’t have money now
-                    </button>
-                  </div>
+                      <p className="text-[#8e8e8e] text-sm mb-4">Closing in…</p>
+                      <div className="font-display text-7xl font-bold text-[#00A884] tabular-nums">
+                        {missSeconds}
+                      </div>
+                    </motion.div>
+                  )}
 
-                  <p className="text-[11px] text-white/30 text-center mt-5 leading-relaxed">
-                    Bank transfer & mobile money available.  
-                    After selecting “Pay now”, choose <strong className="text-white/50">Bank Transfer</strong> or Mobile Money inside Flutterwave.
-                  </p>
-                </>
-              )}
-
-              {/* NO MONEY */}
-              {modal === 'no-money' && (
-                <div className="text-center">
-                  <div className="text-6xl mb-4 animate-bounce">🥺</div>
-                  <h2 className="font-display text-xl font-bold mb-3">
-                    Don’t undermine yourself
-                  </h2>
-                  <p className="text-white/70 text-sm leading-relaxed mb-6">
-                    You’re more capable than you know.
-                    <br />
-                    Are you sure you’re giving up this opportunity?
-                  </p>
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => {
-                        setModal('invite')
-                        startPayment()
-                      }}
-                      className="w-full py-3.5 rounded-2xl bg-[#9fff00] text-black font-bold text-sm hover:bg-[#b3ff33] transition"
+                  {/* MISS FINAL */}
+                  {modal === 'miss-final' && (
+                    <motion.div
+                      key="miss-final"
+                      variants={phase}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      transition={{ duration: 0.28 }}
+                      className="text-center py-4"
                     >
-                      I’ll pay the {CLASS_PRICES[currency].symbol}
-                      {CLASS_PRICES[currency].amount.toLocaleString()}
-                    </button>
-                    <button
-                      onClick={() => setModal('miss-countdown')}
-                      className="w-full py-3.5 rounded-2xl border border-white/15 text-white/50 font-medium text-sm hover:bg-white/5 transition"
+                      <div className="text-5xl mb-4">✨</div>
+                      <h2 className="font-display text-2xl font-bold text-[#1a1a1a] mb-2">
+                        You have potential
+                      </h2>
+                      <p className="text-[#5a5a5a] text-sm mb-6">
+                        Be ready next time.
+                        <br />
+                        Goodbye for now.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setModal('closed')
+                          setShowConfetti(false)
+                        }}
+                        className="px-6 py-2.5 rounded-full border border-black/[0.1] text-sm text-[#5a5a5a] hover:bg-black/[0.03] transition"
+                      >
+                        Close
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* PAYING */}
+                  {modal === 'paying' && (
+                    <motion.div
+                      key="paying"
+                      variants={phase}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      transition={{ duration: 0.25 }}
+                      className="text-center py-10"
                     >
-                      I will miss this chance
-                    </button>
-                  </div>
-                </div>
-              )}
+                      <div className="w-12 h-12 border-2 border-[#00A884]/25 border-t-[#00A884] rounded-full animate-spin mx-auto mb-4" />
+                      <p className="text-[#5a5a5a] text-sm">Opening secure payment…</p>
+                      <p className="text-xs text-[#8e8e8e] mt-2">
+                        Prefer bank transfer? Select it inside the Flutterwave window.
+                      </p>
+                    </motion.div>
+                  )}
 
-              {/* MISS COUNTDOWN */}
-              {modal === 'miss-countdown' && (
-                <div className="text-center py-6">
-                  <p className="text-white/50 text-sm mb-4">Closing in…</p>
-                  <div className="font-display text-7xl font-bold text-[#9fff00] tabular-nums">
-                    {missSeconds}
-                  </div>
-                </div>
-              )}
+                  {/* SUCCESS */}
+                  {modal === 'success' && (
+                    <motion.div
+                      key="success"
+                      variants={phase}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      transition={{ duration: 0.28 }}
+                      className="text-center"
+                    >
+                      <div className="text-5xl mb-3">🎉</div>
+                      <h2 className="font-display text-2xl font-bold text-[#00A884] mb-2">
+                        Congratulations!
+                      </h2>
+                      <p className="text-[#5a5a5a] text-sm mb-5">
+                        You’re in. Your seat is reserved.
+                      </p>
+                      <div className="rounded-2xl bg-[#EDEEF5] border border-black/[0.06] px-4 py-3 mb-5">
+                        <p className="text-[11px] uppercase tracking-wider text-[#8e8e8e] mb-1">
+                          Your Serial Number
+                        </p>
+                        <p className="font-mono text-lg font-bold text-[#1a1a1a] tracking-wider">
+                          {successSerial}
+                        </p>
+                      </div>
+                      <p className="text-sm text-[#5a5a5a] mb-1">
+                        Redirecting to WhatsApp in{' '}
+                        <span className="text-[#00A884] font-bold tabular-nums">{redirectSeconds}s</span>
+                      </p>
+                      <p className="text-xs text-[#8e8e8e]">
+                        Please send the serial so we can add you to the class group.
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              {/* MISS FINAL */}
-              {modal === 'miss-final' && (
-                <div className="text-center py-4">
-                  <div className="text-5xl mb-4">✨</div>
-                  <h2 className="font-display text-2xl font-bold mb-2">
-                    You have potential
-                  </h2>
-                  <p className="text-white/60 text-sm mb-6">
-                    Be ready next time.
-                    <br />
-                    Goodbye for now.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setModal('closed')
-                      setShowConfetti(false)
-                    }}
-                    className="px-6 py-2.5 rounded-full border border-white/20 text-sm text-white/70 hover:bg-white/5 transition"
-                  >
-                    Close
-                  </button>
-                </div>
-              )}
-
-              {/* PAYING */}
-              {modal === 'paying' && (
-                <div className="text-center py-8">
-                  <div className="w-12 h-12 border-2 border-[#9fff00]/30 border-t-[#9fff00] rounded-full animate-spin mx-auto mb-4" />
-                  <p className="text-white/70 text-sm">Opening secure payment…</p>
-                  <p className="text-xs text-white/40 mt-2">
-                    Prefer bank transfer? Select it inside the Flutterwave window.
-                  </p>
-                </div>
-              )}
-
-              {/* SUCCESS */}
-              {modal === 'success' && (
-                <div className="text-center">
-                  <div className="text-5xl mb-3">🎉</div>
-                  <h2 className="font-display text-2xl font-bold text-[#9fff00] mb-2">
-                    Congratulations!
-                  </h2>
-                  <p className="text-white/70 text-sm mb-5">
-                    You’re in. Your seat is reserved.
-                  </p>
-                  <div className="rounded-2xl bg-black/40 border border-[#9fff00]/30 px-4 py-3 mb-5">
-                    <p className="text-[11px] uppercase tracking-wider text-white/40 mb-1">
-                      Your Serial Number
-                    </p>
-                    <p className="font-mono text-lg font-bold text-[#9fff00] tracking-wider">
-                      {successSerial}
-                    </p>
-                  </div>
-                  <p className="text-sm text-white/60 mb-1">
-                    Redirecting to WhatsApp in{' '}
-                    <span className="text-[#9fff00] font-bold tabular-nums">{redirectSeconds}s</span>
-                  </p>
-                  <p className="text-xs text-white/40">
-                    Please send the serial so we can add you to the class group.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Footer note */}
-      <footer className="relative z-10 text-center pb-8 text-[11px] text-white/25">
+      <footer className="relative z-10 text-center pb-8 text-[11px] text-[#8e8e8e]">
         Empire Digitals · Robot Training Class · WhatsApp only
       </footer>
-
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(24px) scale(0.97); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-      `}</style>
     </div>
   )
 }
