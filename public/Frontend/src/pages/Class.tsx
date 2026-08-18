@@ -425,9 +425,7 @@ export default function ClassPage() {
           className="text-center mb-10"
         >
           <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#9fff00]/15 text-[#5a9900] text-[11px] font-bold uppercase tracking-widest mb-5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#00A884] animate-pulse" />
-            Limited Seats
-          </span>
+      
 
           <h1 className="font-display text-4xl sm:text-5xl md:text-[3.4rem] font-bold leading-[1.08] tracking-tight mb-4 text-[#1a1a1a]">
             Robot Training{' '}
