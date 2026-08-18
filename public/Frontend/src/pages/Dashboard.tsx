@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Lock, RefreshCw, MessageSquare, LayoutGrid, KeyRound, LogOut,
-  Ghost, CheckCircle2, ArrowLeft, Puzzle, Trash2,
+  Ghost, CheckCircle2, ArrowLeft, Puzzle, Trash2, RotateCcw, Send,
+  Activity, HardDrive, Clock, Crown,
 } from 'lucide-react'
 import { COMMANDS, DEFAULT_PREFIX } from '../components/siteChatKnowledge'
 
@@ -18,6 +19,11 @@ interface BotInfo {
   plan_expires_at: string | null
   is_whitelisted: boolean
   ghost_mode: boolean
+  health?: string
+  uptime_ms?: number | null
+  started_at?: string | null
+  capacity?: { disk_use_percent: number | null; ram_use_percent: number | null }
+  premium_remaining_ms?: number | null
 }
 
 interface ChatSummary {
@@ -34,11 +40,36 @@ interface Message {
   from_me: boolean
   msg_type: string
   body: string | null
+  media_url?: string | null
+  media_mime?: string | null
   created_at: string
 }
 
 type Tab = 'overview' | 'chats' | 'commands' | 'plugins'
 type AuthView = 'login' | 'forgot-request' | 'forgot-reset'
+
+function formatUptime(ms: number | null | undefined) {
+  if (ms == null || ms < 0) return '—'
+  const s = Math.floor(ms / 1000)
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
+function formatRemaining(ms: number | null | undefined, whitelisted: boolean) {
+  if (whitelisted) return 'Unlimited (whitelisted)'
+  if (ms == null) return '—'
+  if (ms <= 0) return 'Expired'
+  const s = Math.floor(ms / 1000)
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  if (d > 0) return `${d} day${d === 1 ? '' : 's'} ${h}h left`
+  const m = Math.floor((s % 3600) / 60)
+  return `${h}h ${m}m left`
+}
 
 export default function Dashboard() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
@@ -54,6 +85,7 @@ export default function Dashboard() {
   const [tab, setTab] = useState<Tab>('overview')
   const [bot, setBot] = useState<BotInfo | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const [refreshMsg, setRefreshMsg] = useState('')
 
   const [chats, setChats] = useState<ChatSummary[]>([])
@@ -61,8 +93,10 @@ export default function Dashboard() {
   const [activeChat, setActiveChat] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [sending, setSending] = useState(false)
 
-  const authHeaders = { 'x-dashboard-token': token || '' }
+  const authHeaders = { 'x-dashboard-token': token || '', 'Content-Type': 'application/json' }
 
   const logout = () => {
     localStorage.removeItem(TOKEN_KEY)
@@ -74,7 +108,7 @@ export default function Dashboard() {
   const loadMe = useCallback(async () => {
     if (!token) return
     try {
-      const res = await fetch('/api/dashboard/me', { headers: authHeaders })
+      const res = await fetch('/api/dashboard/me', { headers: { 'x-dashboard-token': token } })
       const data = await res.json()
       if (data.success) setBot(data.bot)
       else { setError(data.error || 'Session expired'); logout() }
@@ -153,7 +187,7 @@ export default function Dashboard() {
   const refreshSession = async () => {
     setRefreshing(true); setRefreshMsg('')
     try {
-      const res = await fetch('/api/dashboard/refresh', { method: 'POST', headers: authHeaders })
+      const res = await fetch('/api/dashboard/refresh', { method: 'POST', headers: { 'x-dashboard-token': token || '' } })
       const data = await res.json()
       if (data.success) {
         setRefreshMsg(data.alreadyOnline ? 'Already online.' : `New pairing code: ${data.code} — enter it in WhatsApp within 2 minutes.`)
@@ -168,33 +202,89 @@ export default function Dashboard() {
     }
   }
 
+  const restartBot = async () => {
+    if (!confirm('Restart your bot process? It may need a pairing code if the session was lost.')) return
+    setRestarting(true); setRefreshMsg('')
+    try {
+      const res = await fetch('/api/dashboard/restart', { method: 'POST', headers: { 'x-dashboard-token': token || '' } })
+      const data = await res.json()
+      if (data.success) {
+        if (data.code) setRefreshMsg(`Restarted — pairing code: ${data.code}`)
+        else setRefreshMsg(data.status === 'online' ? 'Restarted and online.' : `Restarted (${data.status}).`)
+        setTimeout(loadMe, 3000)
+      } else {
+        setRefreshMsg(data.error || 'Restart failed')
+      }
+    } catch {
+      setRefreshMsg('Network error')
+    } finally {
+      setRestarting(false)
+    }
+  }
+
   const loadChats = useCallback(async () => {
     if (!token) return
     setChatsLoading(true)
     try {
-      const res = await fetch('/api/dashboard/chats', { headers: authHeaders })
+      const res = await fetch('/api/dashboard/chats', { headers: { 'x-dashboard-token': token } })
       const data = await res.json()
       if (data.success) setChats(data.chats || [])
     } finally {
       setChatsLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
 
   useEffect(() => { if (tab === 'chats') loadChats() }, [tab, loadChats])
 
   const openChat = async (chatJid: string) => {
     setActiveChat(chatJid)
+    setReplyText('')
     setMessagesLoading(true)
     try {
-      const res = await fetch(`/api/dashboard/messages?chat=${encodeURIComponent(chatJid)}`, { headers: authHeaders })
+      const res = await fetch(`/api/dashboard/messages?chat=${encodeURIComponent(chatJid)}`, {
+        headers: { 'x-dashboard-token': token || '' },
+      })
       const data = await res.json()
       if (data.success) setMessages(data.messages || [])
-      // Backend marks the chat read as a side effect of fetching messages —
-      // reflect that immediately in the local list without waiting for a reload.
-      setChats((prev) => prev.map((c) => (c.chat_jid === chatJid ? { ...c, unread_count: 0 } : c)))
+      // Viewing alone does NOT clear WhatsApp blue-ticks — only a reply does.
+      // Unread badge stays until you reply (or we optionally clear UI-only later).
     } finally {
       setMessagesLoading(false)
+    }
+  }
+
+  const sendReply = async () => {
+    if (!activeChat || !replyText.trim() || sending) return
+    setSending(true)
+    try {
+      const res = await fetch('/api/dashboard/reply', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ chatJid: activeChat, text: replyText.trim() }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        const optimistic: Message = {
+          id: Date.now(),
+          chat_jid: activeChat,
+          sender_jid: null,
+          sender_name: bot?.bot_name || 'You',
+          from_me: true,
+          msg_type: 'text',
+          body: replyText.trim(),
+          created_at: new Date().toISOString(),
+        }
+        setMessages((prev) => [...prev, optimistic])
+        setReplyText('')
+        // Clear unread after a real reply
+        setChats((prev) => prev.map((c) => (c.chat_jid === activeChat ? { ...c, unread_count: 0 } : c)))
+      } else {
+        alert(data.error || 'Failed to send')
+      }
+    } catch {
+      alert('Network error')
+    } finally {
+      setSending(false)
     }
   }
 
@@ -203,7 +293,7 @@ export default function Dashboard() {
     setDisposing(true)
     try {
       const res = await fetch(`/api/dashboard/chats?chat=${encodeURIComponent(chatJid)}`, {
-        method: 'DELETE', headers: authHeaders,
+        method: 'DELETE', headers: { 'x-dashboard-token': token || '' },
       })
       const data = await res.json()
       if (data.success) {
@@ -349,21 +439,64 @@ export default function Dashboard() {
         </div>
 
         {tab === 'overview' && bot && (
-          <div className="glass-card rounded-2xl p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><p className="text-xs text-[#8e8e8e] mb-1">Phone</p><p className="text-[#1a1a1a] font-medium">{bot.phone_number}</p></div>
-              <div><p className="text-xs text-[#8e8e8e] mb-1">Plan</p><p className="text-[#1a1a1a] font-medium capitalize">{bot.plan}{bot.is_whitelisted ? ' (whitelisted)' : ''}</p></div>
-              {bot.plan_expires_at && (
-                <div><p className="text-xs text-[#8e8e8e] mb-1">Renews / expires</p><p className="text-[#1a1a1a] font-medium">{new Date(bot.plan_expires_at).toLocaleDateString()}</p></div>
-              )}
-              <div><p className="text-xs text-[#8e8e8e] mb-1">Session ID</p><p className="text-[#1a1a1a] font-mono text-xs truncate">{bot.session_id}</p></div>
+          <div className="space-y-4">
+            <div className="glass-card rounded-2xl p-6 space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <p className="text-xs text-[#8e8e8e] mb-1 inline-flex items-center gap-1"><Activity size={12} /> Health</p>
+                  <p className={`font-medium ${bot.health === 'healthy' ? 'text-[#00A884]' : 'text-[#8e8e8e]'}`}>
+                    {bot.health === 'healthy' ? 'Healthy' : 'Offline'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#8e8e8e] mb-1 inline-flex items-center gap-1"><Clock size={12} /> Uptime</p>
+                  <p className="text-[#1a1a1a] font-medium">{formatUptime(bot.uptime_ms)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#8e8e8e] mb-1 inline-flex items-center gap-1"><HardDrive size={12} /> Capacity</p>
+                  <p className="text-[#1a1a1a] font-medium text-xs">
+                    Disk {bot.capacity?.disk_use_percent ?? '—'}% · RAM {bot.capacity?.ram_use_percent ?? '—'}%
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#8e8e8e] mb-1">Phone</p>
+                  <p className="text-[#1a1a1a] font-medium">{bot.phone_number}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#8e8e8e] mb-1 inline-flex items-center gap-1"><Crown size={12} /> Plan</p>
+                  <p className="text-[#1a1a1a] font-medium capitalize">{bot.plan}{bot.is_whitelisted ? ' (whitelisted)' : ''}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#8e8e8e] mb-1">Premium time left</p>
+                  <p className="text-[#1a1a1a] font-medium text-xs">
+                    {formatRemaining(bot.premium_remaining_ms, bot.is_whitelisted)}
+                  </p>
+                </div>
+                {bot.plan_expires_at && !bot.is_whitelisted && (
+                  <div>
+                    <p className="text-xs text-[#8e8e8e] mb-1">Expires</p>
+                    <p className="text-[#1a1a1a] font-medium">{new Date(bot.plan_expires_at).toLocaleString()}</p>
+                  </div>
+                )}
+                <div className="col-span-2 md:col-span-1">
+                  <p className="text-xs text-[#8e8e8e] mb-1">Session ID</p>
+                  <p className="text-[#1a1a1a] font-mono text-xs truncate">{bot.session_id}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                <motion.button whileTap={{ scale: 0.97 }} onClick={refreshSession} disabled={refreshing}
+                  className="whatsapp-btn px-5 py-2.5 text-sm inline-flex items-center gap-2 disabled:opacity-60">
+                  <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Refresh session
+                </motion.button>
+                <motion.button whileTap={{ scale: 0.97 }} onClick={restartBot} disabled={restarting}
+                  className="glass-card px-5 py-2.5 text-sm inline-flex items-center gap-2 text-[#1a1a1a] disabled:opacity-60">
+                  <RotateCcw size={14} className={restarting ? 'animate-spin' : ''} /> Restart bot
+                </motion.button>
+              </div>
+              {refreshMsg && <p className="text-xs text-[#00A884] inline-flex items-center gap-1"><CheckCircle2 size={12} /> {refreshMsg}</p>}
+              <p className="text-[11px] text-[#8e8e8e]">Refresh reconnects if offline. Restart kills and respawns only your bot process.</p>
             </div>
-            <motion.button whileTap={{ scale: 0.97 }} onClick={refreshSession} disabled={refreshing}
-              className="whatsapp-btn px-5 py-2.5 text-sm inline-flex items-center gap-2 disabled:opacity-60">
-              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Refresh my session
-            </motion.button>
-            {refreshMsg && <p className="text-xs text-[#00A884] inline-flex items-center gap-1"><CheckCircle2 size={12} /> {refreshMsg}</p>}
-            <p className="text-[11px] text-[#8e8e8e]">Only reconnects your own bot — never affects anyone else's session.</p>
           </div>
         )}
 
@@ -405,26 +538,62 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="heading-md text-base text-[#1a1a1a]">{chatLabel(activeChat)}</h3>
               <button
-                onClick={() => { if (confirm('Delete this whole chat history? This can\'t be undone.')) disposeChat(activeChat) }}
+                onClick={() => { if (confirm("Delete this whole chat history? This can't be undone.")) disposeChat(activeChat) }}
                 disabled={disposing}
                 className="text-[10px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 bg-[#e5484d]/10 text-[#e5484d] hover:bg-[#e5484d]/20 transition-colors disabled:opacity-50"
               >
                 <Trash2 size={12} /> {disposing ? 'Disposing…' : 'Dispose chat'}
               </button>
             </div>
-            <div className="glass-card rounded-2xl p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+            <div className="glass-card rounded-2xl p-4 space-y-3 max-h-[55vh] overflow-y-auto mb-3">
               {messagesLoading && <p className="text-center body-text py-6">Loading…</p>}
               {messages.map((m) => (
-                <div key={m.id} className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
+                <div key={m.id} className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
                   m.from_me ? 'ml-auto bg-[#00A884] text-white' : 'bg-white/80 text-[#1a1a1a]'
                 }`}>
                   {!m.from_me && m.sender_name && <p className="text-[10px] opacity-70 mb-0.5">{m.sender_name}</p>}
-                  <p>{m.body || `[${m.msg_type}]`}</p>
+
+                  {/* Image */}
+                  {m.msg_type === 'image' && m.media_url && (
+                    <a href={m.media_url} target="_blank" rel="noreferrer" className="block mb-1">
+                      <img src={m.media_url} alt="" className="rounded-xl max-h-56 object-cover" />
+                    </a>
+                  )}
+
+                  {/* Voice note / audio */}
+                  {m.msg_type === 'audio' && m.media_url && (
+                    <audio controls src={m.media_url} className="w-full max-w-xs my-1" />
+                  )}
+
+                  {/* Video placeholder — full support later */}
+                  {m.msg_type === 'video' && (
+                    <p className="text-xs opacity-80 italic mb-1">[video — playback coming soon]</p>
+                  )}
+
+                  {m.body && m.body !== `[${m.msg_type}]` && <p>{m.body}</p>}
+                  {!m.body && !m.media_url && m.msg_type !== 'text' && <p>[{m.msg_type}]</p>}
+
                   <p className={`text-[10px] mt-1 ${m.from_me ? 'text-white/70' : 'text-[#8e8e8e]'}`}>{fmtTime(m.created_at)}</p>
                 </div>
               ))}
               {!messages.length && !messagesLoading && <p className="text-center body-text py-6">No messages in this chat yet.</p>}
             </div>
+
+            {/* Reply box — blue-ticks WhatsApp only after send */}
+            <div className="flex gap-2">
+              <input
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendReply()}
+                placeholder="Type a reply… (marks chat read on WhatsApp when sent)"
+                className="flex-1 bg-white/80 border border-black/[0.06] rounded-xl px-4 py-3 text-sm text-[#1a1a1a] outline-none focus:border-[#00A884] transition"
+              />
+              <motion.button whileTap={{ scale: 0.97 }} onClick={sendReply} disabled={sending || !replyText.trim()}
+                className="whatsapp-btn px-4 py-3 rounded-xl inline-flex items-center gap-1.5 disabled:opacity-50">
+                <Send size={16} /> {sending ? '…' : 'Send'}
+              </motion.button>
+            </div>
+            <p className="text-[10px] text-[#8e8e8e] mt-2">Bot only marks the chat as read on WhatsApp after you send a reply.</p>
           </div>
         )}
 
@@ -451,4 +620,3 @@ export default function Dashboard() {
     </section>
   )
 }
-
