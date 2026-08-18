@@ -20,7 +20,7 @@ const CLASS_PRICES = {
 type CurrencyCode = keyof typeof CLASS_PRICES
 
 const TARGET_DATE = new Date('2026-08-20T20:00:00+01:00') // 8pm WAT
-const WHATSAPP_NUMBER = '2348142646848'
+const WHATSAPP_NUMBER = '2348142656848'
 const POLL_VOTES = 137
 
 function loadFlutterwaveScript(): Promise<void> {
