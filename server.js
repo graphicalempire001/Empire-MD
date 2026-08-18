@@ -1142,33 +1142,41 @@ app.post('/api/admin/coupons/:code/revoke', requireAdmin, async (req, res) => {
 
 // ── Admin: payments list (for the Payments tab) ───────────────────────
 app.get('/api/admin/payments', requireAdmin, async (req, res) => {
+  console.log('🔍 [ADMIN][PAYMENTS] request received');
   try {
     const { listPayments } = require('./lib/database');
     const { status, limit } = req.query;
     const payments = await listPayments({ status: status || null, limit: Number(limit) || 100 });
+    console.log(`🔍 [ADMIN][PAYMENTS] success — ${payments.length} row(s)`);
     res.json({ success: true, payments });
   } catch (e) {
+    console.error('🔍 [ADMIN][PAYMENTS] FAILED:', e.message, e.stack);
     res.status(500).json({ success: false, error: e.message });
   }
 });
 
 // ── Admin: search subscribers by phone number (for manual whitelist) ──
 app.get('/api/admin/subscribers', requireAdmin, async (req, res) => {
+  console.log('🔍 [ADMIN][SUBSCRIBERS] request received');
   try {
     const { searchSubscribers, getAllBots } = require('./lib/database');
     const { search } = req.query;
     const subscribers = await searchSubscribers(search || '', 30);
+    console.log(`🔍 [ADMIN][SUBSCRIBERS] searchSubscribers returned ${subscribers.length} row(s)`);
     // Enrich with the most recent bot registered under that number, if any,
     // so admin can see whether the number currently has a live bot.
     const bots = await getAllBots();
+    console.log(`🔍 [ADMIN][SUBSCRIBERS] getAllBots returned ${bots.length} row(s)`);
     const enriched = subscribers.map((s) => {
       const match = bots
         .filter((b) => b.phone_number === s.phone_number)
         .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
       return { ...s, bot_name: match?.bot_name || null, session_id: match?.session_id || null, status: match?.status || null };
     });
+    console.log('🔍 [ADMIN][SUBSCRIBERS] success');
     res.json({ success: true, subscribers: enriched });
   } catch (e) {
+    console.error('🔍 [ADMIN][SUBSCRIBERS] FAILED:', e.message, e.stack);
     res.status(500).json({ success: false, error: e.message });
   }
 });
