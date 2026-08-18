@@ -942,11 +942,6 @@ app.get('/api/payment/status/:reference', async (req, res) => {
   }
 })
 
-// SPA Catch-all routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
-});
-
 // ─── Inactive session RAM cleaner ───────────────────────────────────
 const INACTIVE_KILL_DAYS = config.inactiveKillDays || 3;
 const INACTIVE_DELETE_DAYS = config.inactiveDeleteDays || 14;
@@ -1449,6 +1444,12 @@ app.delete('/api/dashboard/chats', requireDashboardAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
+});
+
+// ─── SPA Catch-all — MUST be the last route ───────────────────────────
+// Any GET that didn't match an API route above falls through to the React app.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/Frontend/dist/index.html'));
 });
 
 server.listen(PORT, () => {
