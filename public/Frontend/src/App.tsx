@@ -13,6 +13,7 @@ import Footer from './sections/Footer'
 import WhatsAppChat from './components/WhatsAppChat'
 import PairingFlow from './components/PairingFlow'
 import Admin from './pages/AdminDashboard'
+import ErrorBoundary from './components/ErrorBoundary'
 import Upgrade from './components/Upgrade'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
@@ -78,14 +79,14 @@ export default function App() {
             />
           }
         />
-        <Route path="/admin" element={<Admin />} />
+        <Route path="/admin" element={<ErrorBoundary label="Admin Dashboard"><Admin /></ErrorBoundary>} />
         <Route path="/upgrade" element={<Upgrade />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/help" element={<HelpCenter />} />
         <Route path="/status" element={<Status />} />
         <Route path="/reconnect" element={<Reconnect />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={<ErrorBoundary label="Bot Dashboard"><Dashboard /></ErrorBoundary>} />
         <Route path="/plugins" element={<Plugins />} />
       </Routes>
 
