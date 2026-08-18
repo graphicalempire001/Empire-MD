@@ -25,13 +25,26 @@ export default function Footer() {
           <div className="md:col-span-2">
             <h4 className="text-xs font-bold text-[#1a1a1a] uppercase tracking-wider mb-4">Product</h4>
             <ul className="space-y-2.5">
-              {['Features', 'Pricing', 'Commands', 'API'].map((item) => (
-                <li key={item}>
-                  <a href={`#${item.toLowerCase()}`} className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">
-                    {item}
-                  </a>
-                </li>
-              ))}
+              <li>
+                <a href="/#features" className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">
+                  Features
+                </a>
+              </li>
+              <li>
+                <a href="/#pricing" className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">
+                  Pricing
+                </a>
+              </li>
+              <li>
+                <Link to="/class" className="text-xs text-[#00A884] hover:text-[#008f72] transition-colors font-medium">
+                  Robot Class
+                </Link>
+              </li>
+              <li>
+                <a href="/#commands" className="text-xs text-[#8e8e8e] hover:text-[#1a1a1a] transition-colors">
+                  Commands
+                </a>
+              </li>
             </ul>
           </div>
 
