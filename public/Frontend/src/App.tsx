@@ -22,6 +22,7 @@ import Status from './pages/Status'
 import Reconnect from './pages/Reconnect'
 import Dashboard from './pages/Dashboard'
 import Plugins from './pages/Plugins'
+import ClassPage from './pages/Class'
 import ScrollToHash from './components/ScrollToHash'
 
 function Landing({
@@ -81,6 +82,7 @@ export default function App() {
         />
         <Route path="/admin" element={<ErrorBoundary label="Admin Dashboard"><Admin /></ErrorBoundary>} />
         <Route path="/upgrade" element={<Upgrade />} />
+        <Route path="/class" element={<ClassPage />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/help" element={<HelpCenter />} />
