@@ -19,7 +19,9 @@ const {
   getBotsByDateRange,
   buildBotsVcf,
   setBotStatus,
-  deleteBots
+  deleteBots,
+  getSubscriber,
+  effectivePlanFromSubscriber
 } = require('./lib/database');
 
 const app = express(); // 🟢 Only declare this ONCE
@@ -134,6 +136,22 @@ function savePairingPaused(paused) {
 
 let pairingPaused = loadPairingPaused();
 console.log(pairingPaused ? '🚦 Pairing starts PAUSED (persisted from a previous session).' : '🚦 Pairing starts active.');
+
+// 🔓 Premium bypass for the pairing pause.
+// Ground truth is always the `subscribers` table by phone number — never the
+// client-sent `plan` field — so a free user can't just claim plan:'premium'
+// in the request body to skip the queue while the admin has pairing paused.
+async function isPremiumPhone(phoneNumber) {
+  try {
+    const cleanPhone = String(phoneNumber || '').replace(/[^0-9]/g, '');
+    if (!cleanPhone) return false;
+    const subscriber = await getSubscriber(cleanPhone);
+    return effectivePlanFromSubscriber(subscriber) === 'premium';
+  } catch (e) {
+    console.error('isPremiumPhone check failed:', e.message);
+    return false; // fail closed — an error resolving plan should never bypass the pause
+  }
+}
 
 // Reserve threshold: warn/act when the volume is this % full (keep 10% free).
 const RESERVE_PERCENT = 10;
@@ -380,17 +398,31 @@ async function resumeSavedSessions() {
 // API 1: Request Pairing Code
 app.post('/api/connect', async (req, res) => {
   try {
+    const { phoneNumber, botName, plan } = req.body;
+    if (!phoneNumber || !botName) {
+      return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
+    }
+
     const disk = getDiskStatus();
-    if (pairingPaused || disk.usePercent >= DISK_ALERT_AT) {
-      console.warn(`⛔ Pairing refused — paused:${pairingPaused} disk:${disk.usePercent}%`);
+    // Disk-full is a hard resource limit — blocks everyone, premium included.
+    if (disk.usePercent >= DISK_ALERT_AT) {
+      console.warn(`⛔ Pairing refused — disk:${disk.usePercent}%`);
       return res.status(503).json({
         success: false,
         error: "🚧 We're preparing a second server to handle demand. New bot pairing is paused for a few minutes — please try again shortly. Existing bots are unaffected."
       });
     }
-    const { phoneNumber, botName, plan } = req.body;
-    if (!phoneNumber || !botName) {
-      return res.status(400).json({ success: false, error: "Phone number and bot name are required!" });
+    // Admin pairing pause — premium numbers bypass this, free numbers don't.
+    if (pairingPaused) {
+      const premium = await isPremiumPhone(phoneNumber);
+      if (!premium) {
+        console.warn(`⛔ Pairing refused — paused for free tier, phone:${phoneNumber}`);
+        return res.status(503).json({
+          success: false,
+          error: "🚧 New bot pairing is paused for free accounts right now — upgrade to Premium to pair immediately, or try again shortly."
+        });
+      }
+      console.log(`✅ Pairing pause bypassed — premium number ${phoneNumber}`);
     }
     if (await isBotNameTaken(botName)) {
       return res.status(409).json({
@@ -1202,17 +1234,28 @@ app.post('/api/admin/subscribers/whitelist', requireAdmin, async (req, res) => {
 // premium) subscription status. ────────────────────────────────────────
 app.post('/api/reconnect', async (req, res) => {
   try {
+    const { phoneNumber, botName } = req.body || {};
+    const cleanPhone = String(phoneNumber || '').replace(/[^0-9]/g, '');
+    if (!cleanPhone && !botName) {
+      return res.status(400).json({ success: false, error: 'Enter your phone number or bot name.' });
+    }
+
     const disk = getDiskStatus();
-    if (pairingPaused || disk.usePercent >= DISK_ALERT_AT) {
+    if (disk.usePercent >= DISK_ALERT_AT) {
       return res.status(503).json({
         success: false,
         error: "🚧 New connections are paused for a few minutes — please try again shortly."
       });
     }
-    const { phoneNumber, botName } = req.body || {};
-    const cleanPhone = String(phoneNumber || '').replace(/[^0-9]/g, '');
-    if (!cleanPhone && !botName) {
-      return res.status(400).json({ success: false, error: 'Enter your phone number or bot name.' });
+    if (pairingPaused) {
+      const premium = await isPremiumPhone(cleanPhone);
+      if (!premium) {
+        return res.status(503).json({
+          success: false,
+          error: "🚧 New connections are paused for free accounts right now — upgrade to Premium to reconnect immediately, or try again shortly."
+        });
+      }
+      console.log(`✅ Reconnect pause bypassed — premium number ${cleanPhone}`);
     }
 
     const { getAllBots } = require('./lib/database');
