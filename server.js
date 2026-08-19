@@ -439,7 +439,11 @@ app.post('/api/connect', async (req, res) => {
     if (activeSessions[sessionId]) activeSessions[sessionId].plan = chosenPlan;
     try {
       const { registerBot } = require('./lib/database');
-      await registerBot(sessionId, botName, cleanPhone, cleanPhone, chosenPlan);
+      // status:'offline' — this is only a pairing *request*, not a confirmed
+      // connection. botWorker.js flips this to 'online' itself once Baileys
+      // actually reports the socket open. Without this, a phone number that
+      // requests a code and never enters it would show as an active bot forever.
+      await registerBot(sessionId, botName, cleanPhone, cleanPhone, chosenPlan, 'offline');
     } catch (e) {
       console.error('registerBot during connect:', e.message);
     }
@@ -490,6 +494,9 @@ app.get('/api/status/:sessionId', (req, res) => {
   if (session.error) return res.json({ status: 'error', error: session.error });
   if (Date.now() > session.expiry && !session.pairingCode && !session.qr) {
     delete activeSessions[req.params.sessionId];
+    // Belt-and-braces: make sure an abandoned pairing attempt never lingers
+    // as an 'online' bot_registry row. Non-blocking — don't hold up the response.
+    try { setBotStatus(req.params.sessionId, 'offline'); } catch (_) {}
     return res.json({ status: 'expired' });
   }
   return res.json({
