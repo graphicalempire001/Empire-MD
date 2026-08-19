@@ -1,0 +1,17 @@
+# Reinstalled by Nixpacks during build — never upload local copies
+node_modules
+public/Frontend/node_modules
+
+# Git internals — irrelevant to the build
+.git
+.gitignore
+
+# Local session/auth data — never ship a dev machine's live WhatsApp sessions
+sessions
+
+# Editor/OS cruft
+.DS_Store
+*.log
+.env
+.env.local
+
