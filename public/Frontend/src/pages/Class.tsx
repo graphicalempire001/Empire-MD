@@ -20,7 +20,7 @@ const CLASS_PRICES = {
 type CurrencyCode = keyof typeof CLASS_PRICES
 
 const TARGET_DATE = new Date('2026-08-20T20:00:00+01:00') // 8pm WAT
-const WHATSAPP_NUMBER = '2348142656848'
+const WHATSAPP_NUMBER = '2348142646848'
 const POLL_VOTES = 137
 
 function loadFlutterwaveScript(): Promise<void> {
@@ -87,9 +87,9 @@ function Countdown() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 + i * 0.08, type: 'spring', stiffness: 120 }}
-          className="relative flex flex-col items-center justify-center w-[68px] h-[72px] sm:w-20 sm:h-[84px] rounded-2xl bg-white border border-black/[0.06] shadow-sm overflow-hidden"
+          className="relative flex flex-col items-center justify-center w-[68px] h-[72px] sm:w-20 sm:h-[84px] rounded-2xl bg-white/50 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.06)] overflow-hidden"
         >
-          <div className="absolute inset-0 bg-gradient-to-b from-[#9fff00]/8 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-white/40 via-transparent to-[#9fff00]/[0.06] pointer-events-none" />
           <span className="font-display text-2xl sm:text-3xl font-bold text-[#1a1a1a] tabular-nums leading-none">
             {String(u.value).padStart(2, '0')}
           </span>
@@ -160,7 +160,7 @@ function FingerprintButton({ onClick }: { onClick: () => void }) {
       className="group relative flex flex-col items-center gap-4 focus:outline-none"
       aria-label="Tap to join class"
     >
-      <div className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-white border-2 border-[#00A884]/25 shadow-[0_8px_40px_rgba(0,168,132,0.12)] flex items-center justify-center transition-all duration-300 group-hover:border-[#00A884] group-hover:shadow-[0_12px_48px_rgba(0,168,132,0.22)]">
+      <div className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-white/45 backdrop-blur-2xl border-2 border-white/70 shadow-[0_8px_40px_rgba(0,168,132,0.12),inset_0_1px_0_rgba(255,255,255,0.7)] flex items-center justify-center transition-all duration-300 group-hover:border-[#00A884]/50 group-hover:shadow-[0_12px_48px_rgba(0,168,132,0.22),inset_0_1px_0_rgba(255,255,255,0.8)]">
         {/* Modern fingerprint lines */}
         <svg
           viewBox="0 0 80 80"
@@ -424,6 +424,11 @@ export default function ClassPage() {
           transition={{ duration: 0.55 }}
           className="text-center mb-10"
         >
+          <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#9fff00]/15 text-[#5a9900] text-[11px] font-bold uppercase tracking-widest mb-5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#00A884] animate-pulse" />
+            Limited Seats
+          </span>
+
           <h1 className="font-display text-4xl sm:text-5xl md:text-[3.4rem] font-bold leading-[1.08] tracking-tight mb-4 text-[#1a1a1a]">
             Robot Training{' '}
             <span className="text-gradient-green">Class</span>
@@ -455,7 +460,7 @@ export default function ClassPage() {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.25 }}
-          className="rounded-3xl border border-black/[0.06] bg-white/80 backdrop-blur-xl p-6 sm:p-8 mb-10 text-center shadow-sm"
+          className="rounded-3xl border border-white/60 bg-white/40 backdrop-blur-2xl p-6 sm:p-8 mb-10 text-center shadow-[0_8px_40px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,0.8)]"
         >
           <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-10 mb-8">
             <div className="flex items-center gap-3">
@@ -521,10 +526,11 @@ export default function ClassPage() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 16, scale: 0.97 }}
               transition={{ type: 'spring', stiffness: 280, damping: 26 }}
-              className={`relative w-full max-w-md rounded-3xl border border-black/[0.06] bg-white shadow-2xl overflow-hidden
+              className={`relative w-full max-w-md rounded-3xl border border-white/70 bg-white/55 backdrop-blur-2xl shadow-[0_24px_64px_rgba(0,0,0,0.12),inset_0_1px_0_rgba(255,255,255,0.85)] overflow-hidden
                 ${modal === 'success' || modal === 'miss-final' ? 'ring-2 ring-[#9fff00]/40' : ''}`}
             >
-              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#00A884] to-transparent" />
+              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#00A884]/80 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-b from-white/50 via-transparent to-white/20 pointer-events-none" />
 
               <div className="p-7 sm:p-8 relative min-h-[280px]">
                 <AnimatePresence mode="wait">
@@ -733,7 +739,7 @@ export default function ClassPage() {
                       <p className="text-[#5a5a5a] text-sm mb-5">
                         You’re in. Your seat is reserved.
                       </p>
-                      <div className="rounded-2xl bg-[#EDEEF5] border border-black/[0.06] px-4 py-3 mb-5">
+                      <div className="rounded-2xl bg-white/40 backdrop-blur-xl border border-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] px-4 py-3 mb-5">
                         <p className="text-[11px] uppercase tracking-wider text-[#8e8e8e] mb-1">
                           Your Serial Number
                         </p>
