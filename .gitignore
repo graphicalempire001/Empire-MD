@@ -1,0 +1,8 @@
+node_modules
+public/Frontend/node_modules
+sessions
+.env
+.env.local
+*.log
+.DS_Store
+
